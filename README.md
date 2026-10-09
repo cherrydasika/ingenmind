@@ -66,6 +66,11 @@ flowchart LR
     Q -- knowledge gap --> RS[Research<br/>validated sources] --> L
 ```
 
+Before going live, the readiness report shows how well each topic is
+covered, every score computed and explained, and what to do about each gap:
+
+![The readiness report: five computed scores with their definitions, the overall score with its working, and the gaps per knowledge area with what to do about each](docs/images/setup-readiness.png)
+
 Behind every question:
 
 ```mermaid
@@ -177,6 +182,8 @@ For builders: how the parts work, and how to change them.
 
 ### Flow builder (`#/flows`)
 
+![The flow builder: the components above the canvas of the multi-agent graph, with its versions and playground](docs/images/flow-builder.png)
+
 The agent graph is data: a flow JSON of components and edges that the
 builder edits and [app/flows/compiler.py](app/flows/compiler.py) compiles
 to a LangGraph state machine.
@@ -197,7 +204,7 @@ to a LangGraph state machine.
 - **Live version** — the Retrieval page runs the one version you promote,
   else the built-in flow. Per-flow metrics record every run.
 
-![An evaluation run: pass rate, scores, and a verdict per question, including a blocked and a failed answer](docs/images/flow-evaluation.png)
+![An evaluation run on the Evaluations page: the summary (expectations met, answer check, scores, blocks, time, tokens) and the results per knowledge area](docs/images/flow-evaluation.png)
 
 ### Multi-agent RAG
 
