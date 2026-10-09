@@ -19,9 +19,8 @@ backlog became issues #20–#39; earlier pull requests are cited as "PR N
 (earlier repository)".
 
 **Handover (2026-10-09, 11:40):** the user continues from another
-account. Open: PR #40 (this renumbering; the user merges); #16 waiting for
-the user's answers to the four questions in
-[docs/plans/evaluation.md](docs/plans/evaluation.md); #26 before any
+account. Open: PR #40 (this renumbering; the user merges); #16 in progress
+(answers given; phase 2 done, see below); #26 before any
 deploy from here. EC2 was left **running** (stop it with
 `scripts/aws/session.sh stop`). Local secrets (`.env`, `.env.aws`) and
 `DEPLOYMENT.local.md` exist only in the maintainer's checkout
@@ -36,17 +35,22 @@ analysis and content selection, approval 2, `e91cc18`; plan in
 #14 (ingestion plan and Build RAG, `642a486`; plan in
 [docs/plans/ingestion-plan.md](docs/plans/ingestion-plan.md)).
 **Now: #16, evaluation set from the blueprint, run per knowledge area**
-(done before #15 at the user's choice: #16 → #17 reaches go-live first) —
-phase 1 (plan: [docs/plans/evaluation.md](docs/plans/evaluation.md))
-written on branch `init/evaluation` (pushed, no pull request yet); waiting
-for the user's answers to its four open questions (recommendations given:
-3 questions per area; prepare after the build, run on request; a candidate
-flow copied from the live flow with the blueprint's settings, not live
-until Go live; drop questions whose quote is not in the page). Handed over
-to another agent on 2026-10-09 at this point. Locally, model calls and web
+(done before #15 at the user's choice: #16 → #17 reaches go-live first;
+plan: [docs/plans/evaluation.md](docs/plans/evaluation.md)). The user took
+all four recommendations (3 questions per area; prepared by itself after
+the build, run on request; a candidate flow, not live until Go live; drop
+ungrounded questions). **Phase 2 done** on branch `init/evaluation`
+(branched from `docs/issue-numbers`, PR #40): the candidate flow and the
+dataset builder (`app/initialization/evaluation.py`), 376 tests pass, live
+on the local build: 16 questions in 25 s. **Phase 3 next** (the run and
+per-area metrics). Locally, model calls and web
 search work (`.env`: `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local`,
 `TAVILY_API_KEY`); the local install is at `EVALUATING`: plan 4 (National Rail's
-Railcards and Help and assistance, 17 pages) built, 49 chunks. The local web app is off; local pgvector left
+Railcards and Help and assistance, 17 pages) built, 49 chunks; its
+evaluation set is prepared (candidate flow `setup_uk_train_information`
+v4, not live). The local database is still the Compose project
+`rag_systems_cloud` (from the archived checkout): run Compose here with
+`-p rag_systems_cloud` to use it. The local web app is off; local pgvector left
 running. Identity work (nearly done):
 [docs/plans/identity-sessions-memory.md](docs/plans/identity-sessions-memory.md).
 Agents of any kind: start from [AGENTS.md](AGENTS.md).

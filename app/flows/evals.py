@@ -3,7 +3,8 @@ and keep, per question, the answer users would see plus numbers (answer
 evaluator pass and scores, guardrail blocks, time, tokens). Prompts, tasks,
 drafts and evidence are never stored, as with the playground's traces.
 
-    agent_eval_sets     id, name, description, questions [{question, expected, expect_blocked}]
+    agent_eval_sets     id, name, description, questions [{question, expected, expect_blocked}],
+                        and on a set setup wrote (#16): area, kind, expected_source
     agent_eval_runs     one flow version × one set; runs of one request share a batch
     agent_eval_results  one row per question of a run
 
@@ -25,6 +26,9 @@ from . import store
 BUILTIN_DIR = Path(__file__).with_name("eval_sets")
 MAX_QUESTIONS = 50
 MAX_VERSIONS = 3
+# What a question tests (sets setup writes, initialization/evaluation.py): an answer
+# from the knowledge base, an area with no pages, a live tool, or a refusal.
+KINDS = ("answer", "not_covered", "live", "out_of_scope")
 _worker_lock = threading.Lock()
 _worker: threading.Thread | None = None
 _ready = False
@@ -107,7 +111,8 @@ def builtin_sets() -> dict[str, dict]:
 
 
 def clean_questions(raw) -> list[dict]:
-    """[{question, expected, expect_blocked}] from user input; raises ValueError."""
+    """[{question, expected, expect_blocked}] from user input (with area, kind and
+    expected_source when given); raises ValueError."""
     if not isinstance(raw, list) or not raw:
         raise ValueError("a set needs at least one question")
     if len(raw) > MAX_QUESTIONS:
@@ -120,8 +125,16 @@ def clean_questions(raw) -> list[dict]:
         question = str(item.get("question") or "").strip()[:1000]
         if not question:
             raise ValueError("a question is empty")
-        out.append({"question": question, "expected": str(item.get("expected") or "").strip()[:4000],
-                    "expect_blocked": bool(item.get("expect_blocked"))})
+        cleaned = {"question": question, "expected": str(item.get("expected") or "").strip()[:4000],
+                   "expect_blocked": bool(item.get("expect_blocked"))}
+        if item.get("kind") is not None:
+            if item["kind"] not in KINDS:
+                raise ValueError(f"kind is one of {', '.join(KINDS)}")
+            cleaned["kind"] = item["kind"]
+        for key, limit in (("area", 60), ("expected_source", 2000)):
+            if str(item.get(key) or "").strip():
+                cleaned[key] = str(item[key]).strip()[:limit]
+        out.append(cleaned)
     return out
 
 

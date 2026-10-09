@@ -19,8 +19,9 @@ from psycopg import sql
 import knowledge_system
 from common import config
 import llm
-from initialization import (blueprint, blueprint_run, build, content, conversation, plan, requirements, site_map, sources,
-                            sources_run, state, supervisor)
+from initialization import (blueprint, blueprint_run, build, content, conversation, evaluation, plan, requirements,
+                            site_map, sources, sources_run, state, supervisor)
+import flows
 from common import scraping, storage
 import guardrails
 
@@ -52,6 +53,9 @@ class SetupDatabase(unittest.TestCase):
         sources_run.reset_schema_cache()
         content.reset_schema_cache()
         plan.reset_schema_cache()
+        evaluation.reset_schema_cache()
+        flows.evals.reset_schema_cache()
+        flows.store.reset_schema_cache()
 
     def setUp(self):
         """A fresh, empty install: not set up, no URL list."""
@@ -60,7 +64,9 @@ class SetupDatabase(unittest.TestCase):
             for table in ("app_knowledge_system", "app_knowledge_system_events", "kb_urls", "app_setup_turns",
                           "app_setup", "app_domain_blueprints", "kb_sources",
                           "app_source_discoveries", "kb_site_analyses", "kb_content", "kb_ingestion_plan_pages",
-                          "kb_ingestion_plans", "rag_chunks", "ingestion_jobs"):
+                          "kb_ingestion_plans", "rag_chunks", "ingestion_jobs", "app_setup_evaluations",
+                          "agent_eval_results", "agent_eval_runs", "agent_eval_sets", "agent_flow_versions",
+                          "agent_live_flow", "agent_flow_runs", "agent_flows"):
                 connection.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(table)))
         self.reset_caches()
         with patch.object(config, "URLS_CONFIG_PATH", Path("/nonexistent/urls.json")):
@@ -1249,8 +1255,8 @@ class IngestionPlan(AnalysedSites):
 ROBOTS = b"User-agent: *\nDisallow: /help/7\n"
 
 
-class Build(AnalysedSites):
-    """Build RAG: the approved plan read through the worker; fetching and embedding faked."""
+class Building(AnalysedSites):
+    """Build RAG's fixture: the approved plan read through the worker; fetching and embedding faked."""
 
     def setUp(self):
         super().setUp()
@@ -1298,6 +1304,11 @@ class Build(AnalysedSites):
     def chunks(self):
         with self.client.connection() as connection:
             return connection.execute("SELECT source_url, payload FROM rag_chunks").fetchall()
+
+
+
+class Build(Building):
+    """Build RAG."""
 
     def test_a_plan_of_more_than_ten_pages_is_built(self):
         version = self.approve("tickets", "help")
@@ -1430,6 +1441,208 @@ class Build(AnalysedSites):
         status, view = api.call(web_api.setup_build_start, {"version": version})
         self.assertEqual((status, view["state"], view["build"]["job"]["status"]), (200, state.INGESTING, "queued"))
         self.assertEqual(api.call(web_api.setup_build_retry)[0], 409)        # nothing failed
+
+class Evaluation(Building):
+    """#16: the candidate flow and the evaluation set, after a build of the Help section
+    (the accessibility area); refunds has no pages, live departures is live. Model calls stubbed."""
+
+    def setUp(self):
+        super().setUp()
+        version = knowledge_system.status()["blueprint_version"]
+        bp = blueprint.get(version)["blueprint"]
+        areas = {a["key"]: a for a in bp["knowledge_areas"]}
+        areas["refunds"]["example_questions"] = ["Can I get a refund on an off-peak ticket?"]
+        areas["live_departures"]["example_questions"] = ["When is the next train from Leeds to York?"]
+        bp["flow"] = {"brief": "An assistant for passengers on UK railways; every question means the UK.",
+                      "domain": "UK train information", "search_country": "united kingdom",
+                      "scope": "In scope: UK rail tickets, refunds and accessibility. Out of scope: flights, visas.",
+                      "supervisor_instructions": "Send rail questions to knowledge_base; live times to tools."}
+        with blueprint._connect() as connection:
+            connection.execute("UPDATE app_domain_blueprints SET blueprint = %s WHERE version = %s",
+                               (psycopg.types.json.Jsonb(bp), version))
+        inline = patch.object(evaluation, "_start_thread", side_effect=lambda work: work())
+        inline.start()
+        self.addCleanup(inline.stop)
+        self.version = self.approve("help")
+        self.work()
+        self.written = []
+
+    def writer(self, bp, area, pages, count):
+        """Two grounded questions, then one whose quote is not in its page and one about a page not given."""
+        self.written.append((area["key"], [p["url"] for p in pages], count))
+        q = evaluation.DraftQuestion
+        return evaluation.DraftQuestions(questions=[
+            q(question="Is help available at the station?", expected_answer="Yes.", expected_source=pages[0]["url"],
+              supporting_quote=f"All about  {pages[0]['url'].upper()}, in full."),
+            q(question="Can I book assistance?", expected_answer="Yes.", expected_source=pages[1]["url"],
+              supporting_quote=f"\u201call about {pages[1]['url']}, in full\u201d"),
+            q(question="Are there ramps?", expected_answer="Yes.", expected_source=pages[2]["url"],
+              supporting_quote="Every station has ramps on every platform."),
+            q(question="Is there a lift?", expected_answer="Yes.", expected_source="https://elsewhere.example/lifts",
+              supporting_quote="All about https://elsewhere.example/lifts, in full.")])
+
+    @staticmethod
+    def scoper(bp, count):
+        return ["How do I get a visa for France?", "What flights go from London to Paris?", "A third?"]
+
+    def prepare(self, **kwargs):
+        return evaluation.prepare("admin-1", check=lambda spec: None, writer=kwargs.get("writer", self.writer),
+                                  scoper=kwargs.get("scoper", self.scoper))
+
+    def test_a_built_knowledge_base_gets_questions_for_every_area(self):
+        self.prepare()
+        view = supervisor.view()["evaluation"]
+        self.assertEqual(view["status"], "ready", view.get("error"))
+        kinds = [(q["kind"], q["area"]) for q in view["questions"]]
+        self.assertEqual(kinds, [("not_covered", "refunds")] + [("answer", "accessibility")] * 2 +
+                         [("live", "live_departures")] + [("out_of_scope", "out_of_scope")] * 2)
+        first = view["questions"][1]
+        self.assertTrue(first["expected_source"].startswith(f"{SITE}/help/"))
+        self.assertEqual((first["expected"], first["expect_blocked"]), ("Yes.", False))
+        self.assertTrue(all(q["expect_blocked"] for q in view["questions"][-2:]))
+        self.assertEqual(self.written[0][0], "accessibility")
+        self.assertEqual((len(self.written[0][1]), self.written[0][2]), (evaluation.PAGES_PER_AREA, 3))
+        self.assertEqual([(d["question"], d["reason"]) for d in view["record"]["dropped"]],
+                         [("Are there ramps?", "its supporting quote is not in the page"),
+                          ("Is there a lift?", "its page is not one of the pages given")])
+        self.assertEqual(view["record"]["dropped"][0]["quote"], "Every station has ramps on every platform.")
+        self.assertEqual({k: (a["kind"], a["questions"]) for k, a in view["record"]["areas"].items()},
+                         {"accessibility": ("answer", 2), "refunds": ("not_covered", 1),
+                          "live_departures": ("live", 1), "out_of_scope": ("out_of_scope", 2)})
+        stored = flows.evals.get_set(evaluation.SET_ID)                     # editable like any set
+        self.assertEqual((stored["count"], stored["builtin"]), (6, False))
+
+    def test_the_candidate_flow_has_the_blueprints_settings_and_is_not_live(self):
+        self.prepare()
+        view = evaluation.view()
+        self.assertEqual((view["flow_id"], view["flow_version"]), ("setup_uk_train_information", 1))
+        spec = flows.FlowSpec.model_validate(flows.store.get_version(view["flow_id"], 1, flows.load_flow()))
+        supervisor_ = next(n for n in spec.nodes if n.type == "supervisor").config
+        self.assertEqual((supervisor_["domain"], supervisor_["search_country"]),
+                         ("UK train information", "united kingdom"))
+        self.assertTrue(supervisor_["brief"].startswith("An assistant for passengers"))
+        self.assertTrue(supervisor_["instructions"].startswith("Send rail questions"))
+        scope = next(n for n in spec.nodes if n.type == "input_guardrail").config["scope"]
+        self.assertIn("Out of scope: flights", scope)
+        self.assertEqual(flows.validate(spec), [])
+        self.assertIsNone(flows.store.live_pointer())                        # users still get the built-in flow
+        self.prepare()                                                       # prepared again: a new version
+        self.assertEqual(evaluation.view()["flow_version"], 2)
+
+    def test_the_candidate_flow_compiles(self):
+        bp = content._confirmed_blueprint()
+        spec = evaluation.apply_blueprint(flows.load_flow(), bp, "setup_uk_train_information")
+        evaluation._check_flow(spec)
+
+    def test_the_grounding_check(self):
+        page = [{"url": "https://a.example/x", "text": "Assisted travel:\nbook  it 2 hours ahead \u2013 or turn up."}]
+        q = evaluation.DraftQuestion
+        check = lambda quote, url="https://a.example/x": evaluation.grounded(
+            q(question="?", expected_answer="A", expected_source=url, supporting_quote=quote), page)
+        self.assertIsNone(check("BOOK it 2 hours ahead - or turn up"))
+        self.assertIsNone(check("\u201cbook it 2 hours ahead \u2013 or turn up.\u201d"))
+        self.assertEqual(check("book it"), "its supporting quote is too short")
+        self.assertIsNone(check("Assisted travel: book it 2 hours ahead"))         # a line break read as a colon
+        self.assertEqual(check("book it 3 hours ahead - or turn up"), "its supporting quote is not in the page")
+        self.assertEqual(check("ok it 2 hours ahead or turn up"), "its supporting quote is not in the page")
+        self.assertEqual(check("book it 2 hours ahead", "https://a.example/y"), "its page is not one of the pages given")
+
+    def test_prepared_by_itself_once_per_plan(self):
+        with patch.object(evaluation, "write_with_llm", side_effect=self.writer), \
+                patch.object(evaluation, "scope_with_llm", side_effect=self.scoper), \
+                patch.object(evaluation, "_check_flow"):
+            evaluation.ensure_prepared()
+            evaluation.ensure_prepared()
+        with evaluation._connect() as connection:
+            rows = connection.execute("SELECT status, plan_version FROM app_setup_evaluations").fetchall()
+        self.assertEqual(rows, [{"status": "ready", "plan_version": self.version}])
+
+    def test_not_prepared_before_the_build_has_finished(self):
+        knowledge_system.set_state(state.EVALUATING, state.INGESTING)
+        evaluation.ensure_prepared()
+        self.assertIsNone(evaluation.view())
+        with self.assertRaises(state.TransitionNotAllowed):
+            self.prepare()
+
+    def test_failures_are_listed_or_fail_the_preparation(self):
+        def broken(*args):
+            raise llm.NoToolCall("no tool call")
+        self.prepare(writer=broken, scoper=broken)
+        view = evaluation.view()
+        self.assertEqual(view["status"], "ready")
+        self.assertEqual([(d["area"], d["reason"]) for d in view["record"]["dropped"]],
+                         [("accessibility", "no questions written: NoToolCall"),
+                          ("out_of_scope", "none written: NoToolCall")])
+        self.assertEqual([q["kind"] for q in view["questions"]], ["not_covered", "live"])
+
+        def uncompilable(spec):
+            raise flows.FlowError([{"level": "error", "where": spec.id, "message": "does not compile"}])
+        evaluation.prepare("admin-1", check=uncompilable, writer=self.writer, scoper=self.scoper)
+        self.assertEqual(evaluation.view()["status"], "failed")
+        self.assertIn("FlowError", evaluation.view()["error"])
+
+    def test_a_large_blueprint_stays_within_the_set_limit(self):
+        bp = content._confirmed_blueprint()
+        many = [{"key": f"area_{i}", "name": f"Area {i}", "description": "d", "knowledge_class": "STATIC_KNOWLEDGE",
+                 "example_questions": []} for i in range(30)]
+        counts = []
+        def own_pages(version, key, size=3):                               # each area its own pages
+            return [{"url": f"{SITE}/{key}/{i}", "text": f"All about {key} {i} and more, in full."} for i in range(size)]
+        with patch.object(evaluation, "area_pages", side_effect=own_pages):
+            def writer(bp, area, pages, count):
+                counts.append(count)
+                return evaluation.DraftQuestions(questions=[evaluation.DraftQuestion(
+                    question=f"{area['key']} {i}?", expected_answer="A", expected_source=pages[i]["url"],
+                    supporting_quote=pages[i]["text"]) for i in range(count)])
+            built = evaluation.build_set({**bp, "knowledge_areas": many}, self.version, writer, self.scoper)
+        self.assertEqual(len(built["questions"]), flows.evals.MAX_QUESTIONS)
+        self.assertEqual(counts, [2] * 18 + [1] * 12)                       # 48 answer questions share the room
+        self.assertEqual(built["dropped"], [])
+        more = [{**a, "key": f"more_{i}"} for i, a in enumerate(many)]
+        with patch.object(evaluation, "area_pages", side_effect=lambda version, key: own_pages(version, key, 1)):
+            built = evaluation.build_set({**bp, "knowledge_areas": many + more}, self.version, writer, self.scoper)
+        self.assertEqual(sum(q["kind"] == "answer" for q in built["questions"]), 48)
+        self.assertEqual([d["reason"] for d in built["dropped"]], ["the set is full"] * 12)
+
+    def test_one_passage_makes_one_question(self):
+        bp = content._confirmed_blueprint()
+        shared = [{"url": f"{SITE}/a", "text": "Delay Repay pays from 15 minutes late, on most trains."}]
+        two = [{"key": k, "name": k, "description": "d", "knowledge_class": "STATIC_KNOWLEDGE"}
+               for k in ("refunds", "delay_compensation")]
+
+        def writer(bp, area, pages, count):
+            return evaluation.DraftQuestions(questions=[evaluation.DraftQuestion(
+                question=f"{area['key']}?", expected_answer="A", expected_source=pages[0]["url"],
+                supporting_quote="Delay Repay pays from 15 minutes late")])
+        with patch.object(evaluation, "area_pages", return_value=shared):
+            built = evaluation.build_set({**bp, "knowledge_areas": two}, self.version, writer, self.scoper)
+        self.assertEqual([q["question"] for q in built["questions"] if q["kind"] == "answer"], ["refunds?"])
+        self.assertEqual([(d["area"], d["reason"]) for d in built["dropped"]],
+                         [("delay_compensation", "another question is from the same passage")])
+
+    def test_question_fields_are_kept_and_checked(self):
+        cleaned = flows.evals.clean_questions([{"question": "Q", "kind": "answer", "area": "refunds",
+                                                "expected_source": "https://a.example/x"}, "Plain"])
+        self.assertEqual(cleaned, [{"question": "Q", "expected": "", "expect_blocked": False, "kind": "answer",
+                                    "area": "refunds", "expected_source": "https://a.example/x"},
+                                   {"question": "Plain", "expected": "", "expect_blocked": False}])
+        with self.assertRaises(ValueError):
+            flows.evals.clean_questions([{"question": "Q", "kind": "guess"}])
+
+    def test_the_evaluation_api(self):
+        import web_api
+        api = SetupApi()
+        with patch.object(evaluation, "write_with_llm", side_effect=self.writer), \
+                patch.object(evaluation, "scope_with_llm", side_effect=self.scoper), \
+                patch.object(web_api, "_publish_check"):
+            status, view = api.call(web_api.setup_evaluation_prepare)
+            self.assertEqual((status, view["status"], len(view["questions"])), (200, "ready", 6))
+            view = json.loads(web_api.setup_evaluation_view(api.Request()).body)
+            self.assertEqual(view["record"]["questions"], 6)
+            with patch.object(evaluation, "_start_thread"):                   # the work never runs
+                self.assertEqual(api.call(web_api.setup_evaluation_prepare)[0], 200)
+                self.assertEqual(api.call(web_api.setup_evaluation_prepare)[0], 409)   # already preparing
+
 
 if __name__ == "__main__":
     unittest.main()
