@@ -1,0 +1,438 @@
+{
+  "id": "travel_assistant",
+  "name": "Travel assistant (multi-agent RAG)",
+  "version": 1,
+  "state": "main",
+  "description": "Input guardrail → supervisor delegating to the knowledge-base and external-APIs agents in parallel → summarizer → output guardrail → answer evaluator. The graph app/agent.py runs.",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start"
+    },
+    {
+      "id": "input_guardrail",
+      "type": "input_guardrail",
+      "config": {
+        "stage": "input"
+      }
+    },
+    {
+      "id": "supervisor",
+      "type": "supervisor",
+      "label": "Supervisor + summarizer"
+    },
+    {
+      "id": "knowledge_base_agent",
+      "type": "subflow",
+      "label": "Knowledge-base agent",
+      "config": {
+        "subflow": "knowledge_base"
+      }
+    },
+    {
+      "id": "external_apis_agent",
+      "type": "specialist_agent",
+      "label": "External-APIs agent",
+      "config": {
+        "role": "external_apis"
+      }
+    },
+    {
+      "id": "output_guardrail",
+      "type": "output_guardrail",
+      "config": {
+        "stage": "output"
+      }
+    },
+    {
+      "id": "answer_evaluator",
+      "type": "answer_evaluator"
+    },
+    {
+      "id": "end",
+      "type": "end"
+    },
+    {
+      "id": "llm",
+      "type": "llm",
+      "label": "Chat model"
+    },
+    {
+      "id": "memory",
+      "type": "memory",
+      "label": "Agent memory"
+    },
+    {
+      "id": "api_tools",
+      "type": "api_tools",
+      "label": "API registry tools"
+    }
+  ],
+  "edges": [
+    {
+      "source": "start",
+      "target": "input_guardrail"
+    },
+    {
+      "source": "input_guardrail",
+      "target": "supervisor",
+      "outcome": "ALLOW"
+    },
+    {
+      "source": "input_guardrail",
+      "target": "end",
+      "outcome": "BLOCK"
+    },
+    {
+      "source": "supervisor",
+      "target": "knowledge_base_agent",
+      "outcome": "delegate:knowledge_base"
+    },
+    {
+      "source": "supervisor",
+      "target": "external_apis_agent",
+      "outcome": "delegate:external_apis"
+    },
+    {
+      "source": "supervisor",
+      "target": "output_guardrail",
+      "outcome": "answer"
+    },
+    {
+      "source": "knowledge_base_agent",
+      "target": "supervisor"
+    },
+    {
+      "source": "external_apis_agent",
+      "target": "supervisor"
+    },
+    {
+      "source": "output_guardrail",
+      "target": "answer_evaluator",
+      "outcome": "ALLOW"
+    },
+    {
+      "source": "output_guardrail",
+      "target": "end",
+      "outcome": "BLOCK"
+    },
+    {
+      "source": "answer_evaluator",
+      "target": "end"
+    },
+    {
+      "source": "llm",
+      "target": "supervisor",
+      "kind": "resource"
+    },
+    {
+      "source": "llm",
+      "target": "external_apis_agent",
+      "kind": "resource"
+    },
+    {
+      "source": "memory",
+      "target": "supervisor",
+      "kind": "resource"
+    },
+    {
+      "source": "memory",
+      "target": "external_apis_agent",
+      "kind": "resource"
+    },
+    {
+      "source": "api_tools",
+      "target": "external_apis_agent",
+      "kind": "resource"
+    }
+  ],
+  "subflows": {
+    "knowledge_base": {
+      "id": "knowledge_base",
+      "name": "Knowledge-base agent",
+      "state": "task",
+      "description": "One delegated task: hybrid retrieval, evidence evaluation, one rewrite retry, research for gaps.",
+      "nodes": [
+        {
+          "id": "start",
+          "type": "start"
+        },
+        {
+          "id": "start_task",
+          "type": "task_start"
+        },
+        {
+          "id": "retrieval_agent",
+          "type": "retrieval_agent"
+        },
+        {
+          "id": "evidence_evaluator",
+          "type": "evidence_evaluator"
+        },
+        {
+          "id": "query_rewriter",
+          "type": "query_rewriter"
+        },
+        {
+          "id": "research_agent",
+          "type": "research_agent"
+        },
+        {
+          "id": "source_validator",
+          "type": "source_validator"
+        },
+        {
+          "id": "ingest_sources",
+          "type": "ingest"
+        },
+        {
+          "id": "answer_handoff",
+          "type": "handoff"
+        },
+        {
+          "id": "research_report",
+          "type": "report"
+        },
+        {
+          "id": "investigation_placeholder",
+          "type": "placeholder",
+          "label": "Investigation agent (not built)",
+          "config": {
+            "message": "Investigation (Debugging) Agent not implemented"
+          }
+        },
+        {
+          "id": "insufficient_evidence_placeholder",
+          "type": "placeholder",
+          "label": "Retry / clarify (not built)",
+          "config": {
+            "message": "Retry / clarification not implemented"
+          }
+        },
+        {
+          "id": "finish_task",
+          "type": "task_finish"
+        },
+        {
+          "id": "end",
+          "type": "end"
+        },
+        {
+          "id": "llm",
+          "type": "llm",
+          "label": "Chat model"
+        },
+        {
+          "id": "memory",
+          "type": "memory",
+          "label": "Agent memory"
+        },
+        {
+          "id": "retriever",
+          "type": "retriever",
+          "label": "Hybrid retriever"
+        },
+        {
+          "id": "vector_db",
+          "type": "vector_db",
+          "label": "pgvector"
+        },
+        {
+          "id": "web_search",
+          "type": "web_search",
+          "label": "Tavily"
+        },
+        {
+          "id": "scraper",
+          "type": "scraper",
+          "label": "HTML + PDF scraper"
+        }
+      ],
+      "edges": [
+        {
+          "source": "start",
+          "target": "start_task"
+        },
+        {
+          "source": "start_task",
+          "target": "retrieval_agent"
+        },
+        {
+          "source": "retrieval_agent",
+          "target": "evidence_evaluator",
+          "outcome": "ok"
+        },
+        {
+          "source": "retrieval_agent",
+          "target": "finish_task",
+          "outcome": "error"
+        },
+        {
+          "source": "evidence_evaluator",
+          "target": "answer_handoff",
+          "outcome": "GOOD_EVIDENCE"
+        },
+        {
+          "source": "evidence_evaluator",
+          "target": "query_rewriter",
+          "outcome": "RETRIEVAL_FAILURE"
+        },
+        {
+          "source": "evidence_evaluator",
+          "target": "research_agent",
+          "outcome": "KNOWLEDGE_GAP"
+        },
+        {
+          "source": "evidence_evaluator",
+          "target": "research_report",
+          "outcome": "ALREADY_RESEARCHED"
+        },
+        {
+          "source": "evidence_evaluator",
+          "target": "investigation_placeholder",
+          "outcome": "CONFLICTING_EVIDENCE"
+        },
+        {
+          "source": "evidence_evaluator",
+          "target": "insufficient_evidence_placeholder",
+          "outcome": "INSUFFICIENT_EVIDENCE"
+        },
+        {
+          "source": "evidence_evaluator",
+          "target": "finish_task",
+          "outcome": "error"
+        },
+        {
+          "source": "query_rewriter",
+          "target": "retrieval_agent",
+          "outcome": "ok"
+        },
+        {
+          "source": "query_rewriter",
+          "target": "finish_task",
+          "outcome": "error"
+        },
+        {
+          "source": "research_agent",
+          "target": "source_validator",
+          "outcome": "ok"
+        },
+        {
+          "source": "research_agent",
+          "target": "finish_task",
+          "outcome": "error"
+        },
+        {
+          "source": "source_validator",
+          "target": "ingest_sources",
+          "outcome": "accepted"
+        },
+        {
+          "source": "source_validator",
+          "target": "research_report",
+          "outcome": "none"
+        },
+        {
+          "source": "source_validator",
+          "target": "finish_task",
+          "outcome": "error"
+        },
+        {
+          "source": "ingest_sources",
+          "target": "retrieval_agent",
+          "outcome": "ingested"
+        },
+        {
+          "source": "ingest_sources",
+          "target": "research_report",
+          "outcome": "nothing"
+        },
+        {
+          "source": "ingest_sources",
+          "target": "finish_task",
+          "outcome": "error"
+        },
+        {
+          "source": "answer_handoff",
+          "target": "finish_task"
+        },
+        {
+          "source": "research_report",
+          "target": "finish_task"
+        },
+        {
+          "source": "investigation_placeholder",
+          "target": "finish_task"
+        },
+        {
+          "source": "insufficient_evidence_placeholder",
+          "target": "finish_task"
+        },
+        {
+          "source": "finish_task",
+          "target": "end"
+        },
+        {
+          "source": "llm",
+          "target": "retrieval_agent",
+          "kind": "resource"
+        },
+        {
+          "source": "llm",
+          "target": "query_rewriter",
+          "kind": "resource"
+        },
+        {
+          "source": "llm",
+          "target": "research_agent",
+          "kind": "resource"
+        },
+        {
+          "source": "llm",
+          "target": "source_validator",
+          "kind": "resource"
+        },
+        {
+          "source": "memory",
+          "target": "retrieval_agent",
+          "kind": "resource"
+        },
+        {
+          "source": "memory",
+          "target": "research_agent",
+          "kind": "resource"
+        },
+        {
+          "source": "retriever",
+          "target": "retrieval_agent",
+          "kind": "resource"
+        },
+        {
+          "source": "vector_db",
+          "target": "retriever",
+          "kind": "resource"
+        },
+        {
+          "source": "vector_db",
+          "target": "ingest_sources",
+          "kind": "resource"
+        },
+        {
+          "source": "web_search",
+          "target": "research_agent",
+          "kind": "resource"
+        },
+        {
+          "source": "scraper",
+          "target": "research_agent",
+          "kind": "resource"
+        },
+        {
+          "source": "scraper",
+          "target": "ingest_sources",
+          "kind": "resource"
+        }
+      ]
+    }
+  }
+}

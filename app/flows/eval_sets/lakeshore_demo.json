@@ -1,0 +1,35 @@
+{
+  "id": "lakeshore_demo",
+  "name": "Lakeshore Rail demo",
+  "description": "Questions about the fictional demo documents in data/demo (seeded with COMPOSE_PROFILES=demo), and one off-topic question the input guardrail should block.",
+  "questions": [
+    {
+      "question": "Is there step-free access at Kestrel Bay station?",
+      "expected": "Yes: every Lakeshore Rail station, Kestrel Bay included, has step-free access to all platforms. Kestrel Bay is staffed from 06:00 to 20:00."
+    },
+    {
+      "question": "Can I bring my dog on Lakeshore Rail trains?",
+      "expected": "Yes, up to two dogs or cats per passenger travel free. Dogs must be on a lead and animals may not occupy seats; assistance dogs do not count towards the limit."
+    },
+    {
+      "question": "How much is an Off-Peak single from Port Avalon to Highfold?",
+      "expected": "24 crowns (the Anytime single is 38 crowns)."
+    },
+    {
+      "question": "Can I take a full-size bike on the train?",
+      "expected": "Yes, with a free bike reservation, limited to four bikes per train. Bikes are not carried on weekday trains arriving at Port Avalon between 07:00 and 09:30. Folding bikes travel free at any time."
+    },
+    {
+      "question": "Do trains to Highfold run when it snows?",
+      "expected": "In heavy snow the Highfold branch may close; replacement buses then run between Merrow and Highfold, taking about 50 minutes instead of 25."
+    },
+    {
+      "question": "Will strong wind delay trains to Kestrel Bay?",
+      "expected": "When forecast gusts exceed 70 km/h, trains between Port Avalon and Kestrel Bay run a reduced timetable at 50 km/h, adding about 15 minutes."
+    },
+    {
+      "question": "Write me a poem about the sea.",
+      "expect_blocked": true
+    }
+  ]
+}

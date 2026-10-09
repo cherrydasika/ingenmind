@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAG Systems</title>
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script src="/vendor/plotly.min.js" defer></script>
+  <script type="module" src="/static/js/main.js"></script>
+</head>
+<body>
+  <!-- Shown when nobody is signed in (main.js); the app shell stays hidden. -->
+  <div class="signin" id="signin" hidden>
+    <div class="signin-card">
+      <div class="brand">
+        <span class="brand-mark">◆</span>
+        <div>
+          <div class="brand-name">RAG Systems</div>
+          <div class="brand-sub">Multi-agent RAG</div>
+        </div>
+      </div>
+      <p class="signin-text">Sign in to ask questions and manage the knowledge base.</p>
+      <div class="signin-error" id="signin-error" hidden></div>
+      <a class="btn signin-btn" id="signin-btn" href="/auth/login">Sign in</a>
+      <div class="signin-provider muted" id="signin-provider"></div>
+    </div>
+  </div>
+
+  <div class="shell" id="shell" hidden>
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="brand-mark">◆</span>
+        <div>
+          <div class="brand-name">RAG Systems</div>
+          <div class="brand-sub">Local retrieval pipeline</div>
+        </div>
+      </div>
+
+      <nav class="nav" id="nav">
+        <div class="nav-label">Overview</div>
+        <a href="#/home" data-page="home"><span class="nav-icon">⌂</span><span class="nav-text">Home</span></a>
+        <div class="nav-label">Workspace</div>
+        <a href="#/retrieval" data-page="retrieval"><span class="nav-icon">⌕</span><span class="nav-text">Retrieval</span></a>
+        <a href="#/sessions" data-page="sessions"><span class="nav-icon">◷</span><span class="nav-text">Sessions</span></a>
+        <a href="#/adhoc" data-page="adhoc"><span class="nav-icon">✎</span><span class="nav-text">Ad-hoc documents</span></a>
+        <a href="#/evaluations" data-page="evaluations"><span class="nav-icon">✓</span><span class="nav-text">Evaluations</span></a>
+        <a href="#/flows" data-page="flows"><span class="nav-icon">⧉</span><span class="nav-text">Agent flow</span></a>
+        <a href="#/memory" data-page="memory"><span class="nav-icon">✦</span><span class="nav-text">Agent memory</span></a>
+        <div class="nav-label">Data</div>
+        <a href="#/ingestion" data-page="ingestion"><span class="nav-icon">⇣</span><span class="nav-text">Ingestion</span></a>
+        <a href="#/sources" data-page="sources"><span class="nav-icon">☷</span><span class="nav-text">Sources</span></a>
+        <div class="nav-label">Reference</div>
+        <a href="#/docs" data-page="docs"><span class="nav-icon">▤</span><span class="nav-text">Pipeline docs</span></a>
+        <div class="nav-label">Admin</div>
+        <a href="#/users" data-page="users"><span class="nav-icon">☺</span><span class="nav-text">Users</span></a>
+        <a href="#/knowledge" data-page="knowledge"><span class="nav-icon">◎</span><span class="nav-text">Knowledge system</span></a>
+        <div class="nav-label" data-section="account">Account</div>
+        <a href="#/profile" data-page="profile"><span class="nav-icon">◉</span><span class="nav-text">Profile</span></a>
+      </nav>
+
+      <div class="services">
+        <div class="nav-label">Services <span class="muted" id="services-age"></span></div>
+        <ul id="services"><li class="muted">Checking…</li></ul>
+      </div>
+    </aside>
+
+    <div class="nav-backdrop" id="nav-backdrop"></div>
+    <div class="main">
+      <header class="topbar">
+        <!-- Narrow screens: the sidebar is a drawer opened from here (main.js). -->
+        <button class="btn btn-ghost menu-btn" id="menu-btn" type="button"
+                aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">☰</button>
+        <div class="topbar-title">
+          <div class="crumbs"><span id="page-group">Workspace</span> / <span id="page-crumb">Retrieval</span></div>
+          <h1 id="page-title">Retrieval</h1>
+        </div>
+        <div class="user-menu" id="user-menu">
+          <button class="btn btn-ghost user-menu-btn" id="user-menu-btn" type="button"
+                  aria-haspopup="menu" aria-expanded="false"><span id="user-name">—</span> ▾</button>
+          <div class="user-menu-panel" id="user-menu-panel" role="menu" hidden>
+            <div class="user-menu-who">
+              <div class="user-menu-name" id="user-menu-name"></div>
+              <div class="muted" id="user-menu-detail"></div>
+            </div>
+            <a href="#/profile" role="menuitem">Profile</a>
+            <button type="button" role="menuitem" id="logout">Log out</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="content setup-banner" id="setup-banner" hidden></div>
+      <main class="content" id="content"></main>
+    </div>
+  </div>
+</body>
+</html>

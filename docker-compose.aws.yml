@@ -1,0 +1,89 @@
+# Apply after docker-compose.yml and docker-compose.langfuse.yml on EC2 only.
+# Every service uses `unless-stopped`: after `scripts/aws/stack.sh stop` nothing
+# comes back on reboot, so the stack only starts through the mount-checked script.
+services:
+  pgvector:
+    # Reachable from the agentcore-kb runtime only: bound to the host's private
+    # VPC address (stack.sh sets PGVECTOR_BIND_IP from instance metadata), and
+    # the security group admits 5432 only from the runtime's security group.
+    ports:
+      - "${PGVECTOR_BIND_IP:-127.0.0.1}:5432:5432"
+    volumes:
+      - type: bind
+        source: /srv/rag-systems/pgvector
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
+
+  worker:
+    environment:
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_SESSION_TOKEN: ""
+
+  webapp:
+    environment:
+      # Always a real identity provider on EC2: the app refuses to start with
+      # the development sign-in when RAG_DEPLOYMENT=aws (app/auth.py).
+      AUTH_MODE: oidc
+      RAG_DEPLOYMENT: aws
+      # Your AgentCore harness (agentcore-kb/deploy.py prints it); set it in the deployment's .env.
+      AGENT_HARNESS_ARN: ${AGENT_HARNESS_ARN:-}
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_SESSION_TOKEN: ""
+
+  langfuse-web:
+    restart: unless-stopped
+    environment:
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_SESSION_TOKEN: ""
+
+  langfuse-worker:
+    restart: unless-stopped
+    environment:
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_SESSION_TOKEN: ""
+
+  clickhouse:
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /srv/rag-systems/langfuse/clickhouse
+        target: /var/lib/clickhouse
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /srv/rag-systems/langfuse/clickhouse-logs
+        target: /var/log/clickhouse-server
+        bind:
+          create_host_path: false
+
+  minio:
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /srv/rag-systems/langfuse/minio
+        target: /data
+        bind:
+          create_host_path: false
+
+  redis:
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /srv/rag-systems/langfuse/redis
+        target: /data
+        bind:
+          create_host_path: false
+
+  postgres:
+    restart: unless-stopped
+    volumes:
+      - type: bind
+        source: /srv/rag-systems/langfuse/postgres
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false

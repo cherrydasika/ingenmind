@@ -1,0 +1,70 @@
+{
+  "id": "travel_basics",
+  "name": "Travel basics",
+  "description": "UK rail questions from the earlier evaluation (test_data_v2, with its gold answers), a live weather question, and three questions the input guardrail should block (a visa question and a Swiss timetable are outside the UK rail and weather scope).",
+  "questions": [
+    {
+      "question": "Which train companies operate in South Yorkshire?",
+      "expected": "Five main national train companies operate in South Yorkshire: Northern, CrossCountry, LNER, East Midlands Railway, and TransPennine Express [Source 1]."
+    },
+    {
+      "question": "Can I use a Railcard to save money on my train tickets?",
+      "expected": "Yes! Railcards cost £35 for one year (or £80 for three years) and give you 1/3 off eligible train tickets across Great Britain [Source 1]. There are various types depending on your age or circumstances, like 16-25, 60+, family, or disabled Railcards [Source 1][Source 3]."
+    },
+    {
+      "question": "How can I save money when booking a train ticket?",
+      "expected": "You can save by booking Advance tickets up to 12 weeks ahead, travelling Off-Peak, getting a Railcard (up to 1/3 off), using split-ticketing, or GroupSave if travelling with 3-9 people [Source 1, Source 3, Source 4]."
+    },
+    {
+      "question": "How far in advance should I book my train ticket to get a cheaper fare?",
+      "expected": "Book about 12 weeks ahead of your travel date—Advance tickets are usually cheapest when first released [Source 1][Source 2][Source 4][Source 5]."
+    },
+    {
+      "question": "I'm travelling with children. Are there any discounts available?",
+      "expected": "Yes! The Family & Friends Railcard costs £35/year and gives 1/3 off adult fares plus 60% off child fares for up to 4 adults and 4 children (ages 5-15) [Source 2]. There's also an Off-Peak Family Travelcard for certain UK train companies [Source 5]."
+    },
+    {
+      "question": "What is the Kids for a Quid offer?",
+      "expected": "It lets up to 4 children aged 5-15 travel for just £1 on a single or return journey in Standard Class during Off-Peak times, as long as they're with an adult [Source 1]. It's offered on select Southeastern, West Midlands Railway, London Northwestern, Chiltern, and ScotRail routes [Source 1]."
+    },
+    {
+      "question": "What age do children need to be for Kids for a Quid?",
+      "expected": "Children need to be aged 5-15 to qualify for Kids for a Quid tickets [Source 1]."
+    },
+    {
+      "question": "Can I use Kids for a Quid on every train company?",
+      "expected": "No, only select companies offer it—Southeastern, West Midlands Railway, London Northwestern Railway, and Chiltern Railway routes are bookable via Trainline, and ScotRail also offers it but not online [Source 1]."
+    },
+    {
+      "question": "What is a Family Travelcard and who can use it?",
+      "expected": "A Family Travelcard is a group Off-Peak Return ticket that includes unlimited travel across London's National Rail, Underground, DLR, Tramlink and buses (Zones 1-6) for the day. It's for 1-2 adults with up to 4 children aged 5-15 travelling together [Source 2][Source 1]."
+    },
+    {
+      "question": "Can I use a Family Travelcard on the London Underground?",
+      "expected": "Yes! An Off-Peak Family Travelcard includes unlimited travel on National Rail, London Underground, DLR, Tramlink, and London Buses within Fare Zones 1-6 for the day [Source 1]."
+    },
+    {
+      "question": "Is there a pantry car on trains?",
+      "expected": "Answers for UK trains only (on-board catering such as a buffet, café bar or at-seat trolley, which depends on the operator), citing UK sources; nothing about Indian Railways pantry cars."
+    },
+    {
+      "question": "What will the weather be like in Zurich tomorrow?",
+      "expected": "Live forecast from Open-Meteo (temperature range and rain)."
+    },
+    {
+      "question": "Do Indian citizens need a visa to visit France?",
+      "expected": "",
+      "expect_blocked": true
+    },
+    {
+      "question": "When is the next train from Zurich to Bern?",
+      "expected": "",
+      "expect_blocked": true
+    },
+    {
+      "question": "Write a Python script that sorts a list of numbers.",
+      "expected": "",
+      "expect_blocked": true
+    }
+  ]
+}

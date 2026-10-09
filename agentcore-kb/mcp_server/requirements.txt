@@ -1,0 +1,6 @@
+# MCP server (Python 3.10+). Queries are embedded with Amazon Titan through
+# boto3 to match the stored vectors, so no local embedding model is needed.
+mcp==2.2.0
+psycopg2-binary==2.9.13
+boto3==1.43.106
+python-dotenv==1.2.4

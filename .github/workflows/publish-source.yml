@@ -1,0 +1,62 @@
+name: Publish reviewed source archive
+
+# Publishes a main-branch commit's source to the artifact bucket (it does not
+# deploy it). Runs by itself when "Terraform and app checks" passes on a push
+# to main, for the commit those checks tested; run it by hand (typing
+# PUBLISH) for a commit the checks skipped, such as a docs-only change.
+on:
+  workflow_run:
+    workflows: ["Terraform and app checks"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: "Type PUBLISH to upload this main-branch revision (not deploy it)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-source
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      vars.ARTIFACT_BUCKET != '' && vars.ARTIFACT_PUBLISH_ROLE_ARN != '' && (
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmation == 'PUBLISH') ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' &&
+         github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    env:
+      # The commit to publish: the one the checks tested, or main's head when run by hand.
+      SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+          persist-credentials: false
+      - name: Archive tracked files
+        run: |
+          git archive --format=tar HEAD | gzip -n > source.tar.gz
+          sha256sum source.tar.gz > source.tar.gz.sha256
+          if tar -tzf source.tar.gz | grep -E '(^|/)\.env(\.|$)' | grep -vE '(^|/)\.env\.example$'; then
+            echo 'Refusing to publish a tracked environment file' >&2
+            exit 1
+          fi
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.ARTIFACT_PUBLISH_ROLE_ARN }}
+          aws-region: eu-west-2
+      - name: Upload commit-addressed revision
+        env:
+          BUCKET: ${{ vars.ARTIFACT_BUCKET }}
+        run: |
+          aws s3api put-object --bucket "$BUCKET" --key "releases/$SHA/source.tar.gz" --body source.tar.gz --server-side-encryption AES256 --if-none-match '*' >/dev/null
+          aws s3api put-object --bucket "$BUCKET" --key "releases/$SHA/source.tar.gz.sha256" --body source.tar.gz.sha256 --server-side-encryption AES256 --if-none-match '*' >/dev/null
+          printf 'Published source archive for commit %s\n' "$SHA" >> "$GITHUB_STEP_SUMMARY"

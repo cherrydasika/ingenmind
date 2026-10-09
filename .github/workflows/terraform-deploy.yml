@@ -1,0 +1,55 @@
+name: Terraform production plan
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type PLAN to inspect proposed AWS changes (no apply)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-2
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_VAR_instance_type: ${{ vars.TF_INSTANCE_TYPE }}
+  TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main' && inputs.confirmation == 'PLAN'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.TF_PLAN_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Initialize remote state
+        run: |
+          terraform init -lockfile=readonly \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=rag-systems/production.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="encrypt=true" \
+            -backend-config="use_lockfile=true"
+      - run: terraform plan -no-color -out=tfplan
+      - uses: actions/upload-artifact@v4
+        with:
+          name: terraform-production-plan
+          path: infra/terraform/tfplan
+          retention-days: 1

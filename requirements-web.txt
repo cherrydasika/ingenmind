@@ -1,0 +1,19 @@
+starlette>=0.40,<2
+uvicorn>=0.30,<1
+requests>=2.31,<3
+trafilatura>=1.9,<2
+pypdf>=5,<7  # PDF text for research-agent sources
+psycopg[binary]>=3.2,<4
+pgvector>=0.4,<1
+numpy>=1.26,<3
+boto3>=1.43.106,<2  # Bedrock and AgentCore harness APIs
+anthropic>=1.11,<2  # LLM_PROVIDER=anthropic (app/llm.py)
+openai>=3.24,<4  # LLM_PROVIDER / EMBEDDING_PROVIDER=openai or ollama
+fastembed>=0.8,<1  # EMBEDDING_PROVIDER=local: in-process ONNX embeddings
+langgraph>=1.2,<2  # multi-agent orchestration (app/agent.py)
+langfuse>=3.0,<4
+authlib>=1.3,<2  # OpenID Connect sign-in (app/auth.py)
+httpx>=0.27,<1  # Authlib's HTTP client
+itsdangerous>=2.1,<3  # signed session cookie (Starlette SessionMiddleware)
+scikit-learn>=1.4,<2
+plotly>=5.20,<6

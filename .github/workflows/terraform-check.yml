@@ -1,0 +1,110 @@
+name: Terraform and app checks
+
+# Every pull request is checked, whatever it changes, so the checks can be
+# required before merging. A push to main is checked only when it changes
+# what is deployed; a passing check there publishes the commit
+# (publish-source.yml).
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "dags/**"
+      - "web/**"
+      - "requirements-web.txt"
+      - "docker-compose*.yml"
+      - "scripts/aws/**"
+      - "infra/terraform/**"
+      - ".github/workflows/terraform-*.yml"
+      - ".github/workflows/publish-source.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -lockfile=readonly -input=false
+      - run: terraform validate -no-color
+
+  pgvector-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: rag
+          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: rag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U rag -d rag"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: rag
+      PGPASSWORD: test-password
+      PGDATABASE: rag
+      PYTHONPATH: app:dags
+      WEB_DIR: web
+      AWS_EC2_METADATA_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # As ES modules: a plain `node --check file.js` can miss syntax errors.
+      - run: for file in web/static/js/*.js; do node --input-type=module --check < "$file" || exit 1; done
+      # The flow canvas bundle is committed (the server has no Node): it must match its sources.
+      - run: npm ci --prefix web/flows-app && npm run build --prefix web/flows-app
+      - run: npm test --prefix web/flows-app
+      - run: |
+          git diff --exit-code -- web/static/flows || { echo "Rebuild web/static/flows: cd web/flows-app && npm run build" >&2; exit 1; }
+      - run: pip install -r requirements-web.txt
+      - run: python -m unittest -v app/test_agent_runtime.py app/test_demo.py app/test_llm.py app/test_embeddings.py app/test_pg_store.py app/test_evidence.py app/test_research.py app/test_answer_eval.py app/test_guardrails.py app/test_flows.py app/test_api_tools.py app/test_auth.py app/test_sessions.py app/test_agent_memory.py app/test_users.py app/test_setup.py
+
+  private-compose:
+    runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: ci-placeholder
+      MINIO_ROOT_PASSWORD: ci-placeholder
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-compose-action@v2
+        with:
+          version: v5.3.1
+      - run: docker compose version
+      - run: for file in scripts/aws/*.sh; do bash -n "$file"; done
+      - run: >-
+          docker compose -f docker-compose.yml -f docker-compose.langfuse.yml
+          -f docker-compose.aws.yml config --format json |
+          jq -e '.services | map(.restart) | all(. == "unless-stopped")'
+      - run: >-
+          docker compose -f docker-compose.yml -f docker-compose.langfuse.yml
+          -f docker-compose.aws.yml config --format json |
+          jq -e '.services | [.pgvector,.clickhouse,.minio,.redis,.postgres]
+          | map(.volumes[]) | all(.source | startswith("/srv/rag-systems/"))
+          and (map(.bind.create_host_path) | all(. == false))'
+      - run: >-
+          docker compose -f docker-compose.yml -f docker-compose.langfuse.yml
+          -f docker-compose.aws.yml config --format json |
+          jq -e '.services | ([.webapp,."langfuse-web",.minio] | all(.ports[]?.host_ip == "127.0.0.1"))
+          and ([.webapp,.worker,."langfuse-web",."langfuse-worker"]
+          | all(.environment.AWS_ACCESS_KEY_ID == "" and .environment.AWS_SECRET_ACCESS_KEY == ""))'

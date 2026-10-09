@@ -1,0 +1,16 @@
+ingenmind
+Copyright 2026 Siva Dasika
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes third-party software:
+
+- docker-compose.langfuse.yml is adapted from the Langfuse reference
+  deployment (https://github.com/langfuse/langfuse), MIT License,
+  Copyright (c) 2023-2026 ClickHouse, Inc.
+- web/static/flows/flows.js and flows.css bundle React, React Flow,
+  dagre, d3 modules and their dependencies (MIT, ISC and BSD-3-Clause
+  licenses); their notices are in web/static/flows/THIRD_PARTY_LICENSES.txt.
+
+Python and Docker dependencies are installed at build time, not
+redistributed in this repository; each is under its own license.

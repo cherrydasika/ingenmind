@@ -1,0 +1,4 @@
+# deploy.py and invoke.py (Python 3.10+). boto3 includes the AgentCore
+# control-plane (CreateHarness, UpdateHarness) and runtime (InvokeHarness) APIs.
+boto3==1.43.106
+python-dotenv==1.2.4
