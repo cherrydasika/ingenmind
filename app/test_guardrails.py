@@ -16,6 +16,24 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual(result.allowed, decision == "ALLOW")
             self.assertEqual(bool(result.message), decision != "ALLOW")
 
+    def test_a_long_researched_page_is_checked_in_parts(self):
+        """Network Rail's 26,903-character Birmingham New Street guide was refused unread as too long."""
+        page = "Station guide. " * 1800                                         # 27,000 characters
+        allow = Mock(return_value={"decision": "ALLOW", "reason": "UK rail station guide"})
+        result = guardrails.check("research", "Toilets at Birmingham New Street?", page, assessor=allow)
+        self.assertTrue(result.allowed)
+        self.assertEqual(allow.call_count, 2)
+        self.assertTrue(all(len(c.args[2]) <= guardrails.MAX_CONTENT_CHARS for c in allow.call_args_list))
+        # One part out of scope (or unsafe) blocks the page.
+        second = Mock(side_effect=[{"decision": "ALLOW", "reason": "ok"}, {"decision": "BLOCK", "reason": "casino ads"}])
+        blocked = guardrails.check("research", "Toilets?", page, assessor=second)
+        self.assertFalse(blocked.allowed)
+        self.assertIn("part 2 of 2", blocked.reason)
+        # Past MAX_RESEARCH_PARTS a page is still refused unread; answers and questions keep the single limit.
+        huge = "x" * (guardrails.MAX_RESEARCH_PARTS * guardrails.MAX_CONTENT_CHARS + 1)
+        self.assertEqual(guardrails.check("research", "Toilets?", huge, assessor=allow).reason, "invalid_content")
+        self.assertEqual(guardrails.check("output", "Toilets?", page, assessor=allow).reason, "invalid_content")
+
     def test_clarify_allows_an_answer_but_not_a_question_or_a_source(self):
         # For an answer, CLARIFY means "in scope, the question was vague"; a source or a
         # question needs ALLOW.

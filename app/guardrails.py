@@ -11,6 +11,12 @@ from tracing import observation
 
 MAX_QUESTION_CHARS = 2000
 MAX_CONTENT_CHARS = 24000
+# A researched page longer than one check is checked in parts, each with the
+# whole policy; past this many parts it is refused as too long. (Refusing
+# anything over 24,000 characters dropped Network Rail's 27,000-character
+# Birmingham New Street station guide.)
+MAX_RESEARCH_PARTS = 4
+PART_OVERLAP = 500
 MAX_PREVIOUS = 3   # earlier questions the input check sees to read a follow-up
 BLOCK_MESSAGE = "I can help with questions about trains in the UK and about the weather. Please ask about one of those."
 CLARIFY_MESSAGE = "Please clarify your question about UK train travel or the weather, for example the station, route or place."
@@ -174,6 +180,15 @@ def check(stage: Literal["input", "output", "research"], question: str, content:
 
     if not isinstance(question, str) or not question.strip() or len(question) > MAX_QUESTION_CHARS:
         return verdict("BLOCK", "invalid_question", scope.block_message)
+    if stage == "research" and isinstance(content, str) and MAX_CONTENT_CHARS < len(content) \
+            <= MAX_RESEARCH_PARTS * (MAX_CONTENT_CHARS - PART_OVERLAP):
+        step = MAX_CONTENT_CHARS - PART_OVERLAP
+        parts = [content[i:i + MAX_CONTENT_CHARS] for i in range(0, len(content), step)]
+        for n, part in enumerate(parts, 1):
+            checked = check(stage, question, part, assessor, scope)
+            if not checked.allowed:
+                return verdict(checked.decision, f"part {n} of {len(parts)}: {checked.reason}", checked.message)
+        return verdict("ALLOW", f"all {len(parts)} parts allowed: {checked.reason}")
     if not isinstance(content, str) or len(content) > MAX_CONTENT_CHARS or (stage != "input" and not content.strip()):
         return verdict("BLOCK", "invalid_content", scope.output_message)
     if SECRET.search(question + "\n" + content):

@@ -11,7 +11,7 @@ import threading
 import unittest
 import urllib.error
 import uuid
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from langgraph.checkpoint.memory import MemorySaver
 import agent
@@ -40,6 +40,26 @@ class SourceValidation(unittest.TestCase):
                                     assessor=assessments(), now=NOW)
         self.assertEqual(result["accepted"], 1)
         self.assertTrue(result["sources"][0]["accepted"])
+
+    def test_the_validator_sees_the_passages_that_name_what_is_missing(self):
+        """Birmingham New Street: the toilets section started at character 5,944, after the 2,500 shown."""
+        page = ("Birmingham New Street. A major transport hub. " * 40 + "Ticket office hours. " * 200
+                + "Toilets: male, female and accessible toilets between platforms 2 and 3a. " + "Car parking. " * 300)
+        terms = research._terms(["Toilet facilities at Birmingham New Street station"], )
+        self.assertIn("toilet", terms)
+        shown = research.excerpt_for(page, terms)
+        self.assertLessEqual(len(shown), research.MAX_PROMPT_CHARS + 20)
+        self.assertTrue(shown.startswith("Birmingham New Street."))
+        self.assertIn("accessible toilets between platforms 2 and 3a", shown)
+        self.assertIn("[…]", shown)
+        self.assertEqual(research.excerpt_for("A short page.", terms), "A short page.")
+        prompts = []
+        reply = Mock(tool_input={"sources": []}, usage={"input_tokens": 0, "output_tokens": 0})
+        with patch.object(research.llm, "call_tool", side_effect=lambda prompt, **k: prompts.append(prompt) or reply):
+            research.assess_with_llm("Are there toilets at Birmingham New Street?",
+                                     ["Toilet facilities at Birmingham New Street station"],
+                                     [{**source("https://www.networkrail.co.uk/x"), "text": page}])
+        self.assertIn("between platforms 2 and 3a", prompts[0])
 
     def test_official_domain_raises_authority(self):
         result = research.validate("visa?", [], [source("https://www.bmeia.gv.at/en/visa")],
