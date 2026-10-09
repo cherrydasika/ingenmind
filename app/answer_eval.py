@@ -244,7 +244,10 @@ def evaluate(question: str, answer: str, chunks: list[dict], api_results: list[d
     if answer_type == "conversational":
         checked = ["faithfulness"]   # no claims about the world to be correct, complete or cited
     else:
-        checked = [k for k in THRESHOLDS if not (k == "completeness" and answer_type != "answer"
+        # An honest "not available" or a clarifying question that claims nothing
+        # unsupported has nothing to complete or cite: the model sometimes still
+        # scores its citations 0, which blocked the most honest answers.
+        checked = [k for k in THRESHOLDS if not (k in ("completeness", "citation_quality") and answer_type != "answer"
                                                  and not assessment.unsupported_claims)]
     failed_on = [k for k in checked if scores[k] < limits[k]]
     return AnswerEvaluation(
