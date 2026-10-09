@@ -18,6 +18,16 @@ recreated here (#1–#19, renumbered; the finished ones closed) and the
 backlog became issues #20–#39; earlier pull requests are cited as "PR N
 (earlier repository)".
 
+**Handover (2026-10-09, 11:40):** the user continues from another
+account. Open: PR #40 (this renumbering; the user merges); #16 waiting for
+the user's answers to the four questions in
+[docs/plans/evaluation.md](docs/plans/evaluation.md); #26 before any
+deploy from here. EC2 was left **running** (stop it with
+`scripts/aws/session.sh stop`). Local secrets (`.env`, `.env.aws`) and
+`DEPLOYMENT.local.md` exist only in the maintainer's checkout
+(`~/Documents/code/personal/ingenmind`); a fresh clone needs its own
+`.env` from `.env.example`.
+
 **Active work:** epic #19, RAG Initialization Agent (issues #9–#18, in
 order). Done and deployed: #9 (`6fb6ade`), #10 (`5eb3452`), #11
 (`09e30ff`), #12 (source discovery and selection, `78d8990`), #13 (source
