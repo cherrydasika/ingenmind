@@ -11,79 +11,95 @@ Last updated: 2026-10-09
 `rag_systems_cloud` is archived with the full history. Identifiers of the
 maintainer's deployment are placeholders here (`<instance-id>`,
 `<account-id>`…), real values in the git-ignored `DEPLOYMENT.local.md`.
-Deploying from `ingenmind` works since #26 (2026-10-09): its Actions
-variables are set, the publish role (Terraform) and the plan role (made by
-hand) trust its `main` branch with GitHub's immutable subject (owner and
-repository IDs), `AGENT_HARNESS_ARN` is in the EC2 settings, and the first
-publish and deploy (`aaabad7`) were checked. Issues were
-recreated here (#1–#19, renumbered; the finished ones closed) and the
-backlog became issues #20–#39; earlier pull requests are cited as "PR N
-(earlier repository)".
+Issues were recreated here (#1–#19, renumbered; the finished ones closed)
+and the backlog is the open issues (#20 on); earlier pull requests are
+cited as "PR N (earlier repository)". `main` is protected (#24): pull
+requests only, CI must pass, also for admins.
 
-**Handover (2026-10-09, 11:40):** the user continues from another
-account. Open: #15 next; #26 before any
-deploy from here. EC2 was left **running** (stop it with
-`scripts/aws/session.sh stop`). Local secrets (`.env`, `.env.aws`) and
-`DEPLOYMENT.local.md` exist only in the maintainer's checkout
-(`~/Documents/code/personal/ingenmind`); a fresh clone needs its own
-`.env` from `.env.example`.
+**Product:** the app and README present it as **IngenMind — "one tool for
+information retrieval, with agents at every step"** (PRs #50–#52): the
+sidebar, sign-in and tab titles say IngenMind ("Retrieval with agents");
+the README opens with the product pitch, the agents, how it works, and
+fresh screenshots (#37). Internal names (Compose project, AWS resources,
+Langfuse project) stay `rag-systems`. The website (ingenmind.tech) did not
+answer yet on 2026-10-09, so it is not linked.
 
-**Active work:** epic #19, RAG Initialization Agent (issues #9–#18, in
-order). Done and deployed: #9 (`6fb6ade`), #10 (`5eb3452`), #11
-(`09e30ff`), #12 (source discovery and selection, `78d8990`), #13 (source
-analysis and content selection, approval 2, `e91cc18`; plan in
-[docs/plans/content-selection.md](docs/plans/content-selection.md)).
-#14 (ingestion plan and Build RAG, `642a486`; plan in
-[docs/plans/ingestion-plan.md](docs/plans/ingestion-plan.md)).
-**Done: #16, evaluation set from the blueprint, run per knowledge area**
-(merged as `13f8501`, PR #41; plan:
-[docs/plans/evaluation.md](docs/plans/evaluation.md)). After the build,
-setup publishes a candidate flow (not live), writes `setup_evaluation`
-from the blueprint, runs it on request and reports metrics per knowledge
-area on the setup page. **Evaluations never ingest.** User's rule
-(2026-10-09): nothing goes into the database without their approval or
-rejection, in the front end; for now research during users' questions
-still ingests automatically. **Deployed** on EC2 as `aaabad7` (2026-10-09,
-with #26). **Done: #17, readiness report, gaps and go live** (PRs #45 and #46,
-merged as `9019abd`, deployed on EC2; plan:
-[docs/plans/readiness.md](docs/plans/readiness.md)): five computed scores
-with their definitions, the overall score (their mean), gaps per area with
-actions, Go live (a current evaluation is required; gaps must be
-confirmed; recorded with what it replaced), and a Setup card on Home.
-**Next:** #15. Locally, model calls and web
-search work (`.env`: `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local`,
-`TAVILY_API_KEY`); the local install is at `EVALUATING`: plan 4 (National Rail's
-Railcards and Help and assistance, 17 pages) built, 49 chunks; its
-evaluation set is prepared (candidate flow `setup_uk_train_information`
-v4, not live). The local database is still the Compose project
-`rag_systems_cloud` (from the archived checkout): run Compose here with
-`-p rag_systems_cloud` to use it. The local web app is off; local pgvector left
-running. Identity work (nearly done):
-[docs/plans/identity-sessions-memory.md](docs/plans/identity-sessions-memory.md).
-Agents of any kind: start from [AGENTS.md](AGENTS.md).
-**Not started yet:** [docs/BACKLOG.md](docs/BACKLOG.md).
-**Done (PR 2 (earlier repository), merged 2026-10-07):** visual refresh and mobile layout.
-Open from it: the flow builder's group labels are still all caps (React
-bundle, `web/flows-app/src/flows.css`, needs a rebuild).
+**Deploying (#25, since 2026-10-09):** merging a pull request into `main`
+is the whole process. CI ("Terraform and app checks") runs, then **Publish
+reviewed source archive** uploads the commit, then **Deploy to EC2** deploys
+it through Systems Manager, all by themselves. There is no second approval:
+the reviewed, merged pull request is the user's approval (their choice).
+The deployer role (`infra/terraform/deploy.tf`) trusts only the
+`production` environment (only `main` may use it) and may only run the
+`rag-systems-deploy` command document (`deploy.sh` for a full commit SHA)
+on the app instance. A deploy to a stopped EC2 fails and says so. If CI
+fails on a merge for a reason outside the code (Docker Hub was slow), re-run
+the failed job and publish and deploy follow. CI pulls its pgvector image
+from Docker Hub signed in (`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`
+secrets). Tunnels close after 60 minutes idle (was 20).
+
+**Active work:** epic #19, RAG Initialization Agent. Done and deployed:
+#9–#14 (the conversation, blueprint, sources, content and the build; plans
+in [docs/plans/](docs/plans/)), **#16** evaluation from the blueprint, per
+knowledge area ([plan](docs/plans/evaluation.md); evaluations never
+ingest), and **#17** readiness report, gaps and Go live
+([plan](docs/plans/readiness.md)). **Next: #15** (knowledge metadata from
+the blueprint, used by retrieval), paused at the user's request; nothing of
+it is written yet.
+
+**Fixes on 2026-10-09** (deployed):
+- PR #48: an honest "not available" answer passes the answer check (it is
+  not judged on citations), and the supervisor no longer adds referrals
+  the evidence does not name ("contact National Rail…"). Those blocked
+  "toilets at Birmingham station?" and "train strikes tomorrow?" with the
+  standard failure message.
+- PR #49: research could not use long pages. The source validator saw only
+  a page's first 2,500 characters (Network Rail's Birmingham New Street
+  toilets were at 5,944), and the research guardrail refused anything over
+  24,000 characters unread. The validator now sees the page's start plus
+  the passages about what is missing, and the guardrail checks long pages
+  in parts.
+
+**The user's rules (2026-10-09):** nothing goes into the knowledge base
+without the user's approval or rejection, in the front end (evaluations
+already never ingest). **For now research during users' questions still
+ingests automatically**, as the user asked: approving researched pages in
+the app is planned (on the README roadmap), not yet an issue.
+
+**Locally:** the checkout is `~/Documents/code/personal/ingenmind`; its
+database is still the Compose project `rag_systems_cloud` (from the
+archived checkout), so run Compose with `-p rag_systems_cloud`. Model calls
+and web search work (`.env`: `LLM_PROVIDER=anthropic`,
+`EMBEDDING_PROVIDER=local`, `TAVILY_API_KEY`). The install is at
+`EVALUATING` (plan 4: National Rail's Railcards and Help and assistance,
+49 chunks; readiness 81%, 4 gaps; candidate flow
+`setup_uk_train_information` v4, not live). The web app and worker were
+left running for the user; pgvector always stays running. Agents of any
+kind: start from [AGENTS.md](AGENTS.md); the backlog is the open issues
+([docs/BACKLOG.md](docs/BACKLOG.md)).
 
 ## Current state
 
 - EC2 `<instance-id>` (eu-west-2) was **running** on 2026-10-09
   (stop it with `session.sh stop` when done). Its active release is
-  `9019abd` (#17: readiness and Go live; #16 and #26 before it; unused there
-  since EC2 is READY/existing with its 5 URLs; the live flow is unchanged)
+  `37a819c` (PR #54, deployed by GitHub Actions; #16, #17, #25, the two
+  research fixes and the rebrand before it; setup there is READY/existing
+  with its 5 URLs, so the setup steps don't show until #39; the live flow
+  is unchanged).
   Sign-in is Amazon Cognito (AUTH_MODE=oidc); the first account,
   `admin@example.com`, works, and sign-out ends the Cognito session too.
 - The live flow on EC2 is `travel_assistant` **v3** (UK trains and weather
   scope, UK rail supervisor); v0 (built-in), v1 and v2 stay in its history.
   Flow versions live in the EC2 database, not in git.
-- Deploying a commit: push to `main`; when CI passes, the **Publish
-  reviewed source archive** workflow publishes that commit by itself (since
-  2026-10-07; a commit CI skipped is published by the user with
-  `gh workflow run publish-source.yml --ref main -f confirmation=PUBLISH`),
-  then `deploy.sh <SHA>` on EC2 through SSM.
+- Deploying a commit: merge it into `main`; CI, publish and **Deploy to
+  EC2** run by themselves (see "Deploying" above). A commit CI skipped (docs
+  only) is not published or deployed; the user publishes one by hand if
+  needed (`gh workflow run publish-source.yml --ref main -f
+  confirmation=PUBLISH`), which then deploys by itself.
 - Access is private through SSM port forwarding: app on `localhost:28000`,
-  Langfuse on `localhost:23000`. Sessions close after 20 minutes idle.
+  Langfuse on `localhost:23000`. Sessions close after 60 minutes idle
+  (Session Manager preferences, #25). Open the app at `localhost`, not
+  `127.0.0.1`: Cognito only accepts returning to `localhost`.
 - AWS CLI profile for this account: `personal`.
 
 ## RAG app on EC2
@@ -204,22 +220,26 @@ bundle, `web/flows-app/src/flows.css`, needs a rebuild).
 
 ### Open
 
-- [ ] Rotate the Langfuse secrets (they match the local development `.env`)
-- [ ] EBS snapshot, restore test, backup frequency
+- [ ] Rotate the Langfuse secrets (they match the local development `.env`) (#21)
+- [ ] EBS snapshot, restore test, backup frequency (#22)
 - [x] Guardrails behind the rails: enforced server-side on every question,
   answer and research source (`app/guardrails.py`), whatever a flow contains
 - [ ] Knowledge base gaps for UK stations: answers about station facilities
   (for example London Victoria's toilets) say the knowledge base has
   nothing; St Pancras is covered. Ingest station facility pages (National
-  Rail) for the main stations
+  Rail) for the main stations (#35). Since PR #49 research can add a
+  station's page when someone asks (Birmingham New Street: Network Rail's
+  page and station guide pass validation)
 - [ ] Sources list on the Retrieval page shows only the page path; add the
-  site's domain
-- [ ] Retake `docs/images/multi-agent-answer.png` and
-  `docs/images/flow-builder.png` (both show the old layouts)
-- [ ] Local model calls fail (`classifier_unavailable` on the local stack):
+  site's domain (#36)
+- [x] Retake `docs/images/multi-agent-answer.png` and
+  `docs/images/flow-builder.png` (#37, PRs #51 and #52; plus
+  `setup-readiness.png` and a new `flow-evaluation.png`)
+- [x] Local model calls fail (`classifier_unavailable` on the local stack):
   `.env` sets no `LLM_PROVIDER`, so it defaults to Bedrock with no AWS
   credentials; the Anthropic key is set. Add `LLM_PROVIDER=anthropic` (and
-  an embedding provider that matches the local vectors) to `.env`
+  an embedding provider that matches the local vectors) to `.env`. Done:
+  `.env` sets `LLM_PROVIDER=anthropic` and `EMBEDDING_PROVIDER=local`
 - [x] Weather tool: Open-Meteo's geocoder found nothing for "Leeds, UK"
   (found in the first full agent trace; the agent retried with "Leeds").
   The tool now searches the name before the first comma, within the country
@@ -229,18 +249,21 @@ bundle, `web/flows-app/src/flows.css`, needs a rebuild).
   Austria", "Inverness, Scotland". A region alone with no country
   ("Newark, Nottinghamshire") still gets the most populous match worldwide
 - [ ] Langfuse v4 (events-only mode) has no public traces or scores API;
-  read scores in the UI or ClickHouse
+  read scores in the UI or ClickHouse. On EC2 a trace's steps are in
+  ClickHouse table `events_full` (`trace_id`, `name`, `input`, `output`),
+  as used on 2026-10-09 to find why answers failed
 - [ ] AgentCore harness reports token usage only on an agent's final
   (end_turn) invocation, not on turns that stop for a tool call (seen in the
   first EC2 trace: 0/0 tokens on tool turns). Flow metrics' token totals on
   EC2 undercount for the same reason. Inspect the raw stream for where the
-  usage of tool-call turns goes
+  usage of tool-call turns goes (#27)
 - [ ] After a reload the workflow graph cannot show which evidence branch
-  was taken (the saved public result has no decision)
+  was taken (the saved public result has no decision) (#28)
 - [ ] Public access prerequisites: authentication, domain and HTTPS, inbound
   path, public IP decision, alarms and logs, Terraform plan and security
-  review
-- [ ] Optional: one-click GitHub Actions deploy; longer SSM idle timeout
+  review (#23)
+- [x] GitHub Actions deploy and a longer SSM idle timeout (#25, PRs #53 and
+  #54): merging deploys by itself; tunnels close after 60 minutes idle
 
 ## agentcore-kb (Bedrock AgentCore agent over the EC2 knowledge base)
 
