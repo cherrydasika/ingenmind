@@ -39,14 +39,15 @@ analysis and content selection, approval 2, `e91cc18`; plan in
 plan: [docs/plans/evaluation.md](docs/plans/evaluation.md)). The user took
 all four recommendations (3 questions per area; prepared by itself after
 the build, run on request; a candidate flow, not live until Go live; drop
-ungrounded questions). **Phases 2 and 3 done** on branch
+ungrounded questions). **Phases 2–4 done** on branch
 `init/evaluation` (draft PR #41, based on `docs/issue-numbers`): the
 candidate flow, the dataset builder, the run against the candidate flow
-and metrics per knowledge area; 382 tests pass; live on the local build.
+metrics per knowledge area, and the Evaluation card on the setup page
+(checked in the browser); 382 tests pass; live on the local build.
 **Evaluations never ingest.** User's rule (2026-10-09): nothing goes into
 the database without their approval or rejection, in the front end. For
-now research during users' questions still ingests automatically. **Phase 4
-next** (the Evaluation part of the setup page). Locally, model calls and web
+now research during users' questions still ingests automatically. **Phase 5
+next** (docs, PR ready for review, deploy). Locally, model calls and web
 search work (`.env`: `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local`,
 `TAVILY_API_KEY`); the local install is at `EVALUATING`: plan 4 (National Rail's
 Railcards and Help and assistance, 17 pages) built, 49 chunks; its

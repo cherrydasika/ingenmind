@@ -1,7 +1,7 @@
 # Plan: evaluation set from the blueprint, run per knowledge area
 
-Status: **Phase 3 done (the run and per-area metrics) — waiting for the
-user's check before phase 4** (the Evaluation part of the setup page).
+Status: **Phase 4 done (the Evaluation part of the setup page) — waiting
+for the user's check before phase 5** (docs, PR ready for review, deploy).
 Branch `init/evaluation`, draft PR #41. Update this file at the end of
 every step: tick what is done, note what was found, say what comes next.
 
@@ -196,8 +196,30 @@ today.
   - Tests: 382 pass (new: expectations by kind, per-area summary, a setup
     run end to end, one run at a time, the agent's page metrics, an
     evaluation run that never ingests).
-- [ ] **4. The Evaluation part of the setup page**, and the new fields on
+- [x] **4. The Evaluation part of the setup page**, and the new fields on
   the Evaluations page, checked in the browser. Stop.
+  - Setup page (`web/static/js/setup.js`): at `EVALUATING` a full-width
+    **Evaluation** card under the Build step. While questions are written:
+    a spinner (the page polls). Once ready: the questions by area (with
+    each expected page), the questions left out and why, the candidate
+    flow (not live), a link to edit the set on the Evaluations page, **Run
+    the evaluation** with an estimate, and **Write the questions again**.
+    While it runs: progress. Then the results: how many met their
+    expectation, the per-area table, what the columns mean, and each
+    question's outcome (page found or cited, tools, the answer).
+  - `web/static/js/eval_areas.js`: the per-area table and its definitions,
+    shared with the Evaluations page (`flow_evals.js`). That page shows
+    each question's area, kind and expected page, whether the page was
+    found or cited, and the table per version. Editing a set as text keeps
+    a question's kind, area and expected page while its text is unchanged
+    (before, saving the setup set there would have dropped them).
+  - Checked in Chrome (headless, `playwright-core` from the scratchpad)
+    against the local build at 1360 px and 390 px: no page errors, no
+    sideways page scroll; on a phone the area table scrolls inside its
+    box. The first layout put the table in the narrow column, which hid
+    two metrics, so the card now spans the page. The local run shown was
+    scored before phase 3's last fixes (the refunds "not available" shows
+    as expected; a new run counts it as a miss).
 - [ ] **5. Docs, PR, deploy.**
 
 ## The user's answers (2026-10-09): the recommendations, all four

@@ -4,6 +4,7 @@
 // the server one question at a time; this card polls while any is going.
 
 import { api } from "./api.js";
+import { KIND_LABEL, areaTable } from "./eval_areas.js";
 import { badge, card, errorBox, fmtTime, h, markdown } from "./ui.js";
 
 const POLL_MS = 3000;
@@ -25,6 +26,19 @@ function parseQuestions(text) {
     const blocked = /^\[blocked\]\s*/i.test(line);
     const [question, expected = ""] = line.replace(/^\[blocked\]\s*/i, "").split(/\s*=>\s*/, 2);
     return { question, expected, expect_blocked: blocked };
+  });
+}
+
+// What a set setup wrote keeps per question (kind, area, expected page): the text
+// cannot show them, so a line whose question is unchanged keeps them.
+const KEPT = ["kind", "area", "expected_source"];
+const sameQuestion = (text) => text.trim().toLowerCase().replace(/\s+/g, " ");
+
+function withKeptFields(questions, original = []) {
+  const known = new Map(original.map((q) => [sameQuestion(q.question), q]));
+  return questions.map((q) => {
+    const before = known.get(sameQuestion(q.question));
+    return before ? { ...Object.fromEntries(KEPT.filter((k) => before[k]).map((k) => [k, before[k]])), ...q } : q;
   });
 }
 
@@ -121,7 +135,7 @@ export class FlowEvals {
     this.error = null;
     try {
       const saved = await api.evalSaveSet({ id: this.editor.id.trim(), name: this.editor.name.trim() || this.editor.id.trim(),
-        questions: parseQuestions(this.editor.text) });
+        questions: withKeptFields(parseQuestions(this.editor.text), this.editor.original) });
       this.sets = await api.evalSets();
       this.form.set = saved.id;
       this.editor = null;
@@ -185,8 +199,9 @@ export class FlowEvals {
 
   async openEditor(set) {
     this.editor = set && !set.builtin
-      ? { id: set.id, name: set.name, text: questionsText(set.questions), existing: true }
-      : { id: "", name: "", text: set ? questionsText(set.questions) : "", existing: false };
+      ? { id: set.id, name: set.name, text: questionsText(set.questions), existing: true, original: set.questions }
+      : { id: "", name: "", text: set ? questionsText(set.questions) : "", existing: false,
+          original: set ? set.questions : [] };
     if (this.archive === null) this.archive = await api.evalArchive().catch(() => []);
     this.render();
   }
@@ -207,7 +222,9 @@ export class FlowEvals {
       h("textarea", { class: "fe-text", rows: 10, oninput: (ev) => { e.text = ev.target.value; } }, e.text),
       h("p", { class: "faint" }, "One question per line. Add ", h("code", {}, "=> expected answer"),
         " to show a reference beside the answers; start a line with ", h("code", {}, "[blocked]"),
-        " for a question the guardrail should refuse. At most 50."),
+        " for a question the guardrail should refuse. At most 50.",
+        e.original?.some((q) => q.kind) ? " Setup wrote this set: a question you leave unchanged keeps its knowledge "
+          + "area, what it tests and the page it expects." : null),
       h("div", { class: "fe-run" },
         h("button", { type: "button", class: "btn btn-sm", onclick: () => this.saveSet() }, "Save set"),
         h("button", { type: "button", class: "btn btn-ghost btn-sm", onclick: () => { this.editor = null; this.render(); } }, "Cancel")));
@@ -277,11 +294,16 @@ export class FlowEvals {
       if (!r) return h("td", { class: "eval-cell pending" }, ACTIVE.has(run.status) && run.completed === i ? h("span", { class: "spinner" }) : "—");
       const kind = r.failed ? ["failed", "err"] : r.input_blocked ? ["input blocked", "warn"] : r.output_blocked ? ["output blocked", "warn"]
         : r.passed === true ? ["passed", "ok"] : r.passed === false ? ["failed check", "err"] : ["not evaluated", "neutral"];
+      const pages = r.expected_retrieved === null || r.expected_retrieved === undefined ? null
+        : r.expected_retrieved ? (r.expected_cited ? "expected page found and cited" : "expected page found, not cited")
+        : "expected page not found";
       return h("td", { class: "eval-cell" },
         h("div", { class: "fe-result" }, badge(kind[0], kind[1]),
           r.expectation_met === false ? badge("unexpected", "err") : null,
           r.overall !== null ? h("span", { class: "faint" }, ` overall ${num(r.overall)}`) : null,
           h("span", { class: "faint" }, ` · ${fmtTime(r.seconds)}`)),
+        pages || r.live_tools?.length ? h("div", { class: "faint" },
+          [pages, r.live_tools?.length ? `tools: ${r.live_tools.join(", ")}` : null].filter(Boolean).join(" · ")) : null,
         r.failed_on?.length ? h("div", { class: "faint" }, `below threshold: ${r.failed_on.join(", ")}`) : null,
         r.answer ? h("details", { class: "fe-answer" }, h("summary", {}, plain(r.answer).slice(0, 110) + (plain(r.answer).length > 110 ? "…" : "")),
           h("div", { class: "eval-answer", html: markdown(r.answer) })) : null);
@@ -291,15 +313,22 @@ export class FlowEvals {
       h("tbody", {}, questions.map((q, i) => h("tr", {},
         h("td", { class: "eval-q" }, h("div", {}, h("span", { class: "faint" }, `${i + 1}. `), q.question,
           q.expect_blocked ? h("span", { class: "faint" }, " · should be blocked") : null),
+          q.kind || q.area ? h("div", { class: "faint" }, [q.area?.replace(/_/g, " "), KIND_LABEL[q.kind] || q.kind]
+            .filter(Boolean).join(" · "), q.expected_source ? [" · ", h("a", { href: q.expected_source, target: "_blank",
+            rel: "noopener" }, "expected page")] : null) : null,
           q.expected ? h("details", { class: "sources" }, h("summary", {}, "Expected"), h("div", { class: "details-body eval-answer", html: markdown(q.expected) })) : null),
         runs.map((r) => cell(r, i)))))));
 
+    const byArea = runs.filter((r) => r.summary?.areas).map((r) => h("div", { class: "stack" },
+      h("h3", {}, `By knowledge area · ${versionLabel(r.version)}`), areaTable(r.summary.areas)));
     return h("section", { class: "section" },
       h("div", { class: "section-head" }, h("h2", {}, `${runs[0].set_name} · ${runs[0].flow_id}`),
         active ? h("button", { type: "button", class: "btn btn-ghost btn-sm", onclick: () => this.cancel() }, "Cancel") : null,
         h("a", { class: "btn btn-ghost btn-sm", href: "#/flows" }, "Open the flow builder")),
       h("p", { class: "section-desc" }, "Best value per row is highlighted. ‘Expectations met’: answered and passed the answer evaluator, "
-        + "or blocked when the question should be. Make the winner live from the flow builder's History."),
-      summary, table);
+        + "or blocked when the question should be; a question setup wrote is judged by what it tests (an answer from "
+        + "the pages, “not available” for an area with no pages, a live tool, or a refusal). Make the winner live "
+        + "from the flow builder's History."),
+      summary, ...byArea, table);
   }
 }
