@@ -1,9 +1,10 @@
 # Plan: readiness report, gaps and go live
 
-Status: **Phase 3 done (Go live) — waiting for the user's check before
-phase 4** (the UI). Branch `init/readiness`, draft PR #45. Update this file
-at the end of every step: tick what is done, note what was found, say what
-comes next.
+Status: **Phase 4 done (the UI) — waiting for the user's check before
+phase 5** (docs, PR ready for review, deploy). Phase 2 merged in PR #45;
+phases 3–4 on branch `init/readiness-go-live`, draft PR #46. Update this
+file at the end of every step: tick what is done, note what was found, say
+what comes next.
 
 GitHub: issue #17, part of epic #19 (RAG Initialization Agent); builds on
 #16 (the evaluation: setup is at `EVALUATING` with a candidate flow, a set
@@ -146,8 +147,28 @@ the current preparation, the run-based scores and the overall score are
     gaps; it needs a current evaluation; a flow that cannot run does not
     go live; a race puts the live flow back; the acceptance check; the
     API). Full suite: 393 pass.
-- [ ] **4. UI**: the readiness report on the setup page, the Go live step,
+- [x] **4. UI**: the readiness report on the setup page, the Go live step,
   the Home card, checked in the browser. Stop.
+  - Setup page (`setup.js`): at `EVALUATING` a full-width **Readiness**
+    card under the Evaluation card. It shows the five scores (value,
+    numbers, definition), the overall score with its working, and the gaps
+    by area, each with its suggestion and a button: Review sources, Review
+    content, Review the blueprint, or Run the evaluation, which scrolls to
+    it. **Go live** is disabled without a current evaluation; with gaps it
+    first asks to confirm them, naming the flow that goes live and that the
+    current one stays in its History. At `READY` the **Live** card shows
+    since when, the flow and the one it replaced, and the scores and gaps
+    at that moment. Review sources and Review content say that users can't
+    ask questions until it goes live again.
+  - Home (`home.js`): a **Setup** card under "Knowledge system": ready,
+    being set up or not set up, the setup step, the readiness percentage
+    and gaps, and a link to setup (for those with `manage_settings`).
+  - Checked in headless Chrome at 1360 px and 390 px on the local build:
+    the report (overall 81%, 4 gaps), the confirmation (opened, then
+    cancelled), Home, no page errors, no sideways scroll. The Live card was
+    checked with the setup data intercepted in the browser and shown as if
+    it had gone live. Nothing was stored: the local install is still at
+    `EVALUATING`, and its live flow is unchanged.
 - [ ] **5. Docs, PR, deploy.**
 
 ## The user's answers (2026-10-09): the recommendations, all five

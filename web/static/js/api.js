@@ -117,6 +117,8 @@ export const api = {
   setupEvaluation: () => request("/api/setup/evaluation"),
   setupEvaluationPrepare: () => post("/api/setup/evaluation/prepare", {}),
   setupEvaluationRun: () => post("/api/setup/evaluation/run", {}),
+  setupReadiness: () => request("/api/setup/readiness"),
+  setupGoLive: (confirmGaps) => post("/api/setup/go-live", { confirm_gaps: Boolean(confirmGaps) }),
   provenance: (url) => request(`/api/knowledge/provenance?url=${encodeURIComponent(url)}`),
   overview: (force = false) => request(fresh("/api/overview", force)),
   ingestion: (force = false) => request(fresh("/api/ingestion", force)),
