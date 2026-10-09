@@ -1,10 +1,7 @@
 # Plan: readiness report, gaps and go live
 
-Status: **Phase 4 done (the UI) — waiting for the user's check before
-phase 5** (docs, PR ready for review, deploy). Phase 2 merged in PR #45;
-phases 3–4 on branch `init/readiness-go-live`, draft PR #46. Update this
-file at the end of every step: tick what is done, note what was found, say
-what comes next.
+Status: **Phases 1–5 done up to the deploy**: phase 2 merged in PR #45;
+phases 3–5 in PR #46, ready for review. Deploy after the user merges it.
 
 GitHub: issue #17, part of epic #19 (RAG Initialization Agent); builds on
 #16 (the evaluation: setup is at `EVALUATING` with a candidate flow, a set
@@ -170,6 +167,13 @@ the current preparation, the run-based scores and the overall score are
     it had gone live. Nothing was stored: the local install is still at
     `EVALUATING`, and its live flow is unchanged.
 - [ ] **5. Docs, PR, deploy.**
+  - [x] README: the Readiness and Go live step (the scores and their
+    definitions, the gaps and actions, Go live's conditions and record,
+    Home), the project layout.
+  - [x] PR #46 ready for review.
+  - [ ] Deploy after the user merges #46 (publishing from `ingenmind` works
+    since #26). On EC2 setup is `READY` with no setup origin, so the report
+    shows only once guided setup runs there (#39).
 
 ## The user's answers (2026-10-09): the recommendations, all five
 

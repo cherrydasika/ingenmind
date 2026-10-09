@@ -21,7 +21,7 @@ backlog became issues #20–#39; earlier pull requests are cited as "PR N
 (earlier repository)".
 
 **Handover (2026-10-09, 11:40):** the user continues from another
-account. Open: #17 (phases 2–4 done, draft PR #46); #26 before any
+account. Open: #17 (PR #46 ready for review); #26 before any
 deploy from here. EC2 was left **running** (stop it with
 `scripts/aws/session.sh stop`). Local secrets (`.env`, `.env.aws`) and
 `DEPLOYMENT.local.md` exist only in the maintainer's checkout
@@ -50,7 +50,8 @@ took all five recommendations. Phase 2 (scores and gaps,
 branch `init/readiness-go-live` (draft PR #46): Go live
 (`POST /api/setup/go-live`), the Readiness and Live cards on the setup page,
 and the Setup card on Home, checked in the browser; 393 tests pass; local
-build: overall 0.81. Phase 5 (docs, PR, deploy) next. Plan:
+build: overall 0.81. **Phase 5: docs done, PR #46 ready for review**;
+deploy after the user merges it. Plan:
 [docs/plans/readiness.md](docs/plans/readiness.md). Then #15. Locally, model calls and web
 search work (`.env`: `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local`,
 `TAVILY_API_KEY`); the local install is at `EVALUATING`: plan 4 (National Rail's
