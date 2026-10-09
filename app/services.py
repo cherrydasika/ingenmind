@@ -56,7 +56,7 @@ SERVICES = [
 SHORTCUTS = []
 
 PROJECT = [
-    ("🐙", "GitHub repository", "https://github.com/cherrydasika/rag_systems",
+    ("🐙", "GitHub repository", "https://github.com/cherrydasika/ingenmind",
      "Source code, commit history."),
     ("🔑", "Amazon Bedrock", "https://console.aws.amazon.com/bedrock/",
      "Managed model access and usage, when Bedrock is the LLM or embedding provider."),

@@ -80,7 +80,7 @@ function showSignIn(auth, reason) {
   clearInterval(statusTimer);
   document.getElementById("shell").hidden = true;
   document.getElementById("signin").hidden = false;
-  document.title = "Sign in · RAG Systems";
+  document.title = "Sign in · IngenMind";
   document.getElementById("signin-provider").textContent = auth ? `Using ${auth.provider}` : "";
   const error = document.getElementById("signin-error");
   error.textContent = reason || "";
@@ -235,7 +235,7 @@ async function route() {
   document.getElementById("page-title").textContent = current.title;
   document.getElementById("page-crumb").textContent = current.title;
   document.getElementById("page-group").textContent = group;
-  document.title = `${current.title} · RAG Systems`;
+  document.title = `${current.title} · IngenMind`;
   window.scrollTo(0, 0);
   await current.mount();
 }
