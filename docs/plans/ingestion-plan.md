@@ -1,6 +1,6 @@
 # Plan: ingestion plan and build (Build RAG)
 
-Status: **Done — merged in PR #35 (`642a486`) and deployed to EC2 on
+Status: **Done — merged in PR 35 (earlier repository) (`642a486`) and deployed to EC2 on
 2026-10-09.**
 The local install is at `EVALUATING`: plan 4 (National Rail: Railcards,
 refreshed every 30 days, and Help and assistance; 17 pages) built, 49
@@ -8,8 +8,8 @@ chunks. Branch `init/ingestion-plan`. Update this file at the end of every
 step: tick what is done, note what was found, say what
 comes next.
 
-GitHub: issue #22, part of epic #27 (RAG Initialization Agent); builds on
-#21 (setup is then at `AWAITING_CONTENT_SELECTION` with sections and pages
+GitHub: issue #14, part of epic #19 (RAG Initialization Agent); builds on
+#13 (setup is then at `AWAITING_CONTENT_SELECTION` with sections and pages
 chosen). Working agreement: phases with a stop at each; a branch and a pull
 request; the user merges (AGENTS.md).
 
@@ -35,7 +35,7 @@ and entry, which section, which source, who approved it and when.
   time (a unique index).
 - **The cap**: `enqueue_job` refuses more than `MAX_URLS_PER_JOB` (10)
   entries; the Ingestion tab's job takes the first 10 of `kb_urls`.
-- **Chosen content** (#21): `kb_content` sections with `status = selected`,
+- **Chosen content** (#13): `kb_content` sections with `status = selected`,
   their pages and `excluded_urls`, their areas, `kb_sources` for the sites.
 - **Removing pages** from the knowledge base exists on the Sources page
   (`/api/sources/remove`, by source URL).
@@ -96,7 +96,7 @@ kb_ingestion_plan_pages  version, position, url, source_id, content_id, section 
 - When no page is pending: `INGESTING → INDEXING`, a short indexing step
   (`ANALYZE` the chunk table, check every ingested page has chunks and
   vectors of the configured dimension), then `INDEXING → EVALUATING`. The
-  evaluation itself is #24; until then the page says the build is done and
+  evaluation itself is #16; until then the page says the build is done and
   evaluation follows.
 - The setup page polls the plan: pages done of total, by status, the
   failures with their reason, **Retry failed pages**.
@@ -241,16 +241,16 @@ review says how many), through the existing remove code.
     every 30 days; its TTL column 30. No console errors. Found: the
     chunk count beside the progress counts this build's chunks only
     (14, against 49 stored) — now "chunks written". The Retrieval page
-    does not answer until setup is live (#17), so **Why?** under an answer
-    is checked when #25 goes live. A reason stored before #21's fix still
+    does not answer until setup is live (#9), so **Why?** under an answer
+    is checked when #17 goes live. A reason stored before #13's fix still
     shows an area key until its site is analysed again.
 - [x] **5. Docs, PR.** README: guided setup gains the Build step; the
   scraper section says a setup build checks `robots.txt` page by page and
   the `ingest_urls` job does not; the Ingestion jobs say a setup-built
   install builds from its plan; Langfuse gains `ingestion_plan`; the layout
   gains `plan.py` and `build.py`.
-  - **For #24**: setup waits at `EVALUATING` after a build; the evaluation
-    set and run start from there. **For #25**: check **Why?** under a
+  - **For #16**: setup waits at `EVALUATING` after a build; the evaluation
+    set and run start from there. **For #17**: check **Why?** under a
     Retrieval answer once live.
 
 ## Open questions for the user

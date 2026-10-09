@@ -1,4 +1,4 @@
-"""Build RAG (epic #27, #22): an approved ingestion plan read into the
+"""Build RAG (epic #19, #14): an approved ingestion plan read into the
 knowledge base by the ingestion worker, and why each page is there.
 
     build_rag(version)   approve the reviewed plan (plan.approve), then start

@@ -3,20 +3,20 @@
 Status: **Phases 2–5 done; pull request open, waiting for the user to
 merge; then deploy (EC2 starts READY/existing, nothing reset there).** The local database was reset in phase 4 and stays empty
 and `NEW` (seeding the demo needs Bedrock credentials locally: backlog
-"Local model calls fail"), which is the starting point #18 needs. The user took every recommendation (2026-10-08): reset
-EC2 only once setup works (#18–#22); keep people's sessions and flow
+"Local model calls fail"), which is the starting point #10 needs. The user took every recommendation (2026-10-08): reset
+EC2 only once setup works (#10–#14); keep people's sessions and flow
 history on reset. Branch `kb/setup-state-and-reset`. Update this file
 at the end of every step: tick what is done, note what was found, say what
 comes next.
 
-GitHub: issue #17, part of epic #27 (RAG Initialization Agent). Working
+GitHub: issue #9, part of epic #19 (RAG Initialization Agent). Working
 agreement: phases with a stop at each; a branch and a pull request; the
 user merges (AGENTS.md).
 
 ## Goal
 
 One installation has **one knowledge system**. A fresh install is set up
-once by the Initialization Agent (#18 onwards); an admin can **reset** the
+once by the Initialization Agent (#10 onwards); an admin can **reset** the
 knowledge system to set it up again (another domain, or our own first real
 run). This issue adds what the later steps hang off: a stored setup state,
 the source list in the database instead of a file, and the reset.
@@ -50,13 +50,13 @@ the source list in the database instead of a file, and the reset.
 ### 1. The knowledge system record (`app/knowledge_system.py`, new)
 
 ```
-app_knowledge_system   one row: state, origin, blueprint_version (#19),
+app_knowledge_system   one row: state, origin, blueprint_version (#11),
                        set_up_at, set_up_by, urls_imported_at, updated_at
 app_knowledge_system_events   audit: event, user_id, at, details jsonb
 ```
 
-- `state`: the setup states (#18 adds the full machine): `NEW` and `READY`
-  now; the rest arrive with #18. `origin`: how it became ready — `existing`
+- `state`: the setup states (#10 adds the full machine): `NEW` and `READY`
+  now; the rest arrive with #10. `origin`: how it became ready — `existing`
   (set up before setup existed), `demo`, or `setup`.
 - **First run**: the row is created on first use. If the knowledge base
   already has chunks or URLs (every install today, including EC2), it
@@ -72,10 +72,10 @@ kb_urls   url (primary key), ttl_days, origin (import | plan | manual),
 
 - On first use, an existing `urls.json` is **imported once** (recorded in
   `urls_imported_at`); from then on `trigger()` reads `kb_urls`, not the
-  file. The 10-URL cap per job stays until the ingestion plan (#22).
+  file. The 10-URL cap per job stays until the ingestion plan (#14).
 - `urls.example.json` is not imported (it is a sample, not a choice).
 - `deploy.sh` keeps copying `urls.json` for now (harmless once imported);
-  removed in #22 when the plan owns the list.
+  removed in #14 when the plan owns the list.
 
 ### 3. Reset
 
@@ -100,7 +100,7 @@ facts expire on their own; noted as a limitation.
 - Questions (`/api/agent/*`, `/api/ask*`) answer "This knowledge system is
   being set up" instead of searching an empty knowledge base.
 - Admins (`manage_settings`) land on **Set up your knowledge system**: in
-  this issue a placeholder saying setup arrives with #18, with the state and
+  this issue a placeholder saying setup arrives with #10, with the state and
   the reset; other users see a "being set up" notice.
 
 ### 5. Admin page: **Knowledge system** (`manage_settings`)
@@ -211,12 +211,12 @@ reset runs on EC2 as part of this issue.
 ## Open questions for the user
 
 1. **When to reset EC2.** Recommended: not until setup itself works
-   (#18–#22), since after a reset the live assistant has nothing to answer
+   (#10–#14), since after a reset the live assistant has nothing to answer
    from until setup has built a new knowledge base. Locally I will reset
    freely to test.
 2. **Sessions on reset.** Recommended: keep people's past sessions (history)
    but clear the agents' own conversations and learnings. Or clear sessions
    too, for a completely clean start?
 3. **Flows on reset.** Recommended: keep flow versions (history); the
-   blueprint (#19) writes a new version for the new domain. The live flow
-   stays as it is until setup's "Go live" (#25).
+   blueprint (#11) writes a new version for the new domain. The live flow
+   stays as it is until setup's "Go live" (#17).

@@ -1,4 +1,4 @@
-"""Setup (the RAG Initialization Agent, epic #27): its state machine and its
+"""Setup (the RAG Initialization Agent, epic #19): its state machine and its
 conversation. Runs against its own database (needs the pgvector service).
 
     PYTHONPATH=app:dags python -m unittest -v app/test_setup.py

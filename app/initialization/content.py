@@ -1,7 +1,7 @@
-"""Content selection (epic #27, #21: approval 2): each chosen site's sections
+"""Content selection (epic #19, #13: approval 2): each chosen site's sections
 mapped to the blueprint, and the user's choice of exactly what goes in.
 
-For every source chosen in #20, in the background (site_map.analyse_site
+For every source chosen in #12, in the background (site_map.analyse_site
 reads it politely), then one forced-tool call maps its sections to the
 blueprint's knowledge areas, recommends the relevant ones and flags low-value
 content. Rules in code: flagged sections and those under MIN_RELEVANCE are not
@@ -17,7 +17,7 @@ are suggestions: the user ticks each, and may untick single pages in it.
 When every chosen site is analysed, setup moves from ANALYSING_SOURCES to
 AWAITING_CONTENT_SELECTION. Analysing again keeps the user's choices for the
 sections it finds again. Nothing is ingested here: that is the ingestion plan
-(#22).
+(#14).
 """
 
 import re

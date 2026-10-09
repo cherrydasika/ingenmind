@@ -1,4 +1,4 @@
-"""Running the Sources step of setup (#20: approval 1): discovery in the
+"""Running the Sources step of setup (#12: approval 1): discovery in the
 background, the user's choices, adding their own site, continuing.
 
     app_source_discoveries  one row per discovery run: status (researching |
@@ -10,7 +10,7 @@ done; it can be run again from there, keeping the user's choices. Only the
 user selects: recommended sites are suggestions. Nothing is scraped, except
 one request to check a site the user adds (and the research guardrail checks
 it fits the scope). Continuing needs a selected source and moves setup to
-ANALYSING_SOURCES, where #21 maps each chosen site's content.
+ANALYSING_SOURCES, where #13 maps each chosen site's content.
 """
 
 import re
@@ -178,7 +178,7 @@ def add_site(url: str, check=None, fetch=None) -> dict:
 
 
 def continue_(user_id: str | None = None) -> None:
-    """The chosen sources are final for now: on to analysing their content (#21)."""
+    """The chosen sources are final for now: on to analysing their content (#13)."""
     _selecting()
     if not any(s["status"] == "selected" for s in sources.list_sources()):
         raise ValueError("choose at least one source")

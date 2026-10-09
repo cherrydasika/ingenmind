@@ -1,4 +1,4 @@
-"""The Domain Blueprint: what the knowledge system covers (epic #27, #19).
+"""The Domain Blueprint: what the knowledge system covers (epic #19, #11).
 
 From the confirmed requirements (requirements.py) the setup agent researches
 the domain and writes a structured blueprint, grounded in pages it fetched:
@@ -16,8 +16,8 @@ the domain and writes a structured blueprint, grounded in pages it fetched:
     app_domain_blueprints  one row per version: status (researching | ready |
                            failed), the blueprint, the research behind it
 
-Everything later reads it: source discovery (#20), chunk metadata (#23), the
-flow's brief and scope, which areas go to live tools, the evaluation (#24).
+Everything later reads it: source discovery (#12), chunk metadata (#15), the
+flow's brief and scope, which areas go to live tools, the evaluation (#16).
 """
 
 import json

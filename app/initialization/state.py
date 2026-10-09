@@ -1,4 +1,4 @@
-"""The setup states and the transitions allowed between them (epic #27).
+"""The setup states and the transitions allowed between them (epic #19).
 
 Setup moves forward one state at a time; it may also go back to change the
 requirements (CLARIFYING) or the choices (source or content selection),

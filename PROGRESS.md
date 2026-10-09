@@ -13,17 +13,20 @@ maintainer's deployment are placeholders here (`<instance-id>`,
 `<account-id>`…), real values in the git-ignored `DEPLOYMENT.local.md`.
 Still to do for deploying from `ingenmind`: its GitHub Actions variables,
 the publish role's OIDC trust (`infra/terraform/main.tf`), and
-`AGENT_HARNESS_ARN` in the EC2 settings (SSM; the user adds it).
+`AGENT_HARNESS_ARN` in the EC2 settings (SSM; the user adds it). Issues were
+recreated here (#1–#19, renumbered; the finished ones closed) and the
+backlog became issues #20–#39; earlier pull requests are cited as "PR N
+(earlier repository)".
 
-**Active work:** epic #27, RAG Initialization Agent (issues #17–#26, in
-order). Done and deployed: #17 (`6fb6ade`), #18 (`5eb3452`), #19
-(`09e30ff`), #20 (source discovery and selection, `78d8990`), #21 (source
+**Active work:** epic #19, RAG Initialization Agent (issues #9–#18, in
+order). Done and deployed: #9 (`6fb6ade`), #10 (`5eb3452`), #11
+(`09e30ff`), #12 (source discovery and selection, `78d8990`), #13 (source
 analysis and content selection, approval 2, `e91cc18`; plan in
 [docs/plans/content-selection.md](docs/plans/content-selection.md)).
-#22 (ingestion plan and Build RAG, `642a486`; plan in
+#14 (ingestion plan and Build RAG, `642a486`; plan in
 [docs/plans/ingestion-plan.md](docs/plans/ingestion-plan.md)).
-**Now: #24, evaluation set from the blueprint, run per knowledge area**
-(done before #23 at the user's choice: #24 → #25 reaches go-live first) —
+**Now: #16, evaluation set from the blueprint, run per knowledge area**
+(done before #15 at the user's choice: #16 → #17 reaches go-live first) —
 phase 1 (plan: [docs/plans/evaluation.md](docs/plans/evaluation.md))
 written on branch `init/evaluation` (pushed, no pull request yet); waiting
 for the user's answers to its four open questions (recommendations given:
@@ -38,7 +41,7 @@ running. Identity work (nearly done):
 [docs/plans/identity-sessions-memory.md](docs/plans/identity-sessions-memory.md).
 Agents of any kind: start from [AGENTS.md](AGENTS.md).
 **Not started yet:** [docs/BACKLOG.md](docs/BACKLOG.md).
-**Done (PR #2, merged 2026-10-07):** visual refresh and mobile layout.
+**Done (PR 2 (earlier repository), merged 2026-10-07):** visual refresh and mobile layout.
 Open from it: the flow builder's group labels are still all caps (React
 bundle, `web/flows-app/src/flows.css`, needs a rebuild).
 
@@ -46,7 +49,7 @@ bundle, `web/flows-app/src/flows.css`, needs a rebuild).
 
 - EC2 `<instance-id>` (eu-west-2) was **running** on 2026-10-09
   (stop it with `session.sh stop` when done). Its active release is
-  `642a486` (#22: ingestion plan and Build RAG; #17–#21 before it; all
+  `642a486` (#14: ingestion plan and Build RAG; #9–#13 before it; all
   unused there since EC2 is READY/existing with its 5 URLs; the new tables
   and the `ingest_plan` job kind are created)
   Sign-in is Amazon Cognito (AUTH_MODE=oidc); the first account,
@@ -169,7 +172,7 @@ bundle, `web/flows-app/src/flows.css`, needs a rebuild).
   (`POST /api/sources/remove`, `web/static/js/source_picker.js`). Lets the
   user remove the Indian Railways pages on EC2 themselves (replaces phase
   3 of the assistant brief)
-- [x] **Data-source research** (issue #10, 2026-10-08, PRs #12–#15,
+- [x] **Data-source research** (issue #8, 2026-10-08, PRs 12–15 (earlier repository),
   deployed as `b0b7b3e`): a gap about live data profiles data sources
   (APIs, feeds, downloads), a judge recommends one with an integration
   sketch, reports and profiles are saved and reused, and the Ingestion tab

@@ -1,4 +1,4 @@
-"""Source discovery and the source registry (epic #27, #20: approval 1).
+"""Source discovery and the source registry (epic #19, #12: approval 1).
 
 From the confirmed Domain Blueprint the setup agent finds the sites that
 could feed the knowledge base; the user then chooses which to trust.
