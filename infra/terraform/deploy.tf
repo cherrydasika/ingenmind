@@ -1,7 +1,7 @@
 # Deploying from GitHub Actions (#25), and Session Manager preferences.
 #
 # The deploy workflow (.github/workflows/deploy.yml) runs after each publish,
-# once the user approves it in the protected "production" environment. It may
+# in the "production" environment, which only main may use. It may
 # do one thing on EC2: run scripts/aws/deploy.sh for a full commit SHA,
 # through the command document below. It cannot run any other command, on
 # any other instance.

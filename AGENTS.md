@@ -67,10 +67,10 @@ AWS publish role's trust of this repository (see PROGRESS.md).
 2. A commit CI skipped (docs only) is published by hand, and only the
    user does that (agents are not allowed to):
    `gh workflow run publish-source.yml --ref main -f confirmation=PUBLISH`
-3. The **Deploy to EC2** workflow then waits for the user's approval in the
-   `production` environment (GitHub → Actions), and deploys that commit
-   through Systems Manager once approved. Only the user approves. To deploy
-   another published commit, the user runs it by hand:
+3. The **Deploy to EC2** workflow then deploys that commit through Systems
+   Manager by itself: merging the reviewed pull request is the approval (the
+   user's choice), so there is no second approval. To deploy another
+   published commit, the user runs it by hand:
    `gh workflow run deploy.yml --ref main -f commit=<full SHA> -f confirmation=DEPLOY`
    (check: `gh run list --workflow deploy.yml`). The by-hand fallback, when
    Actions can't be used (profile `personal`, region `eu-west-2`, instance
