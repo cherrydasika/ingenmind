@@ -1,9 +1,9 @@
 # Plan: readiness report, gaps and go live
 
-Status: **Phase 2 done (scores and gaps) — waiting for the user's check
-before phase 3** (Go live). Branch `init/readiness`. Update this file at the
-end of every step: tick what is done, note what was found, say what comes
-next.
+Status: **Phase 3 done (Go live) — waiting for the user's check before
+phase 4** (the UI). Branch `init/readiness`, draft PR #45. Update this file
+at the end of every step: tick what is done, note what was found, say what
+comes next.
 
 GitHub: issue #17, part of epic #19 (RAG Initialization Agent); builds on
 #16 (the evaluation: setup is at `EVALUATING` with a candidate flow, a set
@@ -121,9 +121,31 @@ the current preparation, the run-based scores and the overall score are
     Live departures refused (no live tool). The local run was scored
     before #16's last expectation fix, so a new run may count one more
     miss.
-- [ ] **3. Go live**: the API, the conditions, the state move, the history
+- [x] **3. Go live**: the API, the conditions, the state move, the history
   record, tests. The acceptance check, run locally: going back to sources,
   adding a source, rebuilding and re-running updates the report. Stop.
+  - `readiness.go_live()` and `POST /api/setup/go-live {confirm_gaps}`.
+    Refused away from `EVALUATING`, without a finished run of the current
+    preparation ("what goes live is what was measured"), and with gaps
+    until confirmed (409, `confirm: true`). It makes the candidate flow
+    version live (`flows.store.set_live`, checked to compile), then
+    `EVALUATING → READY`. The state event records `went_live`: the flow
+    and version, the one it replaced, the overall score, the scores, the
+    gaps (area and kind), the run and the plan. If the state moved on
+    meanwhile, the previous live flow is put back. `report()` at `READY`
+    shows `went_live` (when, by whom, what).
+  - The acceptance check is an end-to-end test, not a run on the local
+    database. Adding a source and approving a rebuild are the user's
+    approvals to give (their rule: nothing goes into the database without
+    them). The test starts from an area with no source, then goes back to
+    sources, adds a site (stubbed fetch and scope check), analyses it, the
+    user chooses its section, rebuilds and evaluates again: the "no source"
+    gap is gone and source coverage is 3/3. The same can be done by hand
+    on the local build once the UI is in (phase 4).
+  - Tests: 6 more in `test_setup.Readiness` (go live after confirming the
+    gaps; it needs a current evaluation; a flow that cannot run does not
+    go live; a race puts the live flow back; the acceptance check; the
+    API). Full suite: 393 pass.
 - [ ] **4. UI**: the readiness report on the setup page, the Go live step,
   the Home card, checked in the browser. Stop.
 - [ ] **5. Docs, PR, deploy.**

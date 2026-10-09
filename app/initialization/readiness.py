@@ -4,7 +4,11 @@ each gap.
 
     report()   the scores, each with its definition and numbers; the overall
                score and its formula; the gaps per knowledge area, each with
-               a suggested action; whether the evaluation is current
+               a suggested action; whether the evaluation is current; at
+               READY, what went live
+    go_live()  the candidate flow the evaluation measured becomes what users
+               get, and EVALUATING → READY; refused without a current
+               evaluation, and with gaps until the user confirms them
 
 Scores, each 0–1 (None: not measured yet):
 
@@ -28,6 +32,7 @@ are answered by tools and only appear in the evaluation.
 
 import statistics
 
+import flows
 import knowledge_system
 from common import storage
 
@@ -192,4 +197,45 @@ def report() -> dict:
                        "flow_id": prepared.get("flow_id") if prepared else None,
                        "flow_version": prepared.get("flow_version") if prepared else None},
         "can_go_live": status["state"] == state.EVALUATING and run is not None,
+        "went_live": went_live() if status["state"] == state.READY else None,
     }
+
+
+# ---------- going live ----------
+
+class GapsNotConfirmed(ValueError):
+    """Going live with gaps needs the user to confirm them."""
+
+
+def went_live() -> dict | None:
+    """The latest go-live: when, by whom, the flow it made live and the one it replaced, the report then."""
+    event = next((e for e in knowledge_system.events(200) if e["event"] == "state"
+                  and (e["details"] or {}).get("to") == state.READY and (e["details"] or {}).get("went_live")), None)
+    return {"at": event["at"], "user_id": event["user_id"], **event["details"]["went_live"]} if event else None
+
+
+def go_live(user_id: str | None, confirm_gaps: bool = False, check=None) -> dict:
+    """Make the measured candidate flow live and move setup to READY; the report it went live with."""
+    current = report()
+    if current["state"] != state.EVALUATING:
+        raise state.TransitionNotAllowed("setup goes live from its evaluation")
+    if not current["can_go_live"]:
+        raise ValueError("run the evaluation on the current plan first: what goes live is what was measured")
+    if current["gaps"] and not confirm_gaps:
+        raise GapsNotConfirmed(f"there {'is' if len(current['gaps']) == 1 else 'are'} {len(current['gaps'])} "
+                               f"gap{'' if len(current['gaps']) == 1 else 's'}: confirm them to go live anyway")
+    builtin = flows.load_flow()
+    flow_id, version = current["evaluation"]["flow_id"], current["evaluation"]["flow_version"]
+    previous = flows.store.live_pointer() or {"flow_id": builtin.id, "version": 0}
+    flows.store.set_live(flow_id, version, builtin, check or evaluation._check_flow)
+    record = {"flow_id": flow_id, "flow_version": version,
+              "replaced": {"flow_id": previous["flow_id"], "version": previous["version"]},
+              "overall": current["overall"]["value"], "scores": {s["key"]: s["value"] for s in current["scores"]},
+              "gaps": [{"area": g["area"], "kind": g["kind"]} for g in current["gaps"]],
+              "run_id": current["evaluation"]["run_id"], "plan_version": current["plan_version"]}
+    try:
+        state.transition(state.READY, user_id, expected=state.EVALUATING, went_live=record)
+    except state.TransitionNotAllowed:
+        flows.store.set_live(previous["flow_id"], previous["version"], builtin, lambda spec: None)   # put it back
+        raise
+    return report()
