@@ -1064,6 +1064,16 @@ async def setup_evaluation_prepare(request: Request) -> Response:
     return _json(await run_in_threadpool(setup_evaluation.view))
 
 
+async def setup_evaluation_run(request: Request) -> Response:
+    """Run the prepared set against the candidate flow (in the background)."""
+    try:
+        await run_in_threadpool(setup_evaluation.run, (auth.current_user(request) or {}).get("user_id"),
+                                _eval_execute, _run_check)
+    except (setup_state.TransitionNotAllowed, ValueError, RuntimeError, flows.FlowError) as exc:
+        return _json({"error": str(exc)}, 409)
+    return _json(await run_in_threadpool(setup_evaluation.view))
+
+
 def knowledge_provenance(request: Request) -> Response:
     """Why is this page in the knowledge base? ?url=…"""
     url = (request.query_params.get("url") or "").strip()
@@ -1365,6 +1375,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/setup/build/retry", setup_build_retry, methods=["POST"]),
     Route("/api/setup/evaluation", setup_evaluation_view),
     Route("/api/setup/evaluation/prepare", setup_evaluation_prepare, methods=["POST"]),
+    Route("/api/setup/evaluation/run", setup_evaluation_run, methods=["POST"]),
     Route("/api/knowledge/provenance", knowledge_provenance),
     Route("/api/setup/back-to-content", setup_back_to_content, methods=["POST"]),
     Route("/api/overview", overview),

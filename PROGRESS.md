@@ -20,7 +20,7 @@ backlog became issues #20–#39; earlier pull requests are cited as "PR N
 
 **Handover (2026-10-09, 11:40):** the user continues from another
 account. Open: PR #40 (this renumbering; the user merges); #16 in progress
-(answers given; phase 2 done, see below); #26 before any
+(phases 2–3 done, draft PR #41, see below); #26 before any
 deploy from here. EC2 was left **running** (stop it with
 `scripts/aws/session.sh stop`). Local secrets (`.env`, `.env.aws`) and
 `DEPLOYMENT.local.md` exist only in the maintainer's checkout
@@ -39,11 +39,14 @@ analysis and content selection, approval 2, `e91cc18`; plan in
 plan: [docs/plans/evaluation.md](docs/plans/evaluation.md)). The user took
 all four recommendations (3 questions per area; prepared by itself after
 the build, run on request; a candidate flow, not live until Go live; drop
-ungrounded questions). **Phase 2 done** on branch `init/evaluation`
-(branched from `docs/issue-numbers`, PR #40): the candidate flow and the
-dataset builder (`app/initialization/evaluation.py`), 376 tests pass, live
-on the local build: 16 questions in 25 s. **Phase 3 next** (the run and
-per-area metrics). Locally, model calls and web
+ungrounded questions). **Phases 2 and 3 done** on branch
+`init/evaluation` (draft PR #41, based on `docs/issue-numbers`): the
+candidate flow, the dataset builder, the run against the candidate flow
+and metrics per knowledge area; 382 tests pass; live on the local build.
+**Evaluations never ingest.** User's rule (2026-10-09): nothing goes into
+the database without their approval or rejection, in the front end. For
+now research during users' questions still ingests automatically. **Phase 4
+next** (the Evaluation part of the setup page). Locally, model calls and web
 search work (`.env`: `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local`,
 `TAVILY_API_KEY`); the local install is at `EVALUATING`: plan 4 (National Rail's
 Railcards and Help and assistance, 17 pages) built, 49 chunks; its

@@ -1524,6 +1524,8 @@ class Evaluation(Building):
         self.assertTrue(supervisor_["instructions"].startswith("Send rail questions"))
         scope = next(n for n in spec.nodes if n.type == "input_guardrail").config["scope"]
         self.assertIn("Out of scope: flights", scope)
+        gate = next(n for n in spec.nodes if n.type == "input_guardrail").config
+        self.assertEqual((gate["block_message"], gate["clarify_message"], gate["output_message"]), ("", "", ""))
         self.assertEqual(flows.validate(spec), [])
         self.assertIsNone(flows.store.live_pointer())                        # users still get the built-in flow
         self.prepare()                                                       # prepared again: a new version
@@ -1620,6 +1622,86 @@ class Evaluation(Building):
         self.assertEqual([(d["area"], d["reason"]) for d in built["dropped"]],
                          [("delay_compensation", "another question is from the same passage")])
 
+    def test_each_kind_has_its_expectation(self):
+        met = flows.evals.expectation
+        answer, gap, live, out = ({"question": "q", "kind": k} for k in ("answer", "not_covered", "live", "out_of_scope"))
+        self.assertTrue(met(answer, {"passed": True}))
+        self.assertFalse(met(answer, {"passed": False}))
+        self.assertFalse(met(answer, {"passed": True, "input_blocked": True}))
+        self.assertFalse(met(answer, {"passed": True, "answer_type": "not_available"}))   # its page was there to use
+        self.assertTrue(met(gap, {"answer_type": "not_available", "passed": True}))
+        self.assertTrue(met(gap, {"answer_type": "answer", "passed": True}))           # grounded: claims nothing unsupported
+        self.assertFalse(met(gap, {"answer_type": "answer", "passed": False}))
+        self.assertTrue(met(live, {"live_tools": ["get_weather"], "answer_type": "answer"}))
+        self.assertTrue(met(live, {"live_tools": [], "answer_type": "not_available"}))
+        self.assertFalse(met(live, {"live_tools": [], "answer_type": "answer", "passed": True}))
+        self.assertTrue(met(out, {"input_blocked": True}))
+        self.assertFalse(met(out, {"passed": True}))
+        self.assertIsNone(met(answer, {"failed": True}))
+        self.assertTrue(met({"question": "q"}, {"passed": None}))                  # a set without kinds: as before
+        self.assertTrue(met({"question": "q", "expect_blocked": True}, {"output_blocked": True}))
+
+    def run_inline(self):
+        """The runner's background thread, run inline."""
+        return patch.object(flows.evals, "_ensure_worker", side_effect=lambda execute: flows.evals._work(execute))
+
+    def answer(self, run, index, question):
+        """A stand-in for a full answer: the first answer question finds and cites its page,
+        the second finds it but cites another, gaps say not available, live calls nothing."""
+        kind = question["kind"]
+        if kind == "out_of_scope":
+            return {"input_blocked": True, "answer": "Out of scope."}
+        if kind == "answer":
+            first = index == next(i for i, q in enumerate(self.questions) if q["kind"] == "answer")
+            page = question["expected_source"]
+            return {"answer": "Yes [1].", "passed": True, "answer_type": "answer", "retrieved": [page],
+                    "cited": [page if first else f"{SITE}/other"], "live_tools": [], "seconds": 3, "tokens": 900,
+                    "scores": {"correctness": 0.9 if first else 0.7, "faithfulness": 1.0, "citation_quality": 0.8}}
+        if kind == "not_covered":
+            return {"answer": "Not available here.", "passed": True, "answer_type": "not_available",
+                    "retrieved": [], "cited": [], "live_tools": []}
+        return {"answer": "Trains run often.", "passed": True, "answer_type": "answer", "retrieved": [], "cited": [],
+                "live_tools": []}
+
+    def test_a_run_is_summed_up_per_knowledge_area(self):
+        self.prepare()
+        self.questions = evaluation.view()["questions"]
+        with self.run_inline():
+            run_id = evaluation.run("admin-1", self.answer, check=lambda spec: None)
+        view = evaluation.view()
+        self.assertEqual((view["run"]["id"], view["run"]["status"], view["run"]["flow_id"], view["run"]["version"]),
+                         (run_id, "done", "setup_uk_train_information", "1"))
+        areas = view["run"]["summary"]["areas"]
+        self.assertEqual(areas["accessibility"], {
+            "kinds": ["answer"], "questions": 2, "met": 2, "answer_questions": 2, "retrieval_relevance": 1.0,
+            "answer_correctness": 0.8, "groundedness": 1.0, "citation_accuracy": 0.5, "citation_quality": 0.8,
+            "coverage": 1.0, "refusals_right": None})
+        self.assertEqual({k: areas["refunds"][k] for k in ("kinds", "coverage", "refusals_right")},
+                         {"kinds": ["not_covered"], "coverage": 0.0, "refusals_right": 1.0})
+        self.assertEqual(areas["live_departures"]["refusals_right"], 0.0)          # answered without a live tool
+        self.assertEqual(areas["out_of_scope"]["refusals_right"], 1.0)
+        rows = {r["idx"]: r for r in view["run"]["results"]}
+        first = next(i for i, q in enumerate(self.questions) if q["kind"] == "answer")
+        self.assertEqual((rows[first]["kind"], rows[first]["area"], rows[first]["expected_retrieved"],
+                          rows[first]["expected_cited"]), ("answer", "accessibility", True, True))
+        self.assertEqual(rows[first + 1]["expected_cited"], False)
+        self.assertIsNone(rows[0]["expected_retrieved"])                         # not_covered: no expected page
+        self.assertEqual(knowledge_system.events()[0]["event"], "evaluation_started")
+
+    def test_a_run_needs_a_prepared_set_and_one_at_a_time(self):
+        with self.assertRaises(ValueError):
+            evaluation.run("admin-1", self.answer, check=lambda spec: None)        # nothing prepared
+        self.prepare()
+        with patch.object(flows.evals, "_ensure_worker"):                         # queued, never worked
+            evaluation.run("admin-1", self.answer, check=lambda spec: None)
+            with self.assertRaises(RuntimeError):
+                evaluation.run("admin-1", self.answer, check=lambda spec: None)
+
+    def test_a_set_without_areas_is_summed_up_as_before(self):
+        rows = [{"passed": True, "expectation_met": True, "overall": 0.9, "scores": None, "seconds": 1.0,
+                 "failed": False, "input_blocked": False, "output_blocked": False, "tokens": 5}]
+        self.assertNotIn("areas", flows.evals.summarise(rows))
+
     def test_question_fields_are_kept_and_checked(self):
         cleaned = flows.evals.clean_questions([{"question": "Q", "kind": "answer", "area": "refunds",
                                                 "expected_source": "https://a.example/x"}, "Plain"])
@@ -1639,6 +1721,9 @@ class Evaluation(Building):
             self.assertEqual((status, view["status"], len(view["questions"])), (200, "ready", 6))
             view = json.loads(web_api.setup_evaluation_view(api.Request()).body)
             self.assertEqual(view["record"]["questions"], 6)
+            with patch.object(flows.evals, "_ensure_worker"):
+                status, view = api.call(web_api.setup_evaluation_run)
+            self.assertEqual((status, view["run"]["status"], view["estimate"]["questions"]), (200, "queued", 6))
             with patch.object(evaluation, "_start_thread"):                   # the work never runs
                 self.assertEqual(api.call(web_api.setup_evaluation_prepare)[0], 200)
                 self.assertEqual(api.call(web_api.setup_evaluation_prepare)[0], 409)   # already preparing

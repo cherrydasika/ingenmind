@@ -1,10 +1,9 @@
 # Plan: evaluation set from the blueprint, run per knowledge area
 
-Status: **Phase 2 done (the candidate flow and the dataset builder) —
-waiting for the user's check before phase 3** (the run and per-area
-metrics). Branch `init/evaluation`, not committed yet. Update this file at
-the end of every step: tick what is done, note what was found, say what
-comes next.
+Status: **Phase 3 done (the run and per-area metrics) — waiting for the
+user's check before phase 4** (the Evaluation part of the setup page).
+Branch `init/evaluation`, draft PR #41. Update this file at the end of
+every step: tick what is done, note what was found, say what comes next.
 
 GitHub: issue #16, part of epic #19 (RAG Initialization Agent); builds on
 #11 (the blueprint) and #14 (the build: setup is then at `EVALUATING`).
@@ -160,9 +159,43 @@ today.
     2 dropped as the same passage. Candidate flow
     `setup_uk_train_information` (v1–v4 locally from these runs, none
     live; the live pointer is still the built-in).
-- [ ] **3. The run and per-area metrics** (retrieved and cited pages from
+- [x] **3. The run and per-area metrics** (retrieved and cited pages from
   the runner, expectations by kind, `summary["areas"]`), tests and a live
   run of the local set. Stop.
+  - `agent._drive` adds `retrieved`, `cited` (page URLs only) and
+    `live_tools` (tool names) to a run's metrics. `agent_eval_results`
+    gains `kind`, `area`, `retrieved`, `cited`, `live_tools`,
+    `expected_retrieved` and `expected_cited`, frozen at run time.
+    `flows.evals.expectation()` judges by kind, and an `answer` question
+    must get an answer: a "not available" with its page at hand is a miss.
+    `summarise_areas()` holds the six metrics (definitions in its
+    docstring) in `summary["areas"]`. `evaluation.run()` and
+    `POST /api/setup/evaluation/run` queue the set against the candidate
+    flow, one run at a time. The view shows the latest run and an estimate
+    (30 s per question).
+  - **Evaluations never ingest** (`agent.READ_ONLY_SOURCES`, source
+    `eval`). The live run's research agent added 5 unreviewed pages
+    (Eurostar, King's Cross, station lists) to `research_chunks`, and the
+    "Eurostar: not covered" question then got a cited answer. The user's
+    rule (2026-10-09): nothing goes into the database without their
+    approval or rejection, done in the front end. For now research during
+    users' questions keeps ingesting as before, and the 5 local pages stay.
+  - The candidate flow empties the guardrail's block, clarify and output
+    messages, so they name the blueprint's domain. The live run refused
+    with the old flow's "UK trains and the weather".
+  - Live run on the local build, before these fixes: 16 questions in 7 min
+    (p50 20 s), 779k tokens (about 49k per question). The 4 answer areas
+    had retrieval relevance 1.0, correctness 0.97–1.0, groundedness
+    0.95–1.0 and citation accuracy 0.67–1.0. Refunds' miss was "not
+    available" with the expected page retrieved, now counted as a miss.
+    The 3 not-covered areas said "not available" or were answered from the
+    researched pages, which no longer happens. The **live-departures
+    question was blocked**: the blueprint's scope lists live train times as
+    out of scope and there is no live UK train tool. That is a real gap,
+    for #17's readiness report. Both out-of-scope questions were blocked.
+  - Tests: 382 pass (new: expectations by kind, per-area summary, a setup
+    run end to end, one run at a time, the agent's page metrics, an
+    evaluation run that never ingests).
 - [ ] **4. The Evaluation part of the setup page**, and the new fields on
   the Evaluations page, checked in the browser. Stop.
 - [ ] **5. Docs, PR, deploy.**

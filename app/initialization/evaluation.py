@@ -5,7 +5,10 @@ and the pages the build stored.
     prepare()   in the background (one at a time): the candidate flow, then the set
     ensure_prepared()  from EVALUATING, once per approved plan: prepare() when
                 the build finished and nothing was prepared for its plan
-    view()      the latest preparation, its set and its flow
+    run()       on the user's request: the set against the candidate flow, through
+                the flow evaluations' runner (flows/evals.py), which scores each
+                question by its kind and sums the results up per knowledge area
+    view()      the latest preparation, its set and flow, and its latest run
 
 The candidate flow: a copy of the live flow (else the built-in) with the
 blueprint's brief, domain, supervisor instructions, search country and scope,
@@ -59,6 +62,7 @@ PAGES_PER_AREA = 4
 PAGE_CHARS = 3000           # per page, in the writing prompt
 MIN_QUOTE = 20              # characters: a shorter quote proves nothing
 STALE_MINUTES = 20
+SECONDS_PER_QUESTION = 30   # a full answer each (25 s on average locally), for the estimate shown before a run
 LIVE_CLASSES = ("DYNAMIC_KNOWLEDGE", "EXTERNAL_TOOL_API")
 
 
@@ -77,7 +81,8 @@ def flow_id_for(domain: str) -> str:
 
 def apply_blueprint(spec: flows.FlowSpec, bp: dict, flow_id: str) -> flows.FlowSpec:
     """The flow with the blueprint's settings on its supervisor and input guardrail.
-    A setting too short for the flow's limits keeps the flow's own."""
+    A setting too short for the flow's limits keeps the flow's own; the guardrail's
+    messages are emptied, so they name the blueprint's domain."""
     settings = bp["flow"]
     nodes = []
     for node in spec.nodes:
@@ -94,6 +99,10 @@ def apply_blueprint(spec: flows.FlowSpec, bp: dict, flow_id: str) -> flows.FlowS
         elif node.type == "input_guardrail":
             scope = (settings.get("scope") or "").strip()
             config_["scope"] = scope if len(scope) >= 20 else ""      # empty: the brief
+            # The live flow's messages name its own domain ("UK trains and the weather"):
+            # left empty, they name the blueprint's.
+            for key in ("block_message", "clarify_message", "output_message"):
+                config_[key] = ""
         nodes.append(node.model_copy(update={"config": config_}))
     return flows.FlowSpec.model_validate({
         **spec.model_dump(mode="json"), "id": flow_id, "name": f"{bp['name']} (setup)"[:200],
@@ -337,8 +346,10 @@ def ensure_schema() -> None:
                     flow_version int,
                     record jsonb,
                     error text,
-                    prepared_by text
+                    prepared_by text,
+                    run_id text
                 )""")
+            connection.execute("ALTER TABLE app_setup_evaluations ADD COLUMN IF NOT EXISTS run_id text")
         _schema_ready = True
 
 
@@ -430,10 +441,33 @@ def ensure_prepared(check: Callable | None = None) -> None:
         pass
 
 
+def run(user_id: str | None, execute: Callable, check: Callable | None = None) -> str:
+    """Queue the prepared set against the candidate flow; the run's id."""
+    if knowledge_system.status()["state"] != state.EVALUATING:
+        raise state.TransitionNotAllowed("the evaluation runs once the build has finished")
+    record = latest()
+    if not record or record["status"] != "ready":
+        raise ValueError("prepare the evaluation first")
+    if record["run_id"] and (current := evals.get_run(record["run_id"])) and current["status"] in ("queued", "running"):
+        raise RuntimeError("the evaluation is already running")
+    spec = flows.FlowSpec.model_validate(flows.store.get_version(record["flow_id"], record["flow_version"],
+                                                                 flows.load_flow()))
+    (check or _check_flow)(spec)
+    run_id = evals.start(SET_ID, record["flow_id"], [(record["flow_version"], spec.model_dump(mode="json"))],
+                         execute)[0]
+    _set(record["id"], run_id=run_id)
+    knowledge_system.record_event("evaluation_started", user_id, {"run_id": run_id, "flow_id": record["flow_id"],
+                                                                  "flow_version": record["flow_version"]})
+    return run_id
+
+
 def view() -> dict | None:
-    """The latest preparation, with its set's questions."""
+    """The latest preparation, with its set's questions and its latest run (results included)."""
     record = latest()
     if record is None:
         return None
     question_set = evals.get_set(SET_ID) if record["status"] == "ready" else None
-    return {**record, "set_id": SET_ID, "questions": question_set["questions"] if question_set else []}
+    questions = question_set["questions"] if question_set else []
+    return {**record, "set_id": SET_ID, "questions": questions,
+            "estimate": {"questions": len(questions), "minutes": round(len(questions) * SECONDS_PER_QUESTION / 60)},
+            "run": evals.get_run(record["run_id"]) if record.get("run_id") else None}

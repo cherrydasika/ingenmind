@@ -84,6 +84,11 @@ def ensure_schema() -> None:
                 tokens int NOT NULL DEFAULT 0,
                 PRIMARY KEY (run_id, idx)
             )""")
+        # What a question of a setup-written set tests and found (#16): its kind and area, frozen
+        # with the result, the pages retrieved and cited (URLs only), and the live tools called.
+        for column in ("kind text", "area text", "retrieved jsonb", "cited jsonb", "live_tools jsonb",
+                       "expected_retrieved boolean", "expected_cited boolean"):
+            connection.execute(f"ALTER TABLE agent_eval_results ADD COLUMN IF NOT EXISTS {column}")
         # A run that was going when the app stopped will not finish.
         connection.execute("""
             UPDATE agent_eval_runs SET status = 'interrupted', finished_at = now()
@@ -235,24 +240,109 @@ def _work(execute) -> None:
         _finish(run["id"], status)
 
 
+def _same_page(a: str, b: str) -> bool:
+    return a.strip().rstrip("/").lower() == b.strip().rstrip("/").lower()
+
+
+def expectation(question: dict, result: dict) -> bool | None:
+    """Whether the answer did what the question expects (None: the run failed).
+
+        out_of_scope (or expect_blocked)  a guardrail blocked it
+        answer                            not blocked, an answer (not "not available" or a
+                                          question back), and the answer check did not fail
+        (a set without kinds)             not blocked, and the answer check did not fail
+        not_covered                       not blocked, and it says the information is not
+                                          available (or asks), or it passes the answer check:
+                                          it claims nothing the evidence does not support
+        live                              not blocked, and a live tool was called or it says
+                                          the information is not available
+    """
+    blocked = bool(result.get("input_blocked") or result.get("output_blocked"))
+    if question.get("expect_blocked") or question.get("kind") == "out_of_scope":
+        return blocked
+    if result.get("failed"):
+        return None
+    if blocked:
+        return False
+    kind, answer_type = question.get("kind"), result.get("answer_type")
+    if kind == "not_covered":
+        return answer_type in ("not_available", "clarification") or result.get("passed") is True
+    if kind == "live":
+        return bool(result.get("live_tools")) or answer_type == "not_available"
+    if kind == "answer" and answer_type not in (None, "answer"):
+        return False
+    return result.get("passed") is not False
+
+
 def _store_result(run_id: str, index: int, question: dict, result: dict) -> None:
-    expectation = None
-    if question.get("expect_blocked"):
-        expectation = bool(result.get("input_blocked") or result.get("output_blocked"))
-    elif not result.get("failed"):
-        expectation = not (result.get("input_blocked") or result.get("output_blocked")) and result.get("passed") is not False
+    expected = question.get("expected_source")
+    retrieved, cited = result.get("retrieved"), result.get("cited")
+    found = lambda pages: any(_same_page(expected, p) for p in pages) if expected and pages is not None else None
     with store._connect() as connection:
         connection.execute("""
             INSERT INTO agent_eval_results (run_id, idx, answer, expectation_met, passed, overall, scores, failed_on,
-                                            answer_type, input_blocked, output_blocked, failed, seconds, tokens)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                            answer_type, input_blocked, output_blocked, failed, seconds, tokens,
+                                            kind, area, retrieved, cited, live_tools, expected_retrieved,
+                                            expected_cited)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (run_id, idx) DO NOTHING""",
-            (run_id, index, str(result.get("answer") or "")[:8000], expectation, result.get("passed"),
+            (run_id, index, str(result.get("answer") or "")[:8000], expectation(question, result), result.get("passed"),
              result.get("overall"), Jsonb(result.get("scores")) if result.get("scores") else None,
              Jsonb(result.get("failed_on") or []), result.get("answer_type"), bool(result.get("input_blocked")),
              bool(result.get("output_blocked")), bool(result.get("failed")), float(result.get("seconds") or 0),
-             int(result.get("tokens") or 0)))
+             int(result.get("tokens") or 0), question.get("kind"), question.get("area"),
+             Jsonb(retrieved) if retrieved is not None else None, Jsonb(cited) if cited is not None else None,
+             Jsonb(result.get("live_tools")) if result.get("live_tools") is not None else None,
+             found(retrieved), found(cited)))
         connection.execute("UPDATE agent_eval_runs SET completed = completed + 1 WHERE id = %s", (run_id,))
+
+
+def _ratio(part: int, whole: int) -> float | None:
+    return round(part / whole, 3) if whole else None
+
+
+def _mean(values: list) -> float | None:
+    values = [v for v in values if v is not None]
+    return round(statistics.fmean(values), 3) if values else None
+
+
+def summarise_areas(results: list[dict]) -> dict:
+    """Per knowledge area, from its questions (results of a set setup wrote):
+
+        retrieval_relevance  answer questions whose expected page was retrieved ÷ answer questions
+        answer_correctness   mean of the answer check's correctness score (answer questions)
+        groundedness         mean of its faithfulness score (answer questions)
+        citation_accuracy    answer questions citing the expected page ÷ answer questions
+        citation_quality     mean of its citation-quality score (answer questions)
+        coverage             answer questions whose expectation was met ÷ answer questions;
+                             0 for an area with no pages (its questions are not_covered)
+        refusals_right       not_covered, live and out_of_scope questions whose
+                             expectation was met ÷ those questions
+    """
+    areas: dict[str, list[dict]] = {}
+    for r in results:
+        if r.get("area"):
+            areas.setdefault(r["area"], []).append(r)
+    out = {}
+    for area, rows in areas.items():
+        answers = [r for r in rows if r.get("kind") == "answer"]
+        others = [r for r in rows if r.get("kind") in ("not_covered", "live", "out_of_scope")]
+        scored = [r["scores"] or {} for r in answers if r.get("scores")]
+        out[area] = {
+            "kinds": sorted({r.get("kind") for r in rows if r.get("kind")}),
+            "questions": len(rows),
+            "met": sum(1 for r in rows if r["expectation_met"]),
+            "answer_questions": len(answers),
+            "retrieval_relevance": _ratio(sum(1 for r in answers if r.get("expected_retrieved")), len(answers)),
+            "answer_correctness": _mean([s.get("correctness") for s in scored]),
+            "groundedness": _mean([s.get("faithfulness") for s in scored]),
+            "citation_accuracy": _ratio(sum(1 for r in answers if r.get("expected_cited")), len(answers)),
+            "citation_quality": _mean([s.get("citation_quality") for s in scored]),
+            "coverage": _ratio(sum(1 for r in answers if r["expectation_met"]), len(answers))
+            if answers else (0.0 if any(r.get("kind") == "not_covered" for r in rows) else None),
+            "refusals_right": _ratio(sum(1 for r in others if r["expectation_met"]), len(others)),
+        }
+    return out
 
 
 def summarise(results: list[dict]) -> dict:
@@ -277,6 +367,7 @@ def summarise(results: list[dict]) -> dict:
         "p50_seconds": round(statistics.median(seconds), 2) if seconds else None,
         "total_seconds": round(sum(seconds), 1),
         "tokens": sum(r["tokens"] for r in results),
+        **({"areas": areas} if (areas := summarise_areas(results)) else {}),
     }
 
 

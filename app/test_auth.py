@@ -91,7 +91,7 @@ class EveryRouteHasARule(unittest.TestCase):
                              ("POST", "/api/setup/back-to-sources"), ("POST", "/api/setup/content/7/ttl"),
                              ("GET", "/api/setup/plan"), ("POST", "/api/setup/plan/approve"),
                              ("POST", "/api/setup/back-to-content"), ("GET", "/api/setup/evaluation"),
-                             ("POST", "/api/setup/evaluation/prepare")):
+                             ("POST", "/api/setup/evaluation/prepare"), ("POST", "/api/setup/evaluation/run")):
             self.assertEqual(auth.required_permission(method, path), "manage_settings")
         self.assertEqual(auth.required_permission("POST", "/api/ingestion/trigger"), "manage_knowledge")
         self.assertEqual(auth.required_permission("DELETE", "/api/nothing-here"), auth.NO_RULE)
