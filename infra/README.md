@@ -148,8 +148,21 @@ access to these secrets. Deletion/rotation requires a deliberate recovery plan.
 2. When CI passes, **Publish reviewed source archive** uploads
    `releases/<commit SHA>/source.tar.gz` and its checksum by itself (for a
    commit CI skipped, run it on `main` by hand, typing `PUBLISH`).
-3. On EC2, through Systems Manager:
-   `sudo bash /opt/rag-systems/current/scripts/aws/deploy.sh <commit SHA>`
+3. **Deploy to EC2** (`.github/workflows/deploy.yml`) starts after the
+   publish and waits in the protected `production` environment until the
+   maintainer approves it. It then runs the `rag-systems-deploy` command
+   document on the app instance through Systems Manager, and reports the
+   result. Run it by hand for another published commit (typing `DEPLOY`).
+   The deployer role (`infra/terraform/deploy.tf`) trusts only this
+   repository's `production` environment. It may only send that document,
+   which runs `deploy.sh` for a full commit SHA, to the app instance, and
+   read command results. Needs the repository variables `DEPLOY_ROLE_ARN` and
+   `DEPLOY_INSTANCE_ID`. Without Actions, run it on EC2 through Systems
+   Manager: `sudo bash /opt/rag-systems/current/scripts/aws/deploy.sh <commit SHA>`
+
+Session Manager's preferences (`SSM-SessionManagerRunShell`, in the same
+file) close idle sessions, such as the tunnels, after 60 minutes, the most
+allowed. The default was 20.
 
 `deploy.sh` fetches and verifies the archive with the active release's
 `fetch-release.sh`, writes `.env` from SSM, copies `data/urls.json` and

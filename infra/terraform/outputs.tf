@@ -59,3 +59,8 @@ output "cognito_client_secret" {
   value       = aws_cognito_user_pool_client.app.client_secret
   sensitive   = true
 }
+
+output "deployer_role_arn" {
+  description = "Role the deploy workflow assumes (production environment only)"
+  value       = aws_iam_role.deployer.arn
+}

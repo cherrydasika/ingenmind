@@ -1,0 +1,84 @@
+name: Deploy to EC2
+
+# Deploys a published release to EC2 (#25). Runs by itself after each
+# successful publish, for the commit published, and waits in the protected
+# "production" environment until the maintainer approves it; or run it by
+# hand (typing DEPLOY) for a commit already published. The deployer role may
+# only run scripts/aws/deploy.sh for a full commit SHA on the app instance
+# (infra/terraform/deploy.tf); deploy.sh falls back to the previous release
+# if the new one does not start.
+on:
+  workflow_run:
+    workflows: ["Publish reviewed source archive"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Full commit SHA of a published release (empty: main's head)"
+        required: false
+        type: string
+      confirmation:
+        description: "Type DEPLOY to deploy it to EC2"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      vars.DEPLOY_ROLE_ARN != '' && vars.DEPLOY_INSTANCE_ID != '' && (
+        (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirmation == 'DEPLOY') ||
+        (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.head_branch == 'main' &&
+         github.event.workflow_run.head_repository.full_name == github.repository))
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.commit || github.sha }}
+      INSTANCE: ${{ vars.DEPLOY_INSTANCE_ID }}
+      AWS_REGION: eu-west-2
+    steps:
+      - name: Check the commit
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Not a full commit SHA: $SHA" >&2; exit 1; }
+          printf 'Deploying %s\n' "$SHA" >> "$GITHUB_STEP_SUMMARY"
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
+          aws-region: eu-west-2
+      - name: Check EC2 is running
+        run: |
+          state=$(aws ec2 describe-instances --instance-ids "$INSTANCE" --query 'Reservations[0].Instances[0].State.Name' --output text)
+          if [ "$state" != "running" ]; then
+            echo "EC2 is $state, not running: start it (scripts/aws/session.sh start), then re-run this job." | tee -a "$GITHUB_STEP_SUMMARY" >&2
+            exit 1
+          fi
+      - name: Deploy through Systems Manager
+        run: |
+          id=$(aws ssm send-command --instance-ids "$INSTANCE" --document-name rag-systems-deploy \
+                 --parameters "commit=$SHA" --comment "deploy ${SHA:0:7} from GitHub Actions" \
+                 --timeout-seconds 600 --query Command.CommandId --output text)
+          echo "Command $id"
+          for _ in $(seq 1 200); do
+            status=$(aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE" \
+                       --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in Success|Failed|Cancelled|TimedOut|Cancelling) break ;; esac
+            sleep 15
+          done
+          aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE" \
+            --query StandardOutputContent --output text | tail -n 30
+          if [ "$status" != "Success" ]; then
+            aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE" \
+              --query StandardErrorContent --output text | tail -n 30 >&2
+            echo "Deploy of ${SHA:0:7}: $status" | tee -a "$GITHUB_STEP_SUMMARY" >&2
+            exit 1
+          fi
+          printf 'Deployed %s to EC2\n' "$SHA" >> "$GITHUB_STEP_SUMMARY"
