@@ -197,7 +197,7 @@ resource "aws_iam_role" "artifact_publisher" {
       Condition = {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          "token.actions.githubusercontent.com:sub" = "repo:cherrydasika@32058696/rag_systems_cloud@1396557418:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub" = "repo:cherrydasika@32058696/ingenmind@1411512145:ref:refs/heads/main"
         }
       }
     }]
