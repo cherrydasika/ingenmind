@@ -44,10 +44,12 @@ in [docs/plans/](docs/plans/)), **#16** evaluation from the blueprint, per
 knowledge area ([plan](docs/plans/evaluation.md); evaluations never
 ingest), and **#17** readiness report, gaps and Go live
 ([plan](docs/plans/readiness.md)). **Now: #15** (knowledge metadata from
-the blueprint, used by retrieval): phase 1, the plan
-([docs/plans/knowledge-metadata.md](docs/plans/knowledge-metadata.md)),
-written on branch `init/metadata`; waiting for the user's answers to its
-five questions.
+the blueprint, used by retrieval;
+[plan](docs/plans/knowledge-metadata.md)): the user took all five
+recommendations. **Phase 2 done** on branch `init/metadata`: every stored
+page is labelled (topic, organisation, authority, dates, content type, the
+blueprint's own fields) by rules plus one model call per page; the local
+build is relabelled. Phase 3 (retrieval with filters and authority) next.
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is

@@ -78,6 +78,7 @@ import guardrails
 import llm
 import research
 import source_profiles
+from initialization import labels
 from common import config as common_config, ingest, storage
 from retrieval import TOP_K, hybrid_search
 from tracing import current_trace_id, observation, score, tag_current_trace
@@ -1366,6 +1367,11 @@ def _ingest_sources(state: KbState, config) -> dict:
                          "research_publisher": source.get("publisher"), "research_date": source.get("date"),
                          "research_scores": source["scores"], "validated_at": datetime.now(timezone.utc).isoformat()},
         })
+        if outcome.get("status") in INGESTED and (bp := labels.blueprint_or_none()):
+            try:                # what the page is about (#15); never stops the research
+                labels.label_url(client, url, bp)
+            except Exception as error:
+                log.warning("could not label %s: %s", url, error)
         record = {"url": url, **{k: v for k, v in outcome.items() if k != "url"},
                   "seconds": round(time.monotonic() - started, 3)}
         ingested.append(record)

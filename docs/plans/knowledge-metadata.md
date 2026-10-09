@@ -1,8 +1,9 @@
 # Plan: knowledge metadata from the blueprint, and retrieval that uses it
 
-Status: **Phase 1 — plan written; waiting for the user's answers** (open
-questions at the end). Branch `init/metadata`. Update this file at the end
-of every step: tick what is done, note what was found, say what comes next.
+Status: **Phase 2 done (labels at ingestion) — waiting for the user's check
+before phase 3** (retrieval with filters and authority). Branch
+`init/metadata`. Update this file at the end of every step: tick what is
+done, note what was found, say what comes next.
 
 GitHub: issue #15, part of epic #19 (RAG Initialization Agent); builds on
 #11 (the blueprint and its `metadata_fields`) and #14 (the build: each page's
@@ -87,10 +88,46 @@ builds label as they ingest. Research pages: question 4.
 ## Phases
 
 - [x] **1. Plan** — this file. Stop for the user's answers.
-- [ ] **2. Labels at ingestion**: the deterministic fields, the page
+- [x] **2. Labels at ingestion**: the deterministic fields, the page
   labeller with its checks, the relabel step; tests (the built knowledge
   base carries the blueprint's fields); a live relabel of the local build.
   Stop.
+  - `app/initialization/labels.py`: `deterministic()` (topic, organisation
+    and source type from the blueprint's organisations by the page's or its
+    source's host, authority, region, effective date, retrieved at, content
+    type from section flags), the page labeller (one forced-tool call per
+    page; the schema is built from the blueprint: content type, each
+    metadata field's examples as an enum, the knowledge areas), `checked()`
+    (only allowed values, in their canonical spelling), `label_url()`
+    (labels a **stored** page from its payload and stored text and merges
+    `meta` onto all its chunks: one path for builds, unchanged pages,
+    research pages and relabelling), `relabel()` (the approved plan's pages
+    in the background; table `kb_labelling_runs`, emptied by a reset) and
+    `summary()`. Ingestion now stores the page's own date (`page_date`, HTML
+    only). The build labels each page it reads (`build.run`), and research
+    labels the pages it adds (`agent._ingest_sources`), when the install has
+    a confirmed blueprint. A failed labeller keeps the rules' labels and
+    never stops a build or research. API: `POST /api/setup/relabel`; the
+    Build view has `labels` (the latest run and the summary).
+  - Changed from the design: **topics are the page's own**, from the
+    labeller, always, with the section's areas only as the fallback. The
+    first live relabel gave every page of National Rail's "Help and
+    assistance" the section's three areas (refunds, delay compensation,
+    passenger rights), so "Advice for autistic passengers" was not
+    accessibility. Now it is. The organisation is matched by the page's
+    host, else by its source's host.
+  - Tests: 6 in `test_setup.Labels` (a built page carries the blueprint's
+    labels, on every chunk; a failed labeller keeps the rules; the rules;
+    a research page gets its topic from the labeller; relabel from stored
+    text, one run at a time; the API). The build fixture stubs the
+    labeller. Full suite: 402 pass.
+  - Live on the local build (17 pages): relabelled in about 24 s, all 17 by
+    the model. Content types: guide 14, policy 2, contact 1. Fields:
+    passenger category (disabled 6, young person 4, adult 3, elderly 3,
+    child 2), ticket type (season 5, single 3, advance 2, flexible 2,
+    return 2), accessibility feature, facility type. The pages' dates are
+    missing because they were stored before ingestion recorded them; new
+    builds have them.
 - [ ] **3. Retrieval with filters and authority**: `hybrid_search` filters,
   the agent tool's optional filters with the unfiltered retry, authority in
   fusion, dates in citations; tests (a filtered search returns only matching
@@ -100,7 +137,7 @@ builds label as they ingest. Research pages: question 4.
   the relabel action on the setup page; checked in the browser. Stop.
 - [ ] **5. Docs, PR, deploy.**
 
-## Open questions for the user
+## The user's answers (2026-10-09): the recommendations, all five
 
 1. **The blueprint's own fields** (`ticket_type`, `passenger_category`…):
    fill them with one small model call per page (recommended: they are the
