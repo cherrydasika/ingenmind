@@ -37,7 +37,8 @@ import auth
 import identity
 import knowledge_system
 from initialization import (blueprint_run, build as setup_build, content as setup_content,
-                            evaluation as setup_evaluation, plan as setup_plan, sources_run, state as setup_state, supervisor)
+                            evaluation as setup_evaluation, plan as setup_plan, readiness as setup_readiness, sources_run,
+                            state as setup_state, supervisor)
 import sessions
 import source_profiles
 import evaluation_archive as evaluation
@@ -1074,6 +1075,14 @@ async def setup_evaluation_run(request: Request) -> Response:
     return _json(await run_in_threadpool(setup_evaluation.view))
 
 
+def setup_readiness_view(request: Request) -> Response:
+    """The readiness report: scores, their definitions and numbers, the gaps."""
+    try:
+        return _json(setup_readiness.report())
+    except ValueError as exc:          # no confirmed blueprint yet
+        return _json({"error": str(exc)}, 409)
+
+
 def knowledge_provenance(request: Request) -> Response:
     """Why is this page in the knowledge base? ?url=…"""
     url = (request.query_params.get("url") or "").strip()
@@ -1376,6 +1385,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/setup/evaluation", setup_evaluation_view),
     Route("/api/setup/evaluation/prepare", setup_evaluation_prepare, methods=["POST"]),
     Route("/api/setup/evaluation/run", setup_evaluation_run, methods=["POST"]),
+    Route("/api/setup/readiness", setup_readiness_view),
     Route("/api/knowledge/provenance", knowledge_provenance),
     Route("/api/setup/back-to-content", setup_back_to_content, methods=["POST"]),
     Route("/api/overview", overview),

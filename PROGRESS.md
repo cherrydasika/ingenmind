@@ -21,7 +21,7 @@ backlog became issues #20–#39; earlier pull requests are cited as "PR N
 (earlier repository)".
 
 **Handover (2026-10-09, 11:40):** the user continues from another
-account. Open: #17 next; #26 before any
+account. Open: #17 (phase 2 done); #26 before any
 deploy from here. EC2 was left **running** (stop it with
 `scripts/aws/session.sh stop`). Local secrets (`.env`, `.env.aws`) and
 `DEPLOYMENT.local.md` exist only in the maintainer's checkout
@@ -44,7 +44,11 @@ area on the setup page. **Evaluations never ingest.** User's rule
 (2026-10-09): nothing goes into the database without their approval or
 rejection, in the front end; for now research during users' questions
 still ingests automatically. **Deployed** on EC2 as `aaabad7` (2026-10-09,
-with #26). **Next:** #17 (readiness report and Go live), then #15. Locally, model calls and web
+with #26). **Now: #17, readiness report, gaps and go live**: the user
+took all five recommendations; **phase 2 done** on branch `init/readiness`
+(scores and gaps, `app/initialization/readiness.py`, 387 tests pass;
+local build: overall 0.81). Phase 3 (Go live) next. Plan:
+[docs/plans/readiness.md](docs/plans/readiness.md). Then #15. Locally, model calls and web
 search work (`.env`: `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local`,
 `TAVILY_API_KEY`); the local install is at `EVALUATING`: plan 4 (National Rail's
 Railcards and Help and assistance, 17 pages) built, 49 chunks; its

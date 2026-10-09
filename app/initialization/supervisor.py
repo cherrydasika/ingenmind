@@ -17,7 +17,7 @@ import knowledge_system
 import llm
 from tracing import current_trace_id, observation, tag_current_trace
 
-from . import blueprint, blueprint_run, build, content, conversation, evaluation, sources_run, state
+from . import blueprint, blueprint_run, build, content, conversation, evaluation, readiness, sources_run, state
 from .requirements import SetupRequirements, merge, missing
 
 OPENING = "What would you like your knowledge system to help users with?"
@@ -93,7 +93,18 @@ def view() -> dict:
             "build": build.view() if state.STATES.index(current) >= state.STATES.index(state.INGESTION_APPROVED)
                      else None,
             "evaluation": evaluation.view() if state.STATES.index(current) >= state.STATES.index(state.EVALUATING)
-                          else None}
+                          else None,
+            "readiness": _readiness(current)}
+
+
+def _readiness(current: str) -> dict | None:
+    """The readiness report from EVALUATING on (a knowledge system setup did not build has none)."""
+    if state.STATES.index(current) < state.STATES.index(state.EVALUATING):
+        return None
+    try:
+        return readiness.report()
+    except ValueError:                 # no confirmed blueprint (an existing install marked READY)
+        return None
 
 
 def _system(values: SetupRequirements, complete: bool) -> str:

@@ -19,8 +19,8 @@ from psycopg import sql
 import knowledge_system
 from common import config
 import llm
-from initialization import (blueprint, blueprint_run, build, content, conversation, evaluation, plan, requirements,
-                            site_map, sources, sources_run, state, supervisor)
+from initialization import (blueprint, blueprint_run, build, content, conversation, evaluation, plan, readiness,
+                            requirements, site_map, sources, sources_run, state, supervisor)
 import flows
 from common import scraping, storage
 import guardrails
@@ -1442,7 +1442,7 @@ class Build(Building):
         self.assertEqual((status, view["state"], view["build"]["job"]["status"]), (200, state.INGESTING, "queued"))
         self.assertEqual(api.call(web_api.setup_build_retry)[0], 409)        # nothing failed
 
-class Evaluation(Building):
+class Evaluated(Building):
     """#16: the candidate flow and the evaluation set, after a build of the Help section
     (the accessibility area); refunds has no pages, live departures is live. Model calls stubbed."""
 
@@ -1488,6 +1488,32 @@ class Evaluation(Building):
     def prepare(self, **kwargs):
         return evaluation.prepare("admin-1", check=lambda spec: None, writer=kwargs.get("writer", self.writer),
                                   scoper=kwargs.get("scoper", self.scoper))
+
+    def run_inline(self):
+        """The runner's background thread, run inline."""
+        return patch.object(flows.evals, "_ensure_worker", side_effect=lambda execute: flows.evals._work(execute))
+
+    def answer(self, run, index, question):
+        """A stand-in for a full answer: the first answer question finds and cites its page,
+        the second finds it but cites another, gaps say not available, live calls nothing."""
+        kind = question["kind"]
+        if kind == "out_of_scope":
+            return {"input_blocked": True, "answer": "Out of scope."}
+        if kind == "answer":
+            first = index == next(i for i, q in enumerate(self.questions) if q["kind"] == "answer")
+            page = question["expected_source"]
+            return {"answer": "Yes [1].", "passed": True, "answer_type": "answer", "retrieved": [page],
+                    "cited": [page if first else f"{SITE}/other"], "live_tools": [], "seconds": 3, "tokens": 900,
+                    "scores": {"correctness": 0.9 if first else 0.7, "faithfulness": 1.0, "citation_quality": 0.8}}
+        if kind == "not_covered":
+            return {"answer": "Not available here.", "passed": True, "answer_type": "not_available",
+                    "retrieved": [], "cited": [], "live_tools": []}
+        return {"answer": "Trains run often.", "passed": True, "answer_type": "answer", "retrieved": [], "cited": [],
+                "live_tools": []}
+
+
+class Evaluation(Evaluated):
+    """#16: the candidate flow, the evaluation set and its run."""
 
     def test_a_built_knowledge_base_gets_questions_for_every_area(self):
         self.prepare()
@@ -1641,28 +1667,6 @@ class Evaluation(Building):
         self.assertTrue(met({"question": "q"}, {"passed": None}))                  # a set without kinds: as before
         self.assertTrue(met({"question": "q", "expect_blocked": True}, {"output_blocked": True}))
 
-    def run_inline(self):
-        """The runner's background thread, run inline."""
-        return patch.object(flows.evals, "_ensure_worker", side_effect=lambda execute: flows.evals._work(execute))
-
-    def answer(self, run, index, question):
-        """A stand-in for a full answer: the first answer question finds and cites its page,
-        the second finds it but cites another, gaps say not available, live calls nothing."""
-        kind = question["kind"]
-        if kind == "out_of_scope":
-            return {"input_blocked": True, "answer": "Out of scope."}
-        if kind == "answer":
-            first = index == next(i for i, q in enumerate(self.questions) if q["kind"] == "answer")
-            page = question["expected_source"]
-            return {"answer": "Yes [1].", "passed": True, "answer_type": "answer", "retrieved": [page],
-                    "cited": [page if first else f"{SITE}/other"], "live_tools": [], "seconds": 3, "tokens": 900,
-                    "scores": {"correctness": 0.9 if first else 0.7, "faithfulness": 1.0, "citation_quality": 0.8}}
-        if kind == "not_covered":
-            return {"answer": "Not available here.", "passed": True, "answer_type": "not_available",
-                    "retrieved": [], "cited": [], "live_tools": []}
-        return {"answer": "Trains run often.", "passed": True, "answer_type": "answer", "retrieved": [], "cited": [],
-                "live_tools": []}
-
     def test_a_run_is_summed_up_per_knowledge_area(self):
         self.prepare()
         self.questions = evaluation.view()["questions"]
@@ -1727,6 +1731,80 @@ class Evaluation(Building):
             with patch.object(evaluation, "_start_thread"):                   # the work never runs
                 self.assertEqual(api.call(web_api.setup_evaluation_prepare)[0], 200)
                 self.assertEqual(api.call(web_api.setup_evaluation_prepare)[0], 409)   # already preparing
+
+
+class Readiness(Evaluated):
+    """#17: the readiness report. The fixture: refunds has a source but no chosen section, accessibility has
+    7 chunks (the Help section), live departures is live; model calls and answers stubbed."""
+
+    def evaluated(self):
+        self.prepare()
+        self.questions = evaluation.view()["questions"]
+        with self.run_inline():
+            evaluation.run("admin-1", self.answer, check=lambda spec: None)
+
+    def scores(self, report):
+        return {s["key"]: s["value"] for s in report["scores"]}
+
+    def test_before_a_run_only_coverage_is_measured(self):
+        self.prepare()
+        r = readiness.report()
+        self.assertEqual(self.scores(r), {"source_coverage": 1.0, "knowledge_coverage": 0.0, "retrieval_quality": None,
+                                          "groundedness": None, "evaluation_coverage": None})
+        self.assertEqual((r["measured"], r["overall"]["value"], r["can_go_live"], r["evaluation"]["current"]),
+                         (False, None, False, False))
+        self.assertEqual([(g["area"], g["kind"], g["action"]) for g in r["gaps"]],
+                         [("refunds", "no_content", "review_content"), ("accessibility", "few_pages", "review_content")])
+        self.assertIn("7 chunks", r["gaps"][1]["detail"])
+        self.assertEqual(r["scores"][0]["numbers"], (2, 2))
+
+    def test_a_finished_run_measures_the_rest_and_lists_its_misses(self):
+        self.evaluated()
+        r = readiness.report()
+        self.assertEqual(self.scores(r), {"source_coverage": 1.0, "knowledge_coverage": 0.0, "retrieval_quality": 1.0,
+                                          "groundedness": 1.0, "evaluation_coverage": 0.833})
+        self.assertEqual(r["overall"]["value"], 0.767)                     # (1 + 0 + 1 + 1 + 0.833) / 5
+        self.assertEqual(r["overall"]["worked"], "1.00 + 0.00 + 1.00 + 1.00 + 0.83 ÷ 5 = 0.77")
+        live = [g for g in r["gaps"] if g["kind"] == "live_unanswered"]
+        self.assertEqual([(g["area"], g["detail"]) for g in live], [("live_departures", "no live tool was called")])
+        self.assertTrue(r["can_go_live"])
+
+    def test_an_area_with_no_source_is_a_gap_and_keeps_it_below_100(self):
+        version = knowledge_system.status()["blueprint_version"]
+        bp = blueprint.get(version)["blueprint"]
+        bp["knowledge_areas"].append({"key": "station_facilities", "name": "Station facilities", "description": "d",
+                                      "knowledge_class": "STATIC_KNOWLEDGE", "example_questions": ["Toilets?"]})
+        with blueprint._connect() as connection:
+            connection.execute("UPDATE app_domain_blueprints SET blueprint = %s WHERE version = %s",
+                               (psycopg.types.json.Jsonb(bp), version))
+        self.evaluated()
+        with patch.object(readiness, "MIN_CHUNKS", 1), \
+                patch.object(self, "answer", side_effect=lambda run, i, q: {"input_blocked": True}
+                             if q["kind"] == "out_of_scope" else {"passed": True, "answer_type": "not_available"
+                             if q["kind"] != "answer" else "answer", "retrieved": [q.get("expected_source")],
+                             "cited": [q.get("expected_source")], "live_tools": ["t"], "scores": {"faithfulness": 1.0}}):
+            with self.run_inline():
+                evaluation.run("admin-1", self.answer, check=lambda spec: None)
+            r = readiness.report()
+        self.assertEqual(r["scores"][0]["numbers"], (2, 3))
+        self.assertIn(("station_facilities", "no_source", "review_sources"),
+                      [(g["area"], g["kind"], g["action"]) for g in r["gaps"]])
+        self.assertEqual(self.scores(r)["evaluation_coverage"], 1.0)        # everything else as good as it gets …
+        self.assertLess(r["overall"]["value"], 1.0)                        # … and still below 100%
+
+    def test_a_run_for_an_earlier_plan_is_not_current(self):
+        self.evaluated()
+        with evaluation._connect() as connection:
+            connection.execute("UPDATE app_setup_evaluations SET plan_version = plan_version - 1")
+        r = readiness.report()
+        self.assertEqual((r["evaluation"]["current"], r["measured"], r["can_go_live"]), (False, False, False))
+
+    def test_the_readiness_api(self):
+        import web_api
+        self.evaluated()
+        response = web_api.setup_readiness_view(SetupApi.Request())
+        self.assertEqual((response.status_code, json.loads(response.body)["overall"]["value"]), (200, 0.767))
+        self.assertEqual(supervisor.view()["readiness"]["overall"]["value"], 0.767)
 
 
 if __name__ == "__main__":
