@@ -21,7 +21,7 @@ backlog became issues #20–#39; earlier pull requests are cited as "PR N
 (earlier repository)".
 
 **Handover (2026-10-09, 11:40):** the user continues from another
-account. Open: #17 (PR #46 ready for review); #26 before any
+account. Open: #15 next; #26 before any
 deploy from here. EC2 was left **running** (stop it with
 `scripts/aws/session.sh stop`). Local secrets (`.env`, `.env.aws`) and
 `DEPLOYMENT.local.md` exist only in the maintainer's checkout
@@ -44,15 +44,13 @@ area on the setup page. **Evaluations never ingest.** User's rule
 (2026-10-09): nothing goes into the database without their approval or
 rejection, in the front end; for now research during users' questions
 still ingests automatically. **Deployed** on EC2 as `aaabad7` (2026-10-09,
-with #26). **Now: #17, readiness report, gaps and go live**: the user
-took all five recommendations. Phase 2 (scores and gaps,
-`app/initialization/readiness.py`) merged in PR #45; **phases 3–4 done** on
-branch `init/readiness-go-live` (draft PR #46): Go live
-(`POST /api/setup/go-live`), the Readiness and Live cards on the setup page,
-and the Setup card on Home, checked in the browser; 393 tests pass; local
-build: overall 0.81. **Phase 5: docs done, PR #46 ready for review**;
-deploy after the user merges it. Plan:
-[docs/plans/readiness.md](docs/plans/readiness.md). Then #15. Locally, model calls and web
+with #26). **Done: #17, readiness report, gaps and go live** (PRs #45 and #46,
+merged as `9019abd`, deployed on EC2; plan:
+[docs/plans/readiness.md](docs/plans/readiness.md)): five computed scores
+with their definitions, the overall score (their mean), gaps per area with
+actions, Go live (a current evaluation is required; gaps must be
+confirmed; recorded with what it replaced), and a Setup card on Home.
+**Next:** #15. Locally, model calls and web
 search work (`.env`: `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local`,
 `TAVILY_API_KEY`); the local install is at `EVALUATING`: plan 4 (National Rail's
 Railcards and Help and assistance, 17 pages) built, 49 chunks; its
@@ -72,9 +70,8 @@ bundle, `web/flows-app/src/flows.css`, needs a rebuild).
 
 - EC2 `<instance-id>` (eu-west-2) was **running** on 2026-10-09
   (stop it with `session.sh stop` when done). Its active release is
-  `aaabad7` (#16: setup's evaluation, and #26: the first deploy from
-  `ingenmind`; #9–#14 before it; all unused there since EC2 is
-  READY/existing with its 5 URLs; the live flow is unchanged)
+  `9019abd` (#17: readiness and Go live; #16 and #26 before it; unused there
+  since EC2 is READY/existing with its 5 URLs; the live flow is unchanged)
   Sign-in is Amazon Cognito (AUTH_MODE=oidc); the first account,
   `admin@example.com`, works, and sign-out ends the Cognito session too.
 - The live flow on EC2 is `travel_assistant` **v3** (UK trains and weather
