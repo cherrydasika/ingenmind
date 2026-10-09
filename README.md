@@ -830,7 +830,7 @@ for guided setup), the URL count, and a history of events.
   its provenance (plan version and entry, source, section, areas, who
   approved it and when): **Why?** on the Sources page, and under a
   Retrieval answer's sources, traces a page back to it. Setup then waits at
-  `EVALUATING`; going live follows (#17).
+  `EVALUATING` for the evaluation and Go live.
 - **Evaluate** (`initialization/evaluation.py`): once the build finishes,
   setup prepares the evaluation by itself. It publishes a **candidate
   flow**, a copy of the live flow with the blueprint's brief, domain,
@@ -861,6 +861,31 @@ for guided setup), the URL count, and a history of events.
   show the same table, on the Evaluations page. **Evaluations never add
   pages to the knowledge base**: research during a run finds and checks
   pages, but reports the gap instead of ingesting.
+- **Readiness and Go live** (`initialization/readiness.py`): the setup page
+  shows a readiness report under the evaluation. Every score is computed
+  from data and shown with its definition and numbers:
+
+  | Score | Definition |
+  |---|---|
+  | Source coverage | knowledge areas with a chosen source (or one of its chosen sections) ÷ areas that need sources |
+  | Knowledge coverage | areas with at least 10 chunks from the approved plan ÷ areas that need sources |
+  | Retrieval quality | mean share of answer questions whose expected page was retrieved |
+  | Answer groundedness | mean faithfulness score of the answers |
+  | Evaluation coverage | questions that did what they should ÷ questions |
+
+  The overall score is their plain mean, with the working shown. An area
+  with no source keeps it below 100%. **Gaps** are listed per area: no
+  source, no content, few pages, failing questions, live areas no tool
+  answers, out-of-scope questions answered. Each has a suggested action:
+  Review sources and Review content go back to those steps with your
+  choices kept; after a rebuild the evaluation is prepared again for the
+  new plan. **Go live** needs a finished evaluation of the current plan,
+  since what goes live is what was measured. With gaps, it asks you to
+  confirm them first. It then makes the evaluated candidate flow live and
+  setup `READY`. The history records what went live, what it replaced, and
+  the scores and gaps then. The replaced flow stays in the flow builder's
+  History, so it can be put back. Home shows the setup state and the
+  readiness score.
   A live check for two domains (UK trains, flights; Tavily, the chat model
   and real pages; stores nothing): `RUN_LIVE=1 python -m unittest -v
   test_blueprint_live`.
@@ -1152,7 +1177,8 @@ app/
                            #   sources.py (discovery, the source registry), sources_run.py (choosing sources),
                            #   site_map.py (robots.txt, sitemaps, sections), content.py (mapping, choosing content),
                            #   plan.py (the ingestion plan), build.py (Build RAG, provenance),
-                           #   evaluation.py (the candidate flow, the evaluation set, its run)
+                           #   evaluation.py (the candidate flow, the evaluation set, its run),
+                           #   readiness.py (the readiness report, gaps, Go live)
 data/
   urls.example.json      # sample URL list showing the expected format
   urls.json              # URLs to ingest, imported once into the database (gitignored, local)

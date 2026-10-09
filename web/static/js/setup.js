@@ -28,6 +28,13 @@ const ANSWERED_BY = [
   ["EXTERNAL_TOOL_API", "From live tools", "Changes constantly: answered by live tools, not stored"],
 ];
 
+// Readiness (readiness.py): every score is a share of 0–1, but groundedness is a mean score.
+const GAP_LABEL = { no_source: "no source", no_content: "no content", few_pages: "few pages",
+  failing_question: "question missed", live_unanswered: "no live tool", not_refused: "not refused" };
+const pctText = (v) => `${Math.round(v * 100)}%`;
+const scoreText = (key, v) => (v === null || v === undefined ? "not measured yet"
+  : key === "groundedness" ? Number(v).toFixed(2) : pctText(v));
+
 // The app shell refreshes its "being set up" notice on this.
 const setupChanged = () => window.dispatchEvent(new Event("rag:setup-changed"));
 
@@ -42,6 +49,7 @@ export class SetupPage {
     this.changing = false; // the blueprint's "Change something" box is open
     this.opened = {};      // content_id → the section with its pages, while open
     this.review = null;    // the ingestion plan under review (before Build RAG)
+    this.confirmingLive = false;   // Go live with gaps: asking to confirm them
     this.timer = null;
   }
 
@@ -105,6 +113,7 @@ export class SetupPage {
     const onContent = Boolean(v.content);
     if (v.state !== "AWAITING_CONTENT_SELECTION") this.review = null;
     const main = conversing ? this.renderConversation(v) : onBlueprint ? this.renderBlueprint(v)
+      : v.state === "READY" && v.readiness?.went_live ? this.renderLive(v)
       : v.build ? this.renderBuild(v) : this.review ? this.renderReview(v)
       : onContent ? this.renderContent(v) : this.renderSources(v);
     const side = onContent ? this.renderContentCoverage(v)
@@ -113,6 +122,7 @@ export class SetupPage {
       this.renderSteps(v),
       h("div", { class: "setup-layout" }, main, side),
       v.state === "EVALUATING" && v.build ? this.renderEvaluation(v) : null,
+      v.state === "EVALUATING" && v.readiness ? this.renderReadiness(v) : null,
       v.build || this.review ? h("details", {}, h("summary", {}, "Content"),
         h("div", { class: "details-body" }, this.renderContent(v))) : null,
       onContent && v.sources ? h("details", {}, h("summary", {}, "Sources"),
@@ -312,11 +322,118 @@ export class SetupPage {
     return card;
   }
 
+  // Readiness (#17): the scores, each defined and computed; the gaps and what to do; Go live.
+  renderReadiness(v) {
+    const r = v.readiness;
+    const children = [h("p", {}, "How well the knowledge system covers what the blueprint says it should. Every "
+      + "score is computed from the build and the evaluation; none is a model's opinion.")];
+    if (this.error) children.push(h("div", { class: "alert err" }, this.error));
+    if (!r.evaluation.current) {
+      children.push(h("div", { class: "alert warn" }, "The scores from the evaluation need a finished run of the "
+        + "current plan's questions: run the evaluation above."));
+    }
+    children.push(h("div", { class: "readiness-scores" }, r.scores.map((s) => h("div", { class: "readiness-score" },
+      h("div", { class: "readiness-label" }, s.label),
+      h("div", { class: "readiness-value" }, scoreText(s.key, s.value)),
+      s.numbers ? h("div", { class: "note" }, `${s.numbers[0]} of ${s.numbers[1]}`) : null,
+      h("div", { class: "note" }, s.definition)))));
+    children.push(h("div", { class: `alert ${r.overall.value === null ? "" : r.overall.value >= 0.8 ? "ok" : "warn"}`,
+      style: "margin-top:12px" },
+    h("strong", {}, `Overall: ${r.overall.value === null ? "not measured yet" : pctText(r.overall.value)}`),
+    h("div", { class: "note" }, r.overall.worked ? `${r.overall.formula} ${r.overall.worked}` : r.overall.formula)));
+    children.push(this.renderGaps(r));
+    children.push(this.renderGoLive(r));
+    return h("div", { class: "card", id: "readiness-card" },
+      h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Readiness")), children);
+  }
+
+  renderGaps(r) {
+    if (!r.gaps.length) return h("p", {}, "No gaps: every knowledge area has a source, enough pages, and its "
+      + "questions did what they should.");
+    const actions = {
+      review_sources: ["Review sources", () => api.setupBackToSources()],
+      review_content: ["Review content", () => api.setupBackToContent()],
+      review_blueprint: ["Review the blueprint", () => api.setupBack()],
+      run_again: ["Run the evaluation", null],
+    };
+    return h("div", { style: "margin-top:16px" }, h("h3", { style: "margin:0 0 4px" }, `Gaps (${r.gaps.length})`),
+      h("ul", { class: "gap-list" }, r.gaps.map((g) => {
+        const action = actions[g.action];
+        let button = null;
+        if (action && action[1]) {
+          button = h("button", { class: "btn btn-sm btn-ghost", type: "button" }, action[0]);
+          button.addEventListener("click", () => this.act(async () => { await action[1](); return api.setup(); }, button));
+        } else if (action) {
+          button = h("button", { class: "btn btn-sm btn-ghost", type: "button" }, action[0]);
+          button.addEventListener("click", () => document.getElementById("evaluation-card")?.scrollIntoView({ behavior: "smooth" }));
+        }
+        return h("li", {}, h("div", {}, h("strong", {}, g.name), " ", badge(GAP_LABEL[g.kind] || g.kind, "warn")),
+          g.question ? h("div", {}, `“${g.question}”: ${g.detail}`) : h("div", {}, g.detail),
+          h("div", { class: "note" }, g.suggestion), button);
+      })),
+      h("p", { class: "note" }, "Going back to the sources or the content keeps your choices. After a rebuild the "
+        + "evaluation is prepared again for the new plan."));
+  }
+
+  renderGoLive(r) {
+    const e = r.evaluation;
+    const children = [];
+    if (this.confirmingLive) {
+      const yes = h("button", { class: "btn btn-primary", type: "button" }, `Go live with ${r.gaps.length} gap${r.gaps.length === 1 ? "" : "s"}`);
+      yes.addEventListener("click", () => this.goLive(true, yes));
+      const no = h("button", { class: "btn btn-ghost", type: "button" }, "Cancel");
+      no.addEventListener("click", () => { this.confirmingLive = false; this.render(); });
+      children.push(h("div", { class: "alert warn" }, h("strong", {}, "Go live with these gaps?"),
+        h("div", {}, `Users will get answers from the assistant that was evaluated (${e.flow_id} v${e.flow_version}). `
+          + "The flow live now stays in its History in the flow builder, so it can be put back."),
+        h("div", { class: "toolbar", style: "justify-content:flex-start;gap:12px;margin-top:8px" }, yes, no)));
+      return h("div", { style: "margin-top:16px" }, children);
+    }
+    const go = h("button", { class: "btn btn-primary", type: "button", disabled: !r.can_go_live }, "Go live");
+    go.addEventListener("click", () => {
+      if (r.gaps.length) { this.confirmingLive = true; this.render(); } else this.goLive(false, go);
+    });
+    children.push(h("div", { class: "toolbar", style: "justify-content:flex-start;gap:12px;margin-top:16px" }, go,
+      h("span", { class: "note" }, r.can_go_live
+        ? `Makes ${e.flow_id} v${e.flow_version}, the assistant the evaluation measured, what users get.`
+        : "Run the evaluation of the current plan first: what goes live is what was measured.")));
+    return h("div", {}, children);
+  }
+
+  async goLive(confirmGaps, button) {
+    await this.act(async () => { await api.setupGoLive(confirmGaps); return api.setup(); }, button);
+    this.confirmingLive = false;
+    this.render();
+  }
+
+  // Live (#17): what went live, when, and the report at that moment.
+  renderLive(v) {
+    const w = v.readiness.went_live;
+    const labels = Object.fromEntries(v.readiness.scores.map((s) => [s.key, s.label]));
+    const back = (label, call) => {
+      const button = h("button", { class: "btn btn-ghost", type: "button" }, label);
+      button.addEventListener("click", () => this.act(async () => { await call(); return api.setup(); }, button));
+      return button;
+    };
+    return h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Live")),
+      this.error ? h("div", { class: "alert err" }, this.error) : null,
+      h("div", { class: "alert ok" }, h("strong", {}, "The knowledge system is live."),
+        h("div", {}, `Since ${String(w.at).slice(0, 16).replace("T", " ")}: users get answers from `,
+          h("code", {}, `${w.flow_id} v${w.flow_version}`), ` (it replaced ${w.replaced.flow_id} v${w.replaced.version}).`)),
+      h("p", {}, `When it went live: overall ${w.overall === null ? "—" : pctText(w.overall)}, with `
+        + `${w.gaps.length} gap${w.gaps.length === 1 ? "" : "s"}.`),
+      h("ul", {}, Object.entries(w.scores).map(([k, value]) => h("li", {}, `${labels[k] || k}: ${scoreText(k, value)}`))),
+      h("p", { class: "note" }, "To improve it, go back to the sources or the content: your choices are kept. "
+        + "Users can't ask questions until it goes live again."),
+      h("div", { class: "toolbar", style: "justify-content:flex-start;gap:12px" },
+        back("Review sources", () => api.setupBackToSources()), back("Review content", () => api.setupBackToContent())));
+  }
+
   // Evaluation (#16): the set written from the blueprint, its run on the candidate flow, results per area.
   renderEvaluation(v) {
     const e = v.evaluation;
     const head = h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Evaluation"));
-    const wrap = (...children) => h("div", { class: "card" }, head, ...children);
+    const wrap = (...children) => h("div", { class: "card", id: "evaluation-card" }, head, ...children);
     const intro = h("p", {}, "Questions written from the blueprint and the pages you built, for every knowledge "
       + "area, plus questions it should refuse. They run on the assistant the blueprint describes, before it goes "
       + "live. Evaluations never add pages to the knowledge base.");

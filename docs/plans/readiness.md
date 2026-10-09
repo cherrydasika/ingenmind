@@ -1,9 +1,7 @@
 # Plan: readiness report, gaps and go live
 
-Status: **Phase 2 done (scores and gaps) — waiting for the user's check
-before phase 3** (Go live). Branch `init/readiness`. Update this file at the
-end of every step: tick what is done, note what was found, say what comes
-next.
+Status: **Phases 1–5 done up to the deploy**: phase 2 merged in PR #45;
+phases 3–5 in PR #46, ready for review. Deploy after the user merges it.
 
 GitHub: issue #17, part of epic #19 (RAG Initialization Agent); builds on
 #16 (the evaluation: setup is at `EVALUATING` with a candidate flow, a set
@@ -121,12 +119,61 @@ the current preparation, the run-based scores and the overall score are
     Live departures refused (no live tool). The local run was scored
     before #16's last expectation fix, so a new run may count one more
     miss.
-- [ ] **3. Go live**: the API, the conditions, the state move, the history
+- [x] **3. Go live**: the API, the conditions, the state move, the history
   record, tests. The acceptance check, run locally: going back to sources,
   adding a source, rebuilding and re-running updates the report. Stop.
-- [ ] **4. UI**: the readiness report on the setup page, the Go live step,
+  - `readiness.go_live()` and `POST /api/setup/go-live {confirm_gaps}`.
+    Refused away from `EVALUATING`, without a finished run of the current
+    preparation ("what goes live is what was measured"), and with gaps
+    until confirmed (409, `confirm: true`). It makes the candidate flow
+    version live (`flows.store.set_live`, checked to compile), then
+    `EVALUATING → READY`. The state event records `went_live`: the flow
+    and version, the one it replaced, the overall score, the scores, the
+    gaps (area and kind), the run and the plan. If the state moved on
+    meanwhile, the previous live flow is put back. `report()` at `READY`
+    shows `went_live` (when, by whom, what).
+  - The acceptance check is an end-to-end test, not a run on the local
+    database. Adding a source and approving a rebuild are the user's
+    approvals to give (their rule: nothing goes into the database without
+    them). The test starts from an area with no source, then goes back to
+    sources, adds a site (stubbed fetch and scope check), analyses it, the
+    user chooses its section, rebuilds and evaluates again: the "no source"
+    gap is gone and source coverage is 3/3. The same can be done by hand
+    on the local build once the UI is in (phase 4).
+  - Tests: 6 more in `test_setup.Readiness` (go live after confirming the
+    gaps; it needs a current evaluation; a flow that cannot run does not
+    go live; a race puts the live flow back; the acceptance check; the
+    API). Full suite: 393 pass.
+- [x] **4. UI**: the readiness report on the setup page, the Go live step,
   the Home card, checked in the browser. Stop.
+  - Setup page (`setup.js`): at `EVALUATING` a full-width **Readiness**
+    card under the Evaluation card. It shows the five scores (value,
+    numbers, definition), the overall score with its working, and the gaps
+    by area, each with its suggestion and a button: Review sources, Review
+    content, Review the blueprint, or Run the evaluation, which scrolls to
+    it. **Go live** is disabled without a current evaluation; with gaps it
+    first asks to confirm them, naming the flow that goes live and that the
+    current one stays in its History. At `READY` the **Live** card shows
+    since when, the flow and the one it replaced, and the scores and gaps
+    at that moment. Review sources and Review content say that users can't
+    ask questions until it goes live again.
+  - Home (`home.js`): a **Setup** card under "Knowledge system": ready,
+    being set up or not set up, the setup step, the readiness percentage
+    and gaps, and a link to setup (for those with `manage_settings`).
+  - Checked in headless Chrome at 1360 px and 390 px on the local build:
+    the report (overall 81%, 4 gaps), the confirmation (opened, then
+    cancelled), Home, no page errors, no sideways scroll. The Live card was
+    checked with the setup data intercepted in the browser and shown as if
+    it had gone live. Nothing was stored: the local install is still at
+    `EVALUATING`, and its live flow is unchanged.
 - [ ] **5. Docs, PR, deploy.**
+  - [x] README: the Readiness and Go live step (the scores and their
+    definitions, the gaps and actions, Go live's conditions and record,
+    Home), the project layout.
+  - [x] PR #46 ready for review.
+  - [ ] Deploy after the user merges #46 (publishing from `ingenmind` works
+    since #26). On EC2 setup is `READY` with no setup origin, so the report
+    shows only once guided setup runs there (#39).
 
 ## The user's answers (2026-10-09): the recommendations, all five
 

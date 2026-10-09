@@ -1083,6 +1083,23 @@ def setup_readiness_view(request: Request) -> Response:
         return _json({"error": str(exc)}, 409)
 
 
+async def setup_go_live(request: Request) -> Response:
+    """Make the evaluated candidate flow live: setup is done (READY)."""
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    user_id = (auth.current_user(request) or {}).get("user_id")
+    confirm = isinstance(body, dict) and body.get("confirm_gaps") is True
+    try:
+        await run_in_threadpool(setup_readiness.go_live, user_id, confirm, _run_check)
+    except setup_readiness.GapsNotConfirmed as exc:
+        return _json({"error": str(exc), "confirm": True}, 409)
+    except (setup_state.TransitionNotAllowed, ValueError, flows.FlowError) as exc:
+        return _json({"error": str(exc)}, 409)
+    return _json(await run_in_threadpool(supervisor.view))
+
+
 def knowledge_provenance(request: Request) -> Response:
     """Why is this page in the knowledge base? ?url=…"""
     url = (request.query_params.get("url") or "").strip()
@@ -1386,6 +1403,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/setup/evaluation/prepare", setup_evaluation_prepare, methods=["POST"]),
     Route("/api/setup/evaluation/run", setup_evaluation_run, methods=["POST"]),
     Route("/api/setup/readiness", setup_readiness_view),
+    Route("/api/setup/go-live", setup_go_live, methods=["POST"]),
     Route("/api/knowledge/provenance", knowledge_provenance),
     Route("/api/setup/back-to-content", setup_back_to_content, methods=["POST"]),
     Route("/api/overview", overview),

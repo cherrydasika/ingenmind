@@ -1799,6 +1799,104 @@ class Readiness(Evaluated):
         r = readiness.report()
         self.assertEqual((r["evaluation"]["current"], r["measured"], r["can_go_live"]), (False, False, False))
 
+    def test_go_live_makes_the_measured_flow_live_after_the_gaps_are_confirmed(self):
+        self.evaluated()
+        with self.assertRaises(readiness.GapsNotConfirmed):
+            readiness.go_live("admin-1", check=lambda spec: None)
+        self.assertEqual(knowledge_system.status()["state"], state.EVALUATING)
+        self.assertIsNone(flows.store.live_pointer())                       # nothing changed
+        r = readiness.go_live("admin-1", confirm_gaps=True, check=lambda spec: None)
+        status = knowledge_system.status()
+        self.assertEqual((status["state"], status["origin"], status["set_up_by"]), (state.READY, "setup", "admin-1"))
+        self.assertEqual({k: flows.store.live_pointer()[k] for k in ("flow_id", "version")},
+                         {"flow_id": "setup_uk_train_information", "version": 1})
+        went = r["went_live"]
+        self.assertEqual((went["user_id"], went["flow_id"], went["flow_version"], went["overall"]),
+                         ("admin-1", "setup_uk_train_information", 1, 0.767))
+        self.assertEqual(went["replaced"], {"flow_id": flows.load_flow().id, "version": 0})
+        self.assertIn({"area": "live_departures", "kind": "live_unanswered"}, went["gaps"])
+        self.assertFalse(r["can_go_live"])
+        with self.assertRaises(state.TransitionNotAllowed):
+            readiness.go_live("admin-1", confirm_gaps=True, check=lambda spec: None)
+
+    def test_go_live_needs_a_current_evaluation(self):
+        self.prepare()
+        with self.assertRaises(ValueError) as refused:
+            readiness.go_live("admin-1", confirm_gaps=True, check=lambda spec: None)
+        self.assertIn("run the evaluation", str(refused.exception))
+        self.assertEqual(knowledge_system.status()["state"], state.EVALUATING)
+
+    def test_a_flow_that_cannot_run_does_not_go_live(self):
+        self.evaluated()
+        def broken(spec):
+            raise flows.FlowError([{"level": "error", "where": spec.id, "message": "does not compile"}])
+        with self.assertRaises(flows.FlowError):
+            readiness.go_live("admin-1", confirm_gaps=True, check=broken)
+        self.assertEqual((knowledge_system.status()["state"], flows.store.live_pointer()), (state.EVALUATING, None))
+
+    def test_a_race_puts_the_live_flow_back(self):
+        self.evaluated()
+        with patch.object(state, "transition", side_effect=state.TransitionNotAllowed("moved on meanwhile")):
+            with self.assertRaises(state.TransitionNotAllowed):
+                readiness.go_live("admin-1", confirm_gaps=True, check=lambda spec: None)
+        self.assertIsNone(flows.store.live_pointer())                       # the built-in again
+
+    def test_adding_a_source_and_rebuilding_updates_the_report(self):
+        """#17's acceptance check: an area with no source, then back to sources, a site added and its section
+        chosen, a rebuild and a new evaluation: the gap is gone and source coverage is complete."""
+        version = knowledge_system.status()["blueprint_version"]
+        bp = blueprint.get(version)["blueprint"]
+        bp["knowledge_areas"].append({"key": "station_facilities", "name": "Station facilities", "description": "d",
+                                      "knowledge_class": "STATIC_KNOWLEDGE", "example_questions": ["Toilets?"]})
+        with blueprint._connect() as connection:
+            connection.execute("UPDATE app_domain_blueprints SET blueprint = %s WHERE version = %s",
+                               (psycopg.types.json.Jsonb(bp), version))
+        self.evaluated()
+        before = readiness.report()
+        self.assertIn(("station_facilities", "no_source"), [(g["area"], g["kind"]) for g in before["gaps"]])
+
+        content.back_to_sources("admin-1")
+        allowed = guardrails.Verdict(decision="ALLOW", reason="rail stations", stage="research")
+        site = sources_run.add_site("https://stations.example", check=lambda *a, **k: allowed,
+                                    fetch=lambda url: {"url": url, "title": "Stations | Station Guide",
+                                                       "text": "Station facilities. " * 20, "error": None})
+        stations = found_site(("facilities", "Facilities", 12))
+        for section in stations["sections"]:
+            for page in section["urls"]:
+                page["url"] = page["url"].replace(SITE, "https://stations.example")
+            section["sample"] = [u["url"] for u in section["urls"][:5]]
+        stations["pages"] = [u for sec in stations["sections"] for u in sec["urls"]]
+        analyse = lambda base_url: stations if "stations" in base_url else self.analyse(base_url)
+        mapping = [{"key": "facilities", "areas": ["station_facilities"], "relevance": 0.9, "recommended": True,
+                    "reason": "Station facilities"}]
+        mapper = lambda bp, site_, found: (content.SectionAssessments(sections=[
+            content.SectionAssessment.model_validate(m) for m in (mapping if site_["host"] == "stations.example"
+                                                                   else MAPPING)]), {})
+        with patch.object(content, "start"):                                  # the analysis is started below
+            sources_run.continue_("admin-1")
+        content.start(analyse=analyse, mapper=mapper)
+        section = next(c for c in content.list_sections() if c["source_id"] == site["source_id"])
+        content.choose(section["content_id"], "selected")
+        build.build_rag(plan.review()["plan"]["version"], "admin-1")
+        self.work()
+        self.assertEqual(knowledge_system.status()["state"], state.EVALUATING)
+        self.evaluated()                                                      # prepared again for the new plan, run
+        after = readiness.report()
+        self.assertNotIn("station_facilities", [g["area"] for g in after["gaps"] if g["kind"] == "no_source"])
+        self.assertEqual(after["scores"][0]["numbers"], (3, 3))
+        self.assertEqual(after["plan_version"], plan.latest("approved")["version"])
+        self.assertTrue(after["evaluation"]["current"])
+
+    def test_the_go_live_api(self):
+        import web_api
+        api = SetupApi()
+        self.evaluated()
+        with patch.object(web_api, "_run_check"):
+            status, body = api.call(web_api.setup_go_live, {})
+            self.assertEqual((status, body.get("confirm")), (409, True))
+            status, view = api.call(web_api.setup_go_live, {"confirm_gaps": True})
+        self.assertEqual((status, view["state"], view["readiness"]["went_live"]["flow_version"]), (200, state.READY, 1))
+
     def test_the_readiness_api(self):
         import web_api
         self.evaluated()
