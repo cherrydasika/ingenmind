@@ -95,6 +95,21 @@ class Verdicts(unittest.TestCase):
         uncited = answer_eval.evaluate(QUESTION, "Railjets run hourly.", CHUNKS, API, assessor=assessor())
         self.assertIn("citation_quality", uncited.failed_on)
 
+    def test_an_honest_not_available_passes_even_when_its_citations_are_scored_0(self):
+        """Seen on EC2: "The knowledge base has nothing on Birmingham station toilets" scored citation 0."""
+        reply = "The knowledge base does not have information about toilets at Birmingham stations."
+        result = answer_eval.evaluate(QUESTION, reply, CHUNKS, API, assessor=assessor(
+            answer_type="not_available", citation_quality=0.0, completeness=1.0))
+        self.assertTrue(result.passed)
+        self.assertNotIn("citation_quality", result.checked)
+        # A referral the evidence does not name is an unsupported claim: it still fails, citations and all.
+        referral = answer_eval.evaluate(QUESTION, reply + " Contact National Rail Enquiries.", CHUNKS, API,
+                                        assessor=assessor(answer_type="not_available", citation_quality=0.0,
+                                                          faithfulness=0.5,
+                                                          unsupported_claims=["National Rail Enquiries can help"]))
+        self.assertFalse(referral.passed)
+        self.assertEqual(referral.failed_on, ["faithfulness", "citation_quality"])
+
     def test_named_citation_issues_lower_citation_quality(self):
         result = answer_eval.evaluate(QUESTION, GOOD, CHUNKS, API, assessor=assessor(
             citation_quality=1.0, citation_issues=["x", "y", "z", "w", "v"]))
