@@ -1,7 +1,7 @@
 # Plan: evaluation set from the blueprint, run per knowledge area
 
-Status: **Phases 1–5 done up to the deploy**: PR #41 is ready for review
-(into `main`). The deploy waits for the user to merge #41, and for #26 (the new repository's GitHub Actions
+Status: **Done up to the deploy**: merged as `13f8501` (PR #41). The
+deploy waits for #26 (the new repository's GitHub Actions
 variables and the publish role's trust) before any deploy from
 `ingenmind`. Update this file at the end of every step: tick what is done,
 note what was found, say what comes next.
@@ -225,8 +225,8 @@ today.
   - [x] README: the Evaluate step (candidate flow, the set's four kinds,
     the run, how each kind is judged, the per-area metrics, evaluations
     never ingest), the reset list, the project layout.
-  - [x] PR #41 ready for review.
-  - [ ] Deploy: after the user merges #41, and once #26 is done.
+  - [x] PR #41 merged (`13f8501`); CI passed, publishing skipped (no Actions variables yet).
+  - [ ] Deploy: once #26 is done.
     On EC2 the setup state is READY (existing install), so the Evaluate
     step does not show there until setup is run for real (#39).
 

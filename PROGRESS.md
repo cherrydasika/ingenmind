@@ -19,7 +19,7 @@ backlog became issues #20–#39; earlier pull requests are cited as "PR N
 (earlier repository)".
 
 **Handover (2026-10-09, 11:40):** the user continues from another
-account. Open: #16, PR #41 ready for review (PR #40, the renumbering, is merged); #26 before any
+account. Open: #26 (deploying from here), then #17; #26 before any
 deploy from here. EC2 was left **running** (stop it with
 `scripts/aws/session.sh stop`). Local secrets (`.env`, `.env.aws`) and
 `DEPLOYMENT.local.md` exist only in the maintainer's checkout
@@ -33,22 +33,18 @@ analysis and content selection, approval 2, `e91cc18`; plan in
 [docs/plans/content-selection.md](docs/plans/content-selection.md)).
 #14 (ingestion plan and Build RAG, `642a486`; plan in
 [docs/plans/ingestion-plan.md](docs/plans/ingestion-plan.md)).
-**Now: #16, evaluation set from the blueprint, run per knowledge area**
-(done before #15 at the user's choice: #16 → #17 reaches go-live first;
-plan: [docs/plans/evaluation.md](docs/plans/evaluation.md)). The user took
-all four recommendations (3 questions per area; prepared by itself after
-the build, run on request; a candidate flow, not live until Go live; drop
-ungrounded questions). **Phases 2–4 done** on branch
-`init/evaluation` (PR #41 into `main`): the
-candidate flow, the dataset builder, the run against the candidate flow
-metrics per knowledge area, and the Evaluation card on the setup page
-(checked in the browser); 382 tests pass; live on the local build.
-**Evaluations never ingest.** User's rule (2026-10-09): nothing goes into
-the database without their approval or rejection, in the front end. For
-now research during users' questions still ingests automatically. **Phase 5:
-docs done, PR #41 ready for review**; the deploy waits for the user to
-merge #41 and for #26. **Next after #16:** #17 (readiness report
-and Go live), then #15. Locally, model calls and web
+**Done: #16, evaluation set from the blueprint, run per knowledge area**
+(merged as `13f8501`, PR #41; plan:
+[docs/plans/evaluation.md](docs/plans/evaluation.md)). After the build,
+setup publishes a candidate flow (not live), writes `setup_evaluation`
+from the blueprint, runs it on request and reports metrics per knowledge
+area on the setup page. **Evaluations never ingest.** User's rule
+(2026-10-09): nothing goes into the database without their approval or
+rejection, in the front end; for now research during users' questions
+still ingests automatically. **Not deployed:** the publish workflow skips
+every merge until #26 sets this repository's Actions variables
+(`ARTIFACT_BUCKET`, `ARTIFACT_PUBLISH_ROLE_ARN`) and the publish role's
+trust. **Next:** #17 (readiness report and Go live), then #15. Locally, model calls and web
 search work (`.env`: `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local`,
 `TAVILY_API_KEY`); the local install is at `EVALUATING`: plan 4 (National Rail's
 Railcards and Help and assistance, 17 pages) built, 49 chunks; its
