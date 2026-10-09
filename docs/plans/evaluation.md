@@ -1,9 +1,11 @@
 # Plan: evaluation set from the blueprint, run per knowledge area
 
-Status: **Phase 4 done (the Evaluation part of the setup page) — waiting
-for the user's check before phase 5** (docs, PR ready for review, deploy).
-Branch `init/evaluation`, draft PR #41. Update this file at the end of
-every step: tick what is done, note what was found, say what comes next.
+Status: **Phases 1–5 done up to the deploy**: PR #41 is ready for review
+(based on `docs/issue-numbers`, PR #40). The deploy waits for the user to
+merge #40 and #41, and for #26 (the new repository's GitHub Actions
+variables and the publish role's trust) before any deploy from
+`ingenmind`. Update this file at the end of every step: tick what is done,
+note what was found, say what comes next.
 
 GitHub: issue #16, part of epic #19 (RAG Initialization Agent); builds on
 #11 (the blueprint) and #14 (the build: setup is then at `EVALUATING`).
@@ -221,6 +223,13 @@ today.
     scored before phase 3's last fixes (the refunds "not available" shows
     as expected; a new run counts it as a miss).
 - [ ] **5. Docs, PR, deploy.**
+  - [x] README: the Evaluate step (candidate flow, the set's four kinds,
+    the run, how each kind is judged, the per-area metrics, evaluations
+    never ingest), the reset list, the project layout.
+  - [x] PR #41 ready for review.
+  - [ ] Deploy: after the user merges #40 and #41, and once #26 is done.
+    On EC2 the setup state is READY (existing install), so the Evaluate
+    step does not show there until setup is run for real (#39).
 
 ## The user's answers (2026-10-09): the recommendations, all four
 

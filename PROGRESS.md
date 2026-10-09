@@ -46,8 +46,10 @@ metrics per knowledge area, and the Evaluation card on the setup page
 (checked in the browser); 382 tests pass; live on the local build.
 **Evaluations never ingest.** User's rule (2026-10-09): nothing goes into
 the database without their approval or rejection, in the front end. For
-now research during users' questions still ingests automatically. **Phase 5
-next** (docs, PR ready for review, deploy). Locally, model calls and web
+now research during users' questions still ingests automatically. **Phase 5:
+docs done, PR #41 ready for review**; the deploy waits for the user to
+merge #40 and #41 and for #26. **Next after #16:** #17 (readiness report
+and Go live), then #15. Locally, model calls and web
 search work (`.env`: `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local`,
 `TAVILY_API_KEY`); the local install is at `EVALUATING`: plan 4 (National Rail's
 Railcards and Help and assistance, 17 pages) built, 49 chunks; its
