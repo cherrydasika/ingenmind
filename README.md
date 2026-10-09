@@ -1,26 +1,115 @@
-# rag_systems
+# IngenMind
 
-**Build, evaluate and safely ship multi-agent RAG — open source, self-hosted, any model.**
+**One tool for information retrieval, with agents at every step.**
 
-Design your retrieval-augmented agents on a visual canvas, test every
-version against real question sets, and promote one to production only when
-it measures up. Guardrails, evidence checks and answer evaluation are part
-of the pipeline, not an afterthought.
+IngenMind takes you from *"what should my assistant know?"* to a live
+assistant that answers from trusted sources, cites them, and checks every
+answer before anyone sees it. Agents set up the knowledge base with you,
+evaluate it, and keep it honest. They answer questions as a team, and go
+looking when the knowledge base falls short. You approve every step that
+matters. Self-hosted, open source (Apache-2.0), and it runs on any model.
 
-![The flow builder: the multi-agent graph with its components, version history and per-flow metrics](docs/images/flow-builder.png)
+![A question on the Retrieval page: the live workflow, from guardrails through the evaluators to a cited answer](docs/images/multi-agent-answer.png)
 
-- **Versioned flows, evaluated before they go live.** Edit the agent graph
-  in a flow builder, publish immutable versions, compare them on question
-  sets, and promote one explicitly. Publishing never changes what users get.
-- **Answers that check themselves.** An evidence evaluator judges retrieval
-  before the answer is written, a query rewriter retries a missed search, a
-  research agent fills knowledge gaps from the web, and an answer evaluator
-  scores every answer against its evidence before anyone sees it.
-- **Runs anywhere Docker does.** PostgreSQL with pgvector, in-process
-  embeddings, and the model of your choice: Anthropic, OpenAI, Ollama or
-  Amazon Bedrock. AWS (Bedrock, AgentCore) is supported, never required.
+## Why IngenMind
 
-## Quickstart: one API key, no cloud account
+Most retrieval projects are a pile of separate tools: a scraper, a vector
+database, a chunker, prompts, an evaluation script, guardrails and a
+dashboard. Gluing them together is the project, and nobody can say whether
+the result is ready. IngenMind is **one product** that covers the whole
+life of a knowledge assistant:
+
+| You get | How |
+|---|---|
+| **Set it up by talking to it** | Describe what you need. The setup agent researches your domain, proposes what the assistant should cover, and finds and recommends the authoritative sources. |
+| **Only what you approve goes in** | You choose the sources, the sections, and the plan that is built. Every chunk traces back to the approval it came from: **Why is this here?** |
+| **Know it's ready before it's live** | Test questions are written from your blueprint and run against the assistant. A readiness report shows computed scores and the gaps per topic, each with a fix. **Go live** only when you're happy. |
+| **Answers that check themselves** | Every answer is judged against its evidence for correctness, faithfulness, completeness and citations. What fails is never shown. An honest "not available" beats a confident guess. |
+| **It fills its own gaps** | When the knowledge base has no answer, a research agent searches the web, validates sources on authority, freshness, consistency and relevance, adds the good ones, and answers. |
+| **Safe by default** | Guardrails check every question, answer and researched page against your scope, always on, whatever the flow. |
+| **Yours to run** | Docker on a laptop or a server. Anthropic, OpenAI, Ollama or Amazon Bedrock. AWS is supported, never required. |
+
+## Agents all around
+
+Every step has an agent with one job, and a check behind it.
+
+| Agent | What it does for you |
+|---|---|
+| **Setup agent** | Interviews you about purpose, audience, regions and questions; offers defaults rather than asking everything |
+| **Domain analyst** | Researches the domain and writes the **blueprint**: knowledge areas, organisations, scope and how each kind of question is answered |
+| **Source scout** | Finds and ranks candidate sites by authority; you choose |
+| **Content mapper** | Reads each chosen site's structure and maps its sections to your knowledge areas; you tick what goes in |
+| **Evaluation agent** | Writes test questions per knowledge area from your pages, each checked against its source, plus questions that must be refused |
+| **Supervisor** | Takes each question, delegates to specialists in parallel, and writes one short cited answer |
+| **Knowledge-base agent** | Searches your knowledge base: meaning and keywords together |
+| **Evidence evaluator** | Judges whether what was found answers the question: answer, search again, or research |
+| **Query rewriter** | Works out why a search missed and tries again, differently |
+| **Research agent** | Searches the web for a knowledge gap and brings back candidate pages |
+| **Source validator** | Scores each candidate on authority, freshness, consistency and relevance; only the good ones are added |
+| **External-APIs agent** | Calls live tools (weather, timetables, entry rules…); adding one is a single Python file |
+| **Guardrails** | Keep questions, answers and researched pages inside your scope, and block prompt injection |
+| **Answer evaluator** | Scores every answer against its evidence before anyone sees it |
+
+## How it works
+
+```mermaid
+flowchart LR
+    P([Describe your purpose]) --> B[Blueprint<br/>you confirm]
+    B --> S[Sources<br/>you choose]
+    S --> C[Content<br/>you tick]
+    C --> BD[Build<br/>you approve the plan]
+    BD --> E[Evaluate<br/>per knowledge area]
+    E --> R{Readiness<br/>scores and gaps}
+    R -- fix a gap --> S
+    R -- go live --> L([Live assistant])
+    L --> Q[Questions answered<br/>by the agent team]
+    Q -- knowledge gap --> RS[Research<br/>validated sources] --> L
+```
+
+Behind every question:
+
+```mermaid
+flowchart LR
+    Q([Question]) --> IG{{Input guardrail}}
+    IG --> S[Supervisor]
+    S -- tasks --> KB[Knowledge-base agent]
+    S -- tasks --> API[External-APIs agent]
+    KB --> EE{Evidence evaluator}
+    EE -- good evidence --> S
+    EE -- missed --> QR[Query rewriter] --> KB
+    EE -- knowledge gap --> R[Research agent] --> SV{Source validator} --> ING[Ingest] --> KB
+    API -- findings --> S
+    S -- draft --> OG{{Output guardrail}} --> AE{Answer evaluator} --> A([Cited answer])
+```
+
+## You stay in control
+
+- **Approvals, recorded.** Requirements, blueprint, sources, content, the
+  build plan and Go live are each your decision, and setup's history
+  records each step with who took it and when.
+- **Scores you can check.** Readiness scores are computed from data, each
+  shown with its definition and numbers, never a model's opinion. A topic
+  with no source can't reach 100%.
+- **Versions, not surprises.** The agent graph is a versioned flow you can
+  edit visually. Publishing never changes what users get; only promoting a
+  version does, and the previous one stays one click away.
+- **Evaluations never change what they measure.** An evaluation run never
+  adds pages to the knowledge base.
+- **Traceable knowledge.** Every page in the knowledge base shows where it
+  came from: the source, the section, the plan, and who approved it. Pages
+  added by research show why, and can be removed on the Ingestion tab.
+
+## Built for
+
+- **Customer and passenger help:** policies, rights, refunds, facilities and
+  accessibility, answered from the official pages with citations. The
+  example assistant here covers UK rail.
+- **Internal knowledge:** handbooks, procedures and product documentation,
+  kept inside a scope you set.
+- **Regulated or high-stakes domains:** where a wrong answer costs more than
+  no answer, and every claim needs a source.
+
+## Get started: two commands, one API key
 
 ```bash
 cp .env.example .env      # then paste your key into ANTHROPIC_API_KEY
@@ -57,7 +146,34 @@ in [data/urls.example.json](data/urls.example.json), or your own list in
   evals) run on the same key: see [Agent runtime](#agent-runtime). Only the
   research agent's web search needs another key, `TAVILY_API_KEY`.
 
-## Features
+### Set up your own knowledge system
+
+The demo shows the answering side. To build an assistant for your own
+domain, let the agents set it up with you:
+
+1. Add a Tavily key (`TAVILY_API_KEY` in `.env`; the agents research the
+   web with it).
+2. Start without the demo (leave `COMPOSE_PROFILES` empty), or reset a demo
+   install on **Admin → Knowledge system**.
+3. Sign in: an admin lands on **Set up your knowledge system**. Answer the
+   setup agent's questions, then confirm the blueprint, choose sources and
+   content, approve the build, run the evaluation, read the readiness report
+   and **Go live**.
+
+Each step waits for you, and setup can be left and resumed at any point.
+Details: [Knowledge system: setup and reset](#knowledge-system-setup-and-reset).
+
+## Roadmap
+
+Next on the list (see the [issues](https://github.com/cherrydasika/ingenmind/issues)):
+metadata from the blueprint for sharper retrieval, a reranker, approving
+researched pages in the app before they are added, an analytics page (where
+questions fail and which sources help), and suggestions learnt from live
+use, approved by an admin.
+
+## Under the hood
+
+For builders: how the parts work, and how to change them.
 
 ### Flow builder (`#/flows`)
 
@@ -85,19 +201,8 @@ to a LangGraph state machine.
 
 ### Multi-agent RAG
 
-```mermaid
-flowchart LR
-    Q([Question]) --> IG{{Input guardrail}}
-    IG --> S[Supervisor]
-    S -- tasks --> KB[Knowledge-base agent]
-    S -- tasks --> API[External-APIs agent]
-    KB --> EE{Evidence evaluator}
-    EE -- good evidence --> S
-    EE -- missed --> QR[Query rewriter] --> KB
-    EE -- knowledge gap --> R[Research agent] --> SV{Source validator} --> ING[Ingest] --> KB
-    API -- findings --> S
-    S -- draft --> OG{{Output guardrail}} --> AE{Answer evaluator} --> A([Answer])
-```
+The graph behind every question is shown in [How it works](#how-it-works).
+
 
 - **Supervisor** delegates one self-contained task per specialist, in
   parallel, for up to two rounds, then writes a short answer that keeps the
@@ -117,8 +222,6 @@ flowchart LR
   replaced by a standard message.
 - **Agent runtime** — local (any chat model, conversations in PostgreSQL)
   or a Bedrock AgentCore harness, with the same graph on both.
-
-![A question on the Retrieval page: the live workflow, from guardrails through the evaluators to a cited answer](docs/images/multi-agent-answer.png)
 
 ### Guardrails
 
