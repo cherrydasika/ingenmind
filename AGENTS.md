@@ -67,8 +67,14 @@ AWS publish role's trust of this repository (see PROGRESS.md).
 2. A commit CI skipped (docs only) is published by hand, and only the
    user does that (agents are not allowed to):
    `gh workflow run publish-source.yml --ref main -f confirmation=PUBLISH`
-3. Deploy that commit through Systems Manager (profile `personal`,
-   region `eu-west-2`, instance `<instance-id>`):
-   `sudo bash /opt/rag-systems/current/scripts/aws/deploy.sh <full SHA>`
+3. The **Deploy to EC2** workflow then waits for the user's approval in the
+   `production` environment (GitHub → Actions), and deploys that commit
+   through Systems Manager once approved. Only the user approves. To deploy
+   another published commit, the user runs it by hand:
+   `gh workflow run deploy.yml --ref main -f commit=<full SHA> -f confirmation=DEPLOY`
+   (check: `gh run list --workflow deploy.yml`). The by-hand fallback, when
+   Actions can't be used (profile `personal`, region `eu-west-2`, instance
+   `<instance-id>`): `sudo bash /opt/rag-systems/current/scripts/aws/deploy.sh <full SHA>`
 4. `scripts/aws/session.sh start | stop | status` turns EC2 and its stack
-   on and off; stop it when done, it bills by the hour.
+   on and off; stop it when done, it bills by the hour. A deploy to a
+   stopped instance fails and says so: start it, then re-run the job.
