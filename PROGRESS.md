@@ -11,15 +11,17 @@ Last updated: 2026-10-09
 `rag_systems_cloud` is archived with the full history. Identifiers of the
 maintainer's deployment are placeholders here (`<instance-id>`,
 `<account-id>`…), real values in the git-ignored `DEPLOYMENT.local.md`.
-Still to do for deploying from `ingenmind`: its GitHub Actions variables,
-the publish role's OIDC trust (`infra/terraform/main.tf`), and
-`AGENT_HARNESS_ARN` in the EC2 settings (SSM; the user adds it). Issues were
+Deploying from `ingenmind` works since #26 (2026-10-09): its Actions
+variables are set, the publish role (Terraform) and the plan role (made by
+hand) trust its `main` branch with GitHub's immutable subject (owner and
+repository IDs), `AGENT_HARNESS_ARN` is in the EC2 settings, and the first
+publish and deploy (`aaabad7`) were checked. Issues were
 recreated here (#1–#19, renumbered; the finished ones closed) and the
 backlog became issues #20–#39; earlier pull requests are cited as "PR N
 (earlier repository)".
 
 **Handover (2026-10-09, 11:40):** the user continues from another
-account. Open: #26 (deploying from here), then #17; #26 before any
+account. Open: #17 next; #26 before any
 deploy from here. EC2 was left **running** (stop it with
 `scripts/aws/session.sh stop`). Local secrets (`.env`, `.env.aws`) and
 `DEPLOYMENT.local.md` exist only in the maintainer's checkout
@@ -41,10 +43,8 @@ from the blueprint, runs it on request and reports metrics per knowledge
 area on the setup page. **Evaluations never ingest.** User's rule
 (2026-10-09): nothing goes into the database without their approval or
 rejection, in the front end; for now research during users' questions
-still ingests automatically. **Not deployed:** the publish workflow skips
-every merge until #26 sets this repository's Actions variables
-(`ARTIFACT_BUCKET`, `ARTIFACT_PUBLISH_ROLE_ARN`) and the publish role's
-trust. **Next:** #17 (readiness report and Go live), then #15. Locally, model calls and web
+still ingests automatically. **Deployed** on EC2 as `aaabad7` (2026-10-09,
+with #26). **Next:** #17 (readiness report and Go live), then #15. Locally, model calls and web
 search work (`.env`: `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local`,
 `TAVILY_API_KEY`); the local install is at `EVALUATING`: plan 4 (National Rail's
 Railcards and Help and assistance, 17 pages) built, 49 chunks; its
@@ -64,9 +64,9 @@ bundle, `web/flows-app/src/flows.css`, needs a rebuild).
 
 - EC2 `<instance-id>` (eu-west-2) was **running** on 2026-10-09
   (stop it with `session.sh stop` when done). Its active release is
-  `642a486` (#14: ingestion plan and Build RAG; #9–#13 before it; all
-  unused there since EC2 is READY/existing with its 5 URLs; the new tables
-  and the `ingest_plan` job kind are created)
+  `aaabad7` (#16: setup's evaluation, and #26: the first deploy from
+  `ingenmind`; #9–#14 before it; all unused there since EC2 is
+  READY/existing with its 5 URLs; the live flow is unchanged)
   Sign-in is Amazon Cognito (AUTH_MODE=oidc); the first account,
   `admin@example.com`, works, and sign-out ends the Cognito session too.
 - The live flow on EC2 is `travel_assistant` **v3** (UK trains and weather
