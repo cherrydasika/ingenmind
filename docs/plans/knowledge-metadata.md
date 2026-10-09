@@ -1,9 +1,12 @@
 # Plan: knowledge metadata from the blueprint, and retrieval that uses it
 
-Status: **Phase 2 done (labels at ingestion) — waiting for the user's check
-before phase 3** (retrieval with filters and authority). Branch
-`init/metadata`. Update this file at the end of every step: tick what is
-done, note what was found, say what comes next.
+Status: **Paused in phase 3 (2026-10-09), at the user's request.** The
+code for filters and authority is written and tested (407 pass) and pushed
+to branch `init/metadata` (draft PR #56), not merged. The comparison found
+the agent over-uses the topic filter, which hides pages filed under a
+neighbouring topic. The fix (topic as a preference, not an exclusion, and a
+re-run of the comparison twice per side) is in the backlog as **#57**.
+Resume there. Update this file at the end of every step.
 
 GitHub: issue #15, part of epic #19 (RAG Initialization Agent); builds on
 #11 (the blueprint and its `metadata_fields`) and #14 (the build: each page's
@@ -133,6 +136,40 @@ builds label as they ingest. Research pages: question 4.
   fusion, dates in citations; tests (a filtered search returns only matching
   chunks; filters off: unchanged); `travel_basics` and the setup evaluation
   run before and after, scores not lower. Stop.
+  - `storage.meta_filter()`: all given keys, any value of each, as JSON
+    containment on `payload->'meta'` (keys `topic`, `organisation`,
+    `content_type`, `fields.<name>`; anything else is refused). A GIN index
+    (`jsonb_path_ops`) on the labels in both tables. A filtered vector
+    search sets `hnsw.iterative_scan = relaxed_order` (pgvector 0.8.6, local
+    and EC2) so it still fills its limit. `search_dense` / `search_text` /
+    `hybrid_search` take `filters`; none or `{}` gives exactly the old
+    results.
+  - Fusion: equal fused scores order by authority, then id as before; a
+    result's `meta` (organisation, effective date, authority, topic,
+    content type) travels with it.
+  - The knowledge-base agent: `labels.vocabulary()` (the values stored
+    chunks actually carry, topics with their names) goes into the run's
+    settings. `_apply_settings` adds optional `topic`, `organisation` and
+    `content_type` (enums) to the search tool only when there is a
+    vocabulary. `_search` keeps only known values, retries without the
+    filter when nothing matches, says so in the result, records `filters`
+    and `unfiltered_retry` on the search, and shows each result's
+    organisation and date in its citation line.
+  - Tests: storage filters (each key, combinations, fields, no match, off =
+    identical, unknown key refused), hybrid search with filters, authority
+    breaks ties only, the tool schema, the filtered search and its retry.
+    Full suite: 407 pass.
+  - The comparison (one pass each, local build; the "before" ran the old
+    code): built-in set 11/15 met before, 9/15 after (pass rate 73% to
+    55%); setup evaluation 11/16 to 12/16 (pass rate 77% both). Re-running
+    the four built-in questions that flipped, with filters on and off,
+    showed the flips are mostly noise (the same questions failed or passed
+    either way; the local knowledge base lacks Kids for a Quid and Advance
+    fares). **The real finding:** the agent applied `topic` to nearly every
+    search (all 12 for "how can I save money booking"), hiding *Refunds and
+    changes* and *Ticket acceptance*, which explain ticket types but are
+    labelled refunds and passenger rights. Next: #57 (topic as a
+    preference), then the comparison twice per side.
 - [ ] **4. UI**: labels on the Sources and Ingestion pages and in citations;
   the relabel action on the setup page; checked in the browser. Stop.
 - [ ] **5. Docs, PR, deploy.**

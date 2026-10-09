@@ -19,6 +19,9 @@ def _hit_to_chunk(hit: dict) -> dict:
         "score": hit["score"], "vector": hit["vector"],
         # For the evidence evaluator's freshness check.
         "ingested_at": hit["payload"].get("ingested_at"), "ttl_days": hit["payload"].get("ttl_days"),
+        # What the page is about (#15): who published it and how current it is, for citations.
+        "meta": {k: v for k, v in (hit["payload"].get("meta") or {}).items()
+                 if k in ("organisation", "effective_date", "authority", "topic", "content_type")},
     }
 
 
@@ -31,7 +34,10 @@ def _fuse(dense_hits: list[dict], text_hits: list[dict], top_k: int,
             scores[hit["id"]] = scores.get(hit["id"], 0) + 1 / (rrf_k + position)
             hits[hit["id"]] = hit
     fused = []
-    for hit_id in sorted(scores, key=lambda key: (-scores[key], key))[:top_k]:
+    # Equal fused scores: the more authoritative source first (#15), then a stable order.
+    authority = {hit_id: (((hit.get("payload") or {}).get("meta") or {}).get("authority") or 0)
+                 for hit_id, hit in hits.items()}
+    for hit_id in sorted(scores, key=lambda key: (-round(scores[key], 9), -authority[key], key))[:top_k]:
         fused.append({**hits[hit_id], "score": scores[hit_id]})
     breakdown = []
     dense_ids = [hit["id"] for hit in dense_hits]
@@ -53,18 +59,20 @@ def ignore_stage(stage: str, state: str, **info) -> None:
 
 
 def hybrid_search(question: str, top_k: int = TOP_K, on_stage=ignore_stage, prefetch: int | None = None,
-                  rrf_k: int = RRF_K, dense: bool = True, full_text: bool = True) -> dict:
+                  rrf_k: int = RRF_K, dense: bool = True, full_text: bool = True, filters: dict | None = None) -> dict:
     """on_stage(stage, state, **info) is told when the embedding and retrieval
     stages start and finish, for the Retrieval page's live workflow chart.
     prefetch: candidates per search before fusion (default 2 × top_k, at
     least top_k); rrf_k: the reciprocal-rank-fusion constant; dense /
     full_text: run the vector or the keyword search (at least one). The query
-    is embedded either way: the embedding plots show it."""
+    is embedded either way: the embedding plots show it. filters: only chunks
+    whose labels match (storage.meta_filter, #15); none: every chunk, as before."""
     if not (dense or full_text):
         raise ValueError("hybrid_search needs the dense or the full-text search")
     prefetch = max(prefetch or top_k * 2, top_k)
     with observation(as_type="span", name="hybrid_search",
-                     input={"question": question, "top_k": top_k, "prefetch": prefetch, "rrf_k": rrf_k}) as span:
+                     input={"question": question, "top_k": top_k, "prefetch": prefetch, "rrf_k": rrf_k,
+                            **({"filters": filters} if filters else {})}) as span:
         client = storage.get_client()
         on_stage("embedding", "start")
         start = time.perf_counter()
@@ -74,11 +82,11 @@ def hybrid_search(question: str, top_k: int = TOP_K, on_stage=ignore_stage, pref
 
         on_stage("retrieval", "start")
         start = time.perf_counter()
-        dense_hits = storage.search_dense(client, dense_vector, prefetch) if dense else []
+        dense_hits = storage.search_dense(client, dense_vector, prefetch, filters) if dense else []
         dense_seconds = time.perf_counter() - start
 
         start = time.perf_counter()
-        text_hits = storage.search_text(client, question, prefetch) if full_text else []
+        text_hits = storage.search_text(client, question, prefetch, filters) if full_text else []
         text_seconds = time.perf_counter() - start
 
         start = time.perf_counter()
@@ -97,6 +105,7 @@ def hybrid_search(question: str, top_k: int = TOP_K, on_stage=ignore_stage, pref
             "rankings": rankings,
             "dense_vector": dense_vector,
             "sparse_term_count": len(question.split()),
+            "filters": filters or None,
             "explain": {
                 "index": get_index_info(),
                 "fused": {"k": rrf_k, "prefetch": prefetch, "rows": breakdown},

@@ -49,7 +49,12 @@ the blueprint, used by retrieval;
 recommendations. **Phase 2 done** on branch `init/metadata`: every stored
 page is labelled (topic, organisation, authority, dates, content type, the
 blueprint's own fields) by rules plus one model call per page; the local
-build is relabelled. Phase 3 (retrieval with filters and authority) next.
+build is relabelled (PR #56, draft, not merged). **Paused in phase 3
+(2026-10-09)** at the user's request: filters, authority and the agent's
+optional filters are written and tested (407 pass) and pushed to the
+branch. The before/after comparison found the agent over-uses the topic
+filter; the fix (topic as a preference) is backlog issue **#57**. Resume
+there.
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is

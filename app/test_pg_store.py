@@ -87,6 +87,61 @@ class PgStoreTest(unittest.TestCase):
         storage.refresh_expiry(self.client, self.source, 2)
         self.assertEqual(storage.get_existing_metadata(self.client, self.source)["ttl_days"], 2)
 
+    def labelled(self):
+        """Two more pages, labelled (#15): a regulator's refunds policy and an operator's railcard guide."""
+        pages = {f"fixture://orr-{uuid.uuid4()}": ("Refund policy for delayed trains", {
+                     "topic": ["refunds"], "organisation": "Office of Rail and Road", "content_type": "policy",
+                     "authority": 1.0, "fields": {"ticket_type": ["Advance"]}}),
+                 f"fixture://nr-{uuid.uuid4()}": ("Railcard refund policy and savings", {
+                     "topic": ["railcards", "refunds"], "organisation": "National Rail", "content_type": "guide",
+                     "authority": 0.6, "fields": {"ticket_type": ["Season"]}})}
+        for url, (text, meta) in pages.items():
+            self.addCleanup(storage.delete_url_points, self.client, url)
+            storage.upsert_chunks(self.client, url, [text], [[0.9, 0.1] + [0.0] * 254], "h", 1, extra_payload={"meta": meta})
+        return list(pages)
+
+    def test_label_filters(self):
+        orr, nr = self.labelled()
+        vector = [1.0] + [0.0] * 255
+        everything = storage.search_dense(self.client, vector, 10)
+        self.assertEqual(everything, storage.search_dense(self.client, vector, 10, None))     # off: as before
+        self.assertEqual(everything, storage.search_dense(self.client, vector, 10, {}))
+        urls = lambda hits: {h["payload"]["source_url"] for h in hits}
+        self.assertEqual(urls(storage.search_dense(self.client, vector, 10, {"topic": "railcards"})), {nr})
+        self.assertEqual(urls(storage.search_dense(self.client, vector, 10, {"topic": ["refunds"]})), {orr, nr})
+        self.assertEqual(urls(storage.search_text(self.client, "refund policy", 10,
+                                                  {"organisation": "Office of Rail and Road"})), {orr})
+        self.assertEqual(urls(storage.search_dense(self.client, vector, 10,
+                                                   {"topic": "refunds", "content_type": "guide"})), {nr})
+        self.assertEqual(urls(storage.search_dense(self.client, vector, 10, {"fields.ticket_type": "Advance"})), {orr})
+        self.assertEqual(storage.search_dense(self.client, vector, 10, {"topic": "weather"}), [])
+        self.assertNotIn(self.source, urls(storage.search_dense(self.client, vector, 10, {"topic": "refunds"})))
+        with self.assertRaises(ValueError):
+            storage.meta_filter({"payload": "x"})
+
+    def test_hybrid_search_filters_and_authority(self):
+        orr, nr = self.labelled()
+        with patch.object(embedding, "embed_texts", return_value=[[0.9, 0.1] + [0.0] * 254]), \
+                patch("retrieval.observation", return_value=NoopSpan()):
+            plain = hybrid_search("refund policy", top_k=5)
+            filtered = hybrid_search("refund policy", top_k=5, filters={"organisation": "National Rail"})
+        self.assertEqual([c["source_url"] for c in filtered["rankings"]["fused"]], [nr])
+        self.assertEqual(filtered["filters"], {"organisation": "National Rail"})
+        self.assertIsNone(plain["filters"])
+        fused = {c["source_url"]: c for c in plain["rankings"]["fused"]}
+        self.assertEqual(fused[orr]["meta"]["organisation"], "Office of Rail and Road")   # labels for citations
+
+    def test_authority_breaks_ties_only(self):
+        hit = lambda i, authority: {"id": i, "payload": {"meta": {"authority": authority}}}
+        blog, regulator = hit("a", 0.3), hit("b", 1.0)
+        fused, _ = _fuse([blog, regulator], [regulator, blog], 2)      # 1st and 2nd each way: equal scores
+        self.assertEqual([h["id"] for h in fused], ["b", "a"])          # the more authoritative first
+        fused, _ = _fuse([blog, regulator], [blog, regulator], 2)       # the blog ranks higher: authority changes nothing
+        self.assertEqual([h["id"] for h in fused], ["a", "b"])
+        unlabelled = [{"id": "a", "payload": {}}, {"id": "b", "payload": {}}]
+        fused, _ = _fuse(unlabelled, list(reversed(unlabelled)), 2)    # no labels: as before (by id)
+        self.assertEqual([h["id"] for h in fused], ["a", "b"])
+
     def test_retrieval_only_api(self):
         with patch.object(embedding, "embed_texts", return_value=[[1.0] + [0.0] * 255]), \
             patch("retrieval.observation", return_value=NoopSpan()), \

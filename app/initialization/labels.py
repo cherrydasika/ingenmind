@@ -204,6 +204,34 @@ def label_url(client: storage.PgStore, url: str, bp: dict, sources_by_id: dict |
     return meta
 
 
+def vocabulary() -> dict | None:
+    """The filters the knowledge-base agent may use: the label values the stored chunks
+    actually carry (topics with their names), or None when nothing is labelled."""
+    bp = blueprint_or_none()
+    names = {a["key"]: a["name"] for a in (bp or {}).get("knowledge_areas") or []}
+    out = {"topic": {}, "organisation": set(), "content_type": set()}
+    for client in (storage.get_client(), storage.get_client("research")):
+        try:
+            with client.connection() as connection:
+                rows = connection.execute(f"""
+                    SELECT DISTINCT payload->'meta'->'topic' AS topic, payload->'meta'->>'organisation' AS organisation,
+                           payload->'meta'->>'content_type' AS content_type
+                    FROM {client.table} WHERE payload ? 'meta' AND expires_at > now()""").fetchall()
+        except Exception:
+            continue
+        for r in rows:
+            for t in r["topic"] or []:
+                out["topic"][t] = names.get(t, t.replace("_", " "))
+            if r["organisation"]:
+                out["organisation"].add(r["organisation"])
+            if r["content_type"]:
+                out["content_type"].add(r["content_type"])
+    if not (out["topic"] or out["organisation"] or out["content_type"]):
+        return None
+    return {"topic": dict(sorted(out["topic"].items())), "organisation": sorted(out["organisation"]),
+            "content_type": sorted(out["content_type"])}
+
+
 def blueprint_or_none() -> dict | None:
     """The confirmed blueprint, or None on an install setup did not build."""
     try:

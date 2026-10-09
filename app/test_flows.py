@@ -339,6 +339,46 @@ class SettingsAreLive(unittest.TestCase):
         self.assertEqual((kwargs["top_k"], kwargs["prefetch"], kwargs["rrf_k"]), (3, 12, 60))
         self.assertEqual(run.searches[1]["first"], 4)
 
+    VOCABULARY = {"topic": {"refunds": "Refunds", "accessibility": "Accessibility"},
+                  "organisation": ["National Rail"], "content_type": ["guide", "policy"]}
+
+    def test_the_search_tool_offers_label_filters_only_when_the_knowledge_base_has_labels(self):
+        tool = agent.ROLES["knowledge_base"]["tools"]
+        _, plain = agent._apply_settings("knowledge_base", {"filters": None}, [], tool)
+        self.assertEqual(set(plain[0]["config"]["inlineFunction"]["inputSchema"]["properties"]), {"query"})
+        _, tools = agent._apply_settings("knowledge_base", {"filters": self.VOCABULARY}, [], tool)
+        spec = tools[0]["config"]["inlineFunction"]
+        props = spec["inputSchema"]["properties"]
+        self.assertEqual((props["topic"]["enum"], props["organisation"]["enum"], props["content_type"]["enum"]),
+                         (["refunds", "accessibility"], ["National Rail"], ["guide", "policy"]))
+        self.assertIn("refunds (Refunds)", props["topic"]["description"])
+        self.assertEqual(spec["inputSchema"]["required"], ["query"])           # filters stay optional
+        self.assertIn("Optional filters", spec["description"])
+        self.assertEqual(set(tool[0]["config"]["inlineFunction"]["inputSchema"]["properties"]), {"query"})   # not changed
+
+    def test_a_filtered_search_and_its_unfiltered_retry(self):
+        found = {"rankings": {"fused": [{"source_url": "u", "text": "t", "meta": {"organisation": "National Rail",
+                                                                                   "effective_date": "2026-08-07"}}]}}
+        empty = {"rankings": {"fused": []}}
+        run = self.run_with({"filters": self.VOCABULARY})
+        run.retrieval_view = lambda s: {"chunks": s["rankings"]["fused"], "sources": []}
+        use = lambda **args: {"name": "search_knowledge_base", "input": json.dumps({"query": "refunds", **args}),
+                              "turn": 1, "toolUseId": "t"}
+        with patch.object(agent, "hybrid_search", return_value=found) as search:
+            out = run._search(use(topic="refunds", organisation="Made Up Ltd"), 1)
+        self.assertEqual(search.call_args.kwargs["filters"], {"topic": "refunds"})    # an unknown value is ignored
+        text = out["toolResult"]["content"][0]["text"]
+        self.assertIn("(filtered by topic=refunds)", text)
+        self.assertIn("[1] u (National Rail, 2026-08-07)", text)
+        with patch.object(agent, "hybrid_search", side_effect=[empty, found]) as search:
+            out = run._search(use(topic="accessibility"), 1)
+        self.assertEqual([c.kwargs["filters"] for c in search.call_args_list], [{"topic": "accessibility"}, None])
+        self.assertIn("nothing matched topic=accessibility: searched everything", out["toolResult"]["content"][0]["text"])
+        self.assertTrue(run.searches[-1]["unfiltered_retry"])
+        with patch.object(agent, "hybrid_search", return_value=found) as search:
+            run._search(use(), 1)
+        self.assertIsNone(search.call_args.kwargs["filters"])                       # none asked: none used
+
     def test_tools_outside_the_flow_are_refused(self):
         run = self.run_with({"api_tools": {"get_weather"}})
         with patch.object(agent.api_tools, "run") as call:
