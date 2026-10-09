@@ -45,7 +45,9 @@ TAVILY_URL = "https://api.tavily.com/search"
 TAVILY_PARAMETER = os.environ.get("TAVILY_API_KEY_PARAMETER", "/rag-systems/prod/tavily-api-key")
 MAX_RESULTS = 5
 MIN_TEXT_CHARS = 400            # less than this is not a usable source
-MAX_PROMPT_CHARS = 2500         # per source, in the validation prompt
+MAX_PROMPT_CHARS = 4000         # per source, in the validation prompt: its start and the passages that matter
+OPENING_CHARS = 1200            # of those, the page's start (what it is, who publishes it, its date)
+PASSAGE_CHARS = 600             # around each place the page names what is missing
 ACCEPT = {"authority": 0.6, "freshness": 0.5, "consistency": 0.6, "relevance": 0.6}
 RESEARCH_TTL_DAYS = 90          # how long ingested research sources live
 # Public bodies: government, EU and similar domains count as authoritative.
@@ -160,7 +162,9 @@ VALIDATE_PROMPT = (
     "(does it agree with the other candidates on the facts they share; contradictions score low), relevance "
     "(does it contain the information listed as missing, for the country, region and subject the "
     "ASSISTANT BRIEF gives: a source about another country's services, such as another country's railways "
-    "for a UK rail assistant, scores relevance 0 however well it matches the question's words). Judge only the text given; do not use outside "
+    "for a UK rail assistant, scores relevance 0 however well it matches the question's words). A long page is "
+    "shown as its start and the passages that mention what is missing, separated by […]: judge relevance on "
+    "those passages too. Judge only the text given; do not use outside "
     "knowledge about the facts, do not guess, and do NOT answer the question. Report through the "
     "record_source_assessment tool only."
 )
@@ -182,10 +186,51 @@ def _deterministic(source: dict, now: datetime) -> dict:
             "chars": source["chars"], "age_days": age_days, "freshness": freshness}
 
 
+STOPWORDS = set("""about after also available been before being does from have information into more other
+some such than that their them then there these they this those what when where which while will with would your
+station stations train trains""".split())
+
+
+def _terms(texts: list[str]) -> list[str]:
+    """The words worth finding in a page: what is missing, and the question (no short or common words)."""
+    words = re.findall(r"[a-z][a-z'-]{3,}", " ".join(texts).lower())
+    return list(dict.fromkeys(w.rstrip("s") for w in words if w not in STOPWORDS))
+
+
+def excerpt_for(text: str, terms: list[str], limit: int = MAX_PROMPT_CHARS) -> str:
+    """What the validator sees of a page: all of it when it fits; else its start, then the
+    passages around the first mention of each term, chosen in the terms' order (what is
+    missing first) until `limit`, shown in page order. (The first 2,500 characters alone
+    missed Birmingham New Street's toilets at character 5,944.)"""
+    if len(text) <= limit:
+        return text
+    lower = text.lower()
+    windows, used = [(0, OPENING_CHARS)], OPENING_CHARS
+    for term in terms:
+        found = lower.find(term, OPENING_CHARS)
+        if found < 0 or any(a <= found < b for a, b in windows):
+            continue
+        start = max(OPENING_CHARS, found - PASSAGE_CHARS // 3)
+        end = min(len(text), start + PASSAGE_CHARS, start + limit - used)
+        if end - start < 100:
+            break
+        windows.append((start, end))
+        used += end - start
+    merged = []
+    for start, end in sorted(windows):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return "\n[…]\n".join(text[a:b].strip() for a, b in merged)
+
+
 def assess_with_llm(question: str, missing: list[str], sources: list[dict],
                     brief: str = "") -> tuple[SourceAssessments, dict]:
+    terms = _terms(missing + [question])
     blocks = [f"SOURCE {i + 1}: {s['url']} ({s['kind']}, title: {s.get('title') or '—'}, "
-              f"date in metadata: {s.get('date') or 'unknown'})\n{s['text'][:MAX_PROMPT_CHARS]}" for i, s in enumerate(sources)]
+              f"date in metadata: {s.get('date') or 'unknown'})\n{excerpt_for(s['text'], terms)}"
+              for i, s in enumerate(sources)]
     prompt = ((f"ASSISTANT BRIEF:\n{brief}\n\n" if brief.strip() else "") + f"QUESTION:\n{question}\n\nMISSING FROM THE KNOWLEDGE BASE:\n" + ("\n".join(f"- {m}" for m in missing) or "—")
               + "\n\nCANDIDATES:\n\n" + "\n\n".join(blocks))
     with observation(as_type="generation", name="source_validator", model=llm.MODEL,
