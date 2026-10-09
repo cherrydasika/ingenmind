@@ -1,9 +1,10 @@
 name: Deploy to EC2
 
 # Deploys a published release to EC2 (#25). Runs by itself after each
-# successful publish, for the commit published, and waits in the protected
-# "production" environment until the maintainer approves it; or run it by
-# hand (typing DEPLOY) for a commit already published. The deployer role may
+# successful publish, for the commit published: a pull request reviewed and
+# merged into main is the approval, so there is no second one here. Or run it
+# by hand (typing DEPLOY) for a commit already published. The "production"
+# environment allows main only. The deployer role may
 # only run scripts/aws/deploy.sh for a full commit SHA on the app instance
 # (infra/terraform/deploy.tf); deploy.sh falls back to the previous release
 # if the new one does not start.

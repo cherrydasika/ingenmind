@@ -149,8 +149,9 @@ access to these secrets. Deletion/rotation requires a deliberate recovery plan.
    `releases/<commit SHA>/source.tar.gz` and its checksum by itself (for a
    commit CI skipped, run it on `main` by hand, typing `PUBLISH`).
 3. **Deploy to EC2** (`.github/workflows/deploy.yml`) starts after the
-   publish and waits in the protected `production` environment until the
-   maintainer approves it. It then runs the `rag-systems-deploy` command
+   publish, in the `production` environment (only `main` may use it), with no
+   second approval: the reviewed, merged pull request is the approval. It runs
+   the `rag-systems-deploy` command
    document on the app instance through Systems Manager, and reports the
    result. Run it by hand for another published commit (typing `DEPLOY`).
    The deployer role (`infra/terraform/deploy.tf`) trusts only this
