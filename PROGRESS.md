@@ -43,9 +43,11 @@ secrets). Tunnels close after 60 minutes idle (was 20).
 in [docs/plans/](docs/plans/)), **#16** evaluation from the blueprint, per
 knowledge area ([plan](docs/plans/evaluation.md); evaluations never
 ingest), and **#17** readiness report, gaps and Go live
-([plan](docs/plans/readiness.md)). **Next: #15** (knowledge metadata from
-the blueprint, used by retrieval), paused at the user's request; nothing of
-it is written yet.
+([plan](docs/plans/readiness.md)). **Now: #15** (knowledge metadata from
+the blueprint, used by retrieval): phase 1, the plan
+([docs/plans/knowledge-metadata.md](docs/plans/knowledge-metadata.md)),
+written on branch `init/metadata`; waiting for the user's answers to its
+five questions.
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is
