@@ -19,8 +19,7 @@ backlog became issues #20–#39; earlier pull requests are cited as "PR N
 (earlier repository)".
 
 **Handover (2026-10-09, 11:40):** the user continues from another
-account. Open: PR #40 (this renumbering; the user merges); #16 in progress
-(phases 2–3 done, draft PR #41, see below); #26 before any
+account. Open: #16, PR #41 ready for review (PR #40, the renumbering, is merged); #26 before any
 deploy from here. EC2 was left **running** (stop it with
 `scripts/aws/session.sh stop`). Local secrets (`.env`, `.env.aws`) and
 `DEPLOYMENT.local.md` exist only in the maintainer's checkout
@@ -40,7 +39,7 @@ plan: [docs/plans/evaluation.md](docs/plans/evaluation.md)). The user took
 all four recommendations (3 questions per area; prepared by itself after
 the build, run on request; a candidate flow, not live until Go live; drop
 ungrounded questions). **Phases 2–4 done** on branch
-`init/evaluation` (draft PR #41, based on `docs/issue-numbers`): the
+`init/evaluation` (PR #41 into `main`): the
 candidate flow, the dataset builder, the run against the candidate flow
 metrics per knowledge area, and the Evaluation card on the setup page
 (checked in the browser); 382 tests pass; live on the local build.
@@ -48,7 +47,7 @@ metrics per knowledge area, and the Evaluation card on the setup page
 the database without their approval or rejection, in the front end. For
 now research during users' questions still ingests automatically. **Phase 5:
 docs done, PR #41 ready for review**; the deploy waits for the user to
-merge #40 and #41 and for #26. **Next after #16:** #17 (readiness report
+merge #41 and for #26. **Next after #16:** #17 (readiness report
 and Go live), then #15. Locally, model calls and web
 search work (`.env`: `LLM_PROVIDER=anthropic`, `EMBEDDING_PROVIDER=local`,
 `TAVILY_API_KEY`); the local install is at `EVALUATING`: plan 4 (National Rail's
