@@ -1,7 +1,7 @@
-"""The ingestion plan (epic #27, #22): the content the user chose, as a saved,
+"""The ingestion plan (epic #19, #14): the content the user chose, as a saved,
 versioned list of pages that they review and approve with Build RAG.
 
-Built in code from the selected sections of #21, less the pages unticked in
+Built in code from the selected sections of #13, less the pages unticked in
 them; no model call. Each page carries its source, section, knowledge areas
 and TTL. Nothing is fetched here: ingestion starts only after approval.
 
@@ -318,7 +318,7 @@ def back_to_content(user_id: str | None = None) -> None:
 
 
 def view() -> dict:
-    """The approved plan and its pages' progress (the build itself is #22 phase 3)."""
+    """The approved plan and its pages' progress (the build itself is #14 phase 3)."""
     plan = latest("approved")
     if not plan:
         return {"plan": None, "progress": {}}

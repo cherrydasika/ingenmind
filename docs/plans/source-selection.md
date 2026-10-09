@@ -1,18 +1,18 @@
 # Plan: source discovery and selection (approval 1)
 
-Status: **Done — pull request open (closes #20). Deploy when EC2 next runs**
+Status: **Done — pull request open (closes #12). Deploy when EC2 next runs**
 (it was stopped on 2026-10-09; EC2 stays `READY`, so setup is not exercised
 there). The local install went through the Sources step in the
 browser and is at `ANALYSING_SOURCES` with National Rail, ORR and Transport
-for Wales chosen — the starting point for #21. The user took every recommendation (2026-10-09): nothing
+for Wales chosen — the starting point for #13. The user took every recommendation (2026-10-09): nothing
 fetched at this step (one check of a user's URL), live areas left to
 data-source research, at most 8 searches and 15 sites, recommended sites
 only suggested. Branch `init/source-selection`. Update this file at
 the end of every step: tick what is done, note what was found, say what
 comes next.
 
-GitHub: issue #20, part of epic #27 (RAG Initialization Agent); builds on
-#19 (the confirmed Domain Blueprint; setup is then at
+GitHub: issue #12, part of epic #19 (RAG Initialization Agent); builds on
+#11 (the confirmed Domain Blueprint; setup is then at
 `DISCOVERING_SOURCES`). Working agreement: phases with a stop at each; a
 branch and a pull request; the user merges (AGENTS.md).
 
@@ -24,7 +24,7 @@ three look the most authoritative; here is why"). The user ticks the ones
 they trust, removes any, and can add their own. **Nothing is scraped at
 this step**: the agent judges from the blueprint and from search results.
 Continuing (with at least one source chosen) moves setup to
-`ANALYSING_SOURCES`, where #21 maps each chosen site's content.
+`ANALYSING_SOURCES`, where #13 maps each chosen site's content.
 
 ## How the code is today
 
@@ -39,7 +39,7 @@ Continuing (with at least one source chosen) moves setup to
   country), `OFFICIAL_DOMAINS` (government and public-body domains).
 - **Background runs and polling**: as the blueprint step does
   (`blueprint_run.py`, the setup page).
-- **Data sources** (#10, `source_profiles.py`): profiles of APIs and feeds
+- **Data sources** (#8, `source_profiles.py`): profiles of APIs and feeds
   for live data, found when a question needs them.
 
 ## Design
@@ -55,8 +55,8 @@ kb_sources   source_id, name, base_url, host (unique), kind (website | documents
 ```
 
 One row per **site** (host), not per page. A reset clears it. `kb_urls`
-(#17) stays the list of URLs to ingest; the ingestion plan (#22) fills it
-from the content chosen in #21.
+(#9) stays the list of URLs to ingest; the ingestion plan (#14) fills it
+from the content chosen in #13.
 
 ### 2. Discovery (Source Discovery role), in the background
 
@@ -80,7 +80,7 @@ requirements are), shown with progress; state `DISCOVERING_SOURCES` →
    authority sites are not recommended.
 
 Live and tool areas are not sourced here: they are listed as "answered by
-live tools", and their data sources come from data-source research (#10) —
+live tools", and their data sources come from data-source research (#8) —
 a backlog item links them to setup later.
 
 ### 3. Selection
@@ -204,7 +204,7 @@ its searches and the assessment.
    to check a URL the user adds. Or allow reading each candidate's home page
    for a better judgement (about 15 more fetches)?
 2. **Live areas**: list them as "answered by live tools" and leave their
-   data sources to the data-source research from #10, with a backlog item
+   data sources to the data-source research from #8, with a backlog item
    to bring those into setup (recommended), or search for APIs here too?
 3. **Budget**: at most 8 searches and one assessment call per discovery,
    at most 15 sites kept (recommended).

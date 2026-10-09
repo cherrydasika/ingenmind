@@ -1,15 +1,15 @@
 # Plan: source analysis and content selection (approval 2)
 
-Status: **Done — merged in PR #33 (`e91cc18`) and deployed to EC2 on
-2026-10-09.** The local install is at `AWAITING_CONTENT_SELECTION` with National Rail's Help and assistance chosen (12 of 13 pages) — #22's
+Status: **Done — merged in PR 33 (earlier repository) (`e91cc18`) and deployed to EC2 on
+2026-10-09.** The local install is at `AWAITING_CONTENT_SELECTION` with National Rail's Help and assistance chosen (12 of 13 pages) — #14's
 starting point. The user took every recommendation (2026-10-09): 15
 requests and 2,000 listed pages a site, same host only, sections with
 single pages unticked within them, a warning for very large sections. Branch `init/content-selection`. Update this file at
 the end of every step: tick what is done, note what was found, say what
 comes next.
 
-GitHub: issue #21, part of epic #27 (RAG Initialization Agent); builds on
-#20 (the chosen sources; setup is then at `ANALYSING_SOURCES`). Working
+GitHub: issue #13, part of epic #19 (RAG Initialization Agent); builds on
+#12 (the chosen sources; setup is then at `ANALYSING_SOURCES`). Working
 agreement: phases with a stop at each; a branch and a pull request; the
 user merges (AGENTS.md).
 
@@ -20,7 +20,7 @@ For each site the user chose, the setup agent works out **what is on it**
 recommends the relevant ones. The user then ticks **exactly** which
 sections, and within them which pages, enter the knowledge base. This is
 approval 2: still nothing is ingested (the ingestion plan and "Build RAG"
-are #22). Reading a site is **polite and bounded**, not a crawl.
+are #14). Reading a site is **polite and bounded**, not a crawl.
 
 ## How the code is today
 
@@ -29,7 +29,7 @@ are #22). Reading a site is **polite and bounded**, not a crawl.
   backoff on 429/5xx; user agent `rag-ingest-bot/1.0`. **No `robots.txt`
   handling, and links are dropped**: `extract_text` (trafilatura) keeps the
   text only; `research.fetch_source` returns text, title and dates.
-- **Chosen sources** (`kb_sources`, #20): host, base URL, the areas each
+- **Chosen sources** (`kb_sources`, #12): host, base URL, the areas each
   covers. Locally: National Rail, ORR, Transport for Wales.
 - **Background runs** with polling, as discovery and the blueprint do.
 - `lxml` and `urllib.robotparser` are available in the image.
@@ -89,8 +89,8 @@ Per site, a tree of sections with checkboxes, URL counts and badges
 checkbox (unticking one adds it to `excluded_urls`). Recommended sections
 are **suggested, not pre-ticked**. A running total of pages chosen, and
 coverage per knowledge area. Going back to source selection is allowed
-(the state machine has it). Choosing content is where #21 ends; **Review
-the plan / Build RAG** is #22.
+(the state machine has it). Choosing content is where #13 ends; **Review
+the plan / Build RAG** is #14.
 
 ### 5. API and tracing
 
@@ -190,7 +190,7 @@ the plan / Build RAG** is #22.
   does not yet; Langfuse gains `site_analysis`; the layout gains
   `site_map.py`, `content.py`); the backlog's "Read a website's terms
   page" notes that links are now returned.
-  - **For #22**: ingestion (`common.ingest.ingest_url`) does not check
+  - **For #14**: ingestion (`common.ingest.ingest_url`) does not check
     `robots.txt`; the ingestion plan takes its pages from analysed
     sections, which only list robots-allowed pages, but a plan's URLs
     should be checked again when ingested.
@@ -207,5 +207,5 @@ the plan / Build RAG** is #22.
    (recommended), or choose page by page?
 4. **Large sections**: a section is listed with all its pages (up to the
    2,000 listed); how many are ingested is the ingestion plan's limit
-   (#22). Show a warning when a chosen section is very large (for example
+   (#14). Show a warning when a chosen section is very large (for example
    over 200 pages)? (Recommended.)

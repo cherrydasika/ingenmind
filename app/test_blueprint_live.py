@@ -1,11 +1,11 @@
-"""Opt-in live check of Domain Blueprint research (#19), with real web search
+"""Opt-in live check of Domain Blueprint research (#11), with real web search
 (Tavily), the configured chat model and real page fetches, for two different
 domains through the same code. Skipped unless RUN_LIVE=1. Stores nothing.
 
     RUN_LIVE=1 PYTHONPATH=/app:/app/dags python -m unittest -v test_blueprint_live
 
 The bar: live status comes out dynamic or a tool, a rules area static, and a
-regulator is named from a fetched page. For UK trains, source discovery (#20)
+regulator is named from a fetched page. For UK trains, source discovery (#12)
 then finds and recommends National Rail and an official (government or
 regulator) site.
 """

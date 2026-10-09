@@ -1,4 +1,4 @@
-"""Source analysis (epic #27, #21): what is on a chosen site, read politely
+"""Source analysis (epic #19, #13): what is on a chosen site, read politely
 and within a budget — not a crawl.
 
 1. robots.txt   read for our user agent; disallowed paths are never listed or

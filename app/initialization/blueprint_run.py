@@ -1,4 +1,4 @@
-"""Running the Domain Blueprint step of setup (#19): research in the
+"""Running the Domain Blueprint step of setup (#11): research in the
 background, revising from the user's feedback, confirming.
 
 Research takes a minute or two, so it runs in a thread of the web app; the

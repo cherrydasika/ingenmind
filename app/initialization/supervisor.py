@@ -1,4 +1,4 @@
-"""The Initialization Supervisor: leads the setup conversation (epic #27).
+"""The Initialization Supervisor: leads the setup conversation (epic #19).
 
 One model loop through llm.chat, outside the answer graph. Each user message
 sends the saved transcript (conversation.py) with the requirements gathered
@@ -204,7 +204,7 @@ CONFIRMED = ("Thanks. Next I'll research the domain and write a blueprint of wha
 
 
 def confirm(user_id: str | None = None) -> dict:
-    """The user confirms the requirements: setup moves on to the blueprint (#19)."""
+    """The user confirms the requirements: setup moves on to the blueprint (#11)."""
     if knowledge_system.status()["state"] != state.CLARIFYING:
         raise NotConversing("there is nothing to confirm now")
     conversation.confirm(user_id)   # ValueError unless complete

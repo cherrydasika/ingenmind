@@ -5,9 +5,9 @@ questions at the end). Branch `init/evaluation`. Update this file at the
 end of every step: tick what is done, note what was found, say what comes
 next.
 
-GitHub: issue #24, part of epic #27 (RAG Initialization Agent); builds on
-#19 (the blueprint) and #22 (the build: setup is then at `EVALUATING`).
-Done before #23 at the user's choice (2026-10-09): #24 → #25 is the
+GitHub: issue #16, part of epic #19 (RAG Initialization Agent); builds on
+#11 (the blueprint) and #14 (the build: setup is then at `EVALUATING`).
+Done before #15 at the user's choice (2026-10-09): #16 → #17 is the
 shortest path to a setup-built system going live. Working agreement: phases
 with a stop at each; a branch and a pull request; the user merges
 (AGENTS.md).
@@ -19,7 +19,7 @@ questions for every knowledge area, each with the answer and the page it
 expects, plus questions that must be refused, sent to a live tool, or
 answered "not covered" — runs it on the **candidate flow** (the flow the
 blueprint describes), and reports the results **per knowledge area**. A
-knowledge system is not "ready" because ingestion finished; #25 turns these
+knowledge system is not "ready" because ingestion finished; #17 turns these
 results into the readiness report and **Go live**.
 
 ## How the code is today
@@ -36,13 +36,13 @@ results into the readiness report and **Go live**.
 - **What an answer reports** (`agent.answer`): `on_metrics` gets numbers
   and labels only; the result's `sources` are the **cited** pages; the
   retrieved pages are only inside the run (`internal["searches"]`).
-- **The blueprint's flow settings** (#19): brief, domain, scope, supervisor
+- **The blueprint's flow settings** (#11): brief, domain, scope, supervisor
   instructions, search country — **not yet applied to any flow**. The live
   flow on EC2 is `travel_assistant` v3; locally the built-in.
 - **Knowledge areas** have a class: `STATIC_KNOWLEDGE` and
   `STRUCTURED_DATA` come from sources; `DYNAMIC_KNOWLEDGE` and
-  `EXTERNAL_TOOL_API` are answered by live tools (#20).
-- **The build** (#22): plan pages carry their areas; chunks carry
+  `EXTERNAL_TOOL_API` are answered by live tools (#12).
+- **The build** (#14): plan pages carry their areas; chunks carry
   `plan_version`, `areas`, `source_url`.
 
 ## Design
@@ -53,7 +53,7 @@ When the evaluation is prepared, setup makes the flow the blueprint
 describes: a copy of the live flow (else the built-in) with the
 blueprint's brief, domain, supervisor instructions, search country and
 scope applied, saved and **published as a version but not made live**
-(id `setup_<domain>`; a later preparation publishes a new version). #25's
+(id `setup_<domain>`; a later preparation publishes a new version). #17's
 **Go live** promotes it with the existing flow promotion.
 
 ### 2. The dataset builder (Evaluation role)
@@ -115,7 +115,7 @@ today.
   the Evaluations page) with **Run evaluation** and the estimated cost
   (questions × a full answer each). While it runs: progress; then the
   results per area and each question's outcome. The state stays
-  `EVALUATING`; #25 adds readiness and Go live. Going back to the content
+  `EVALUATING`; #17 adds readiness and Go live. Going back to the content
   stays possible.
 - API (`manage_settings`): `POST /api/setup/evaluation/prepare`, `GET
   /api/setup/evaluation`, `POST /api/setup/evaluation/run`.

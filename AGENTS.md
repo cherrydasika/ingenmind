@@ -5,13 +5,13 @@ Read these first when picking the work up, whichever model or tool you are:
 1. [PROGRESS.md](PROGRESS.md) — what is done and open, and the current
    state of the EC2 deployment.
 2. The active plan, if any, in [docs/plans/](docs/plans/) (PROGRESS.md
-   says which). Finished: research data-source discovery (issue #10);
+   says which). Finished: research data-source discovery (issue #8);
    identity work, nearly done:
    [docs/plans/identity-sessions-memory.md](docs/plans/identity-sessions-memory.md). Its status line says which
    phase is in progress and what the user must decide; its checkboxes say
    what is done.
-3. [docs/BACKLOG.md](docs/BACKLOG.md) — work not started yet; the user
-   asks for items from it by name.
+3. [docs/BACKLOG.md](docs/BACKLOG.md) — an index of the open GitHub
+   issues, which are the backlog; the user asks for items by number or name.
 4. [README.md](README.md) — how the app works; "Development" has the test
    commands.
 

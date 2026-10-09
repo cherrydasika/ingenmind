@@ -838,7 +838,7 @@ async def knowledge_system_reset(request: Request) -> Response:
     return _json({"ok": True, "deleted": deleted})
 
 
-# ---------- Setup (the Initialization Agent, epic #27) ----------
+# ---------- Setup (the Initialization Agent, epic #19) ----------
 
 def setup_view(request: Request) -> Response:
     return _json(supervisor.view())

@@ -1,14 +1,14 @@
 # Plan: the Domain Blueprint
 
-Status: **Done — pull request open (closes #19); deploy after the merge.** The local install went through the Blueprint step in the
+Status: **Done — pull request open (closes #11); deploy after the merge.** The local install went through the Blueprint step in the
 browser and is at `DISCOVERING_SOURCES` with blueprint v3 confirmed, the
-starting point for #20. The user took every recommendation (2026-10-08) and added
+starting point for #12. The user took every recommendation (2026-10-08) and added
 the Tavily key to the local `.env`, so research runs live locally. Branch `init/domain-blueprint`. Update this file at
 the end of every step: tick what is done, note what was found, say what
 comes next.
 
-GitHub: issue #19, part of epic #27 (RAG Initialization Agent); builds on
-#18 (the setup conversation, which ends at `DOMAIN_READY` with confirmed
+GitHub: issue #11, part of epic #19 (RAG Initialization Agent); builds on
+#10 (the setup conversation, which ends at `DOMAIN_READY` with confirmed
 requirements). Working agreement: phases with a stop at each; a branch and
 a pull request; the user merges (AGENTS.md).
 
@@ -18,8 +18,8 @@ From the confirmed requirements, the setup agent **researches the domain**
 and writes a **Domain Blueprint**: a structured, versioned description of
 what the knowledge system covers, grounded in pages it fetched, which the
 user checks and confirms. Everything later reads it: source discovery
-(#20), the chunk metadata (#23), the flow's brief and scope, which areas go
-to live tools instead of the knowledge base, and the evaluation set (#24).
+(#12), the chunk metadata (#15), the flow's brief and scope, which areas go
+to live tools instead of the knowledge base, and the evaluation set (#16).
 No domain is hard-coded.
 
 ## How the code is today
@@ -27,11 +27,11 @@ No domain is hard-coded.
 - **Requirements** (`app/initialization/requirements.py`): purpose,
   audience, regions, question types, out of scope, organisations, live
   information, authority, language, assumed — confirmed at `DOMAIN_READY`
-  (#18).
+  (#10).
 - **Web research** (`app/research.py`): `web_search` (Tavily, with a
   search country), `fetch_source` (HTML and PDF text), and the pattern of a
   forced-tool model call whose claims are then **verified against the
-  fetched pages** in code (`SourceProfile`, `verify_profile`, issue #10).
+  fetched pages** in code (`SourceProfile`, `verify_profile`, issue #8).
 - **Flow settings** (`app/flows/registry.py`): a flow's brief, search
   country, domain, supervisor instructions and guardrail scope steer every
   agent; flows have drafts, published versions and a live version
@@ -51,7 +51,7 @@ entities[]: name (e.g. train_operator, station, ticket type), description
 organisations[]: name, role (regulator | government | operator | industry body | other),
     website, evidence_urls[]
 source_requirements: authoritative_only, government, operators, other (text)
-metadata_fields[]: field, description, example values   (for #23's chunk metadata)
+metadata_fields[]: field, description, example values   (for #15's chunk metadata)
 flow: brief, search_country, domain, scope, supervisor_instructions
 assumptions[], unknowns[]
 ```
@@ -86,7 +86,7 @@ app_domain_blueprints   version, created_at, status (researching | ready | faile
 ```
 
 The confirmed version is recorded on the knowledge system
-(`blueprint_version`, #17). A reset clears the table.
+(`blueprint_version`, #9). A reset clears the table.
 
 ### 4. Review and confirm
 
@@ -96,7 +96,7 @@ dynamic ones for live tools), organisations with their websites, entities,
 source requirements, and the generated brief and scope. Then:
 
 - **Looks right** → confirmed; state `DOMAIN_READY → DISCOVERING_SOURCES`
-  (where #20 starts).
+  (where #12 starts).
 - **Change something** → the user writes what to change; the model revises
   the blueprint from the same research (a new version, no new searches
   unless it asks for them); or back to the conversation (`CLARIFYING`) to
@@ -108,7 +108,7 @@ The blueprint's `flow` block is what the knowledge system's flow will use:
 brief, search country, domain, scope, supervisor instructions. This issue
 generates and stores them (shown for review). Writing them into a flow
 version happens when there is something to run: the candidate flow for
-evaluation (#24), made live at go-live (#25). No flow changes here, so the
+evaluation (#16), made live at go-live (#17). No flow changes here, so the
 live flow is untouched.
 
 ### 6. API and tracing
@@ -230,10 +230,10 @@ live flow is untouched.
    has no key. Recommended: add the key to the local `.env` yourself
    (`TAVILY_API_KEY=`; it is in SSM as `/rag-systems/prod/tavily-api-key`),
    so I can check research live before merging. Alternatively the live
-   checks run on EC2 after merging, as for #10.
+   checks run on EC2 after merging, as for #8.
 2. **Flow settings.** Recommended: generate and store them in the blueprint
    now, and write them into a flow version only when there is something to
-   run (#24, #25), so the live flow is untouched until go-live.
+   run (#16, #17), so the live flow is untouched until go-live.
 3. **Research budget.** Recommended: at most 6 searches and 10 pages per
    blueprint (about 2–3 pence of Tavily and model calls with Haiku), and no
    new searches on a revision unless the change needs them.

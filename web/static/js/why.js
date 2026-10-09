@@ -1,5 +1,5 @@
 // "Why is this here?": a stored page traced back to the ingestion plan entry,
-// section, source and approval that put it in the knowledge base (#22).
+// section, source and approval that put it in the knowledge base (#14).
 import { api } from "./api.js";
 import { fmtTimestamp, h } from "./ui.js";
 

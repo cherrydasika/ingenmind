@@ -7,7 +7,7 @@ profiles are not stored unless LIVE_SAVE=1. On EC2, in the webapp container:
 
     RUN_LIVE=1 PYTHONPATH=/app:/app/dags python -m unittest -v test_research_live
 
-The bar (issue #10): at least one Darwin source, the National Rail website
+The bar (issue #8): at least one Darwin source, the National Rail website
 not recommended, and an API-based method.
 """
 

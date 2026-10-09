@@ -8,7 +8,7 @@ EC2. Update this file
 at the end of every step: tick what is done, note what was found, and say
 what comes next.
 
-GitHub issue: #10, "Research agent: find and profile data sources (APIs,
+GitHub issue: #8, "Research agent: find and profile data sources (APIs,
 feeds, pricing) and recommend how to ingest them". The user's full prompt
 (pasted 2026-10-07) is the reference for anything not covered here.
 
@@ -288,7 +288,7 @@ Profiles are upserted after each report.
     store failure) in `test_research.py`; the store against Postgres in
     `test_pg_store.py`; `test_research_live.py` (opt-in, skipped without
     `RUN_LIVE=1`; stores nothing unless `LIVE_SAVE=1`). Full suite 278 OK.
-  - Merged early (PR #12, `6a53bad`) and deployed to EC2 for the live
+  - Merged early (PR 12 (earlier repository), `6a53bad`) and deployed to EC2 for the live
     test. **Live run 1** (2026-10-07): Darwin Data Feeds recommended
     (official, free tier of 5M requests per 4 weeks, OGL), fallback
     Realtime Trains API, method `api_tool` with a tool sketch; Rail Data
@@ -300,7 +300,7 @@ Profiles are upserted after each report.
     the playbook always includes the best-known public website or app for
     the data in the brief's country, with its terms page (no country or
     site named in the prompt); `unknowns` no longer repeats a field the
-    model already listed. Merged as PR #13 (`7680af5`), deployed.
+    model already listed. Merged as PR 13 (earlier repository) (`7680af5`), deployed.
   - **Live run 3** (2026-10-07, `7680af5`): **passed** in 51 s. Six
     searches (open data portal, National Rail developer API, Realtime
     Trains API and terms, National Rail terms of use). Darwin Data Feeds
@@ -338,7 +338,7 @@ Profiles are upserted after each report.
     pages profiled per candidate raised from 3 to 4.
   - Tests: public-progress mapping (`test_guardrails.py`), report
     endpoints (`test_pg_store.py`), permission rules (`test_auth.py`).
-  - Merged as PR #14 (`ee472df`), deployed. **Live run 4** (2026-10-08):
+  - Merged as PR 14 (earlier repository) (`ee472df`), deployed. **Live run 4** (2026-10-08):
     passed in 42 s, but the playbook fixes did not take: Darwin was still
     one push-feed profile (the agent searched for OpenLDBWS but did not
     submit it separately), the websites' terms stayed unknown (one page
@@ -350,7 +350,7 @@ Profiles are upserted after each report.
     source's terms is rewritten to "terms of use not verified" when its
     profile does not state them (`_grounded_reason`), and the judge's
     prompt says so too. Fetching a website's terms page needs the links
-    the text extraction drops: backlog. Merged as PR #15 (`b0b7b3e`).
+    the text extraction drops: backlog. Merged as PR 15 (earlier repository) (`b0b7b3e`).
   - **Live run 5** (2026-10-08, `b0b7b3e`): passed in 43 s. Darwin XML
     Push Feeds and Darwin SOAP APIs profiled separately (both high
     confidence); recommended the push feed (`feed_consumer`), fallback the

@@ -1,6 +1,6 @@
 // Set up your knowledge system: the Initialization Agent's conversation
 // (app/initialization/), the six steps, and what it has learnt so far.
-// Later steps (blueprint, sources, content, build) arrive with epic #27.
+// Later steps (blueprint, sources, content, build) arrive with epic #19.
 
 import { api } from "./api.js";
 import { badge, errorBox, h, loading, md, note } from "./ui.js";

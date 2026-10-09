@@ -7,7 +7,7 @@ URLs it ingests, and an audit log of what happened to it.
     kb_urls                      the URLs to ingest, in order (was data/urls.json)
 
 A fresh install starts NEW and is set up by the Initialization Agent
-(epic #27). An install that already has knowledge when this record is first
+(epic #19). An install that already has knowledge when this record is first
 created (every install from before setup existed) starts READY with origin
 "existing", so it carries on unchanged. The demo seed marks itself READY
 with origin "demo".
@@ -153,7 +153,7 @@ def is_ready() -> bool:
 
 
 def mark_ready(origin: str, user_id: str | None = None) -> None:
-    """The knowledge system has knowledge to answer from (the demo seed; setup's go-live, #25)."""
+    """The knowledge system has knowledge to answer from (the demo seed; setup's go-live, #17)."""
     if origin not in ORIGINS:
         raise ValueError(f"origin must be one of {', '.join(ORIGINS)}")
     ensure_schema()

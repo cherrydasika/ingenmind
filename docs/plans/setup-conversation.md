@@ -1,15 +1,15 @@
 # Plan: setup conversation and its state machine
 
-Status: **Done — pull request open (closes #18); deploy after the merge.** The local install went through setup in the browser and
+Status: **Done — pull request open (closes #10); deploy after the merge.** The local install went through setup in the browser and
 is at `DOMAIN_READY` with confirmed UK rail requirements (no knowledge yet),
-the starting point for #19. The user took every recommendation (2026-10-08):
+the starting point for #11. The user took every recommendation (2026-10-08):
 `llm.chat` with the saved transcript; reset the local install for testing;
 stop at `DOMAIN_READY`. Branch `init/setup-conversation`. Update this file
 at the end of every step: tick what is done, note what was found, say what
 comes next.
 
-GitHub: issue #18, part of epic #27 (RAG Initialization Agent); builds on
-#17 (the knowledge system record and reset). Working agreement: phases with
+GitHub: issue #10, part of epic #19 (RAG Initialization Agent); builds on
+#9 (the knowledge system record and reset). Working agreement: phases with
 a stop at each; a branch and a pull request; the user merges (AGENTS.md).
 
 ## Goal
@@ -19,12 +19,12 @@ message is always "What would you like your knowledge system to help users
 with?". The agent asks only the questions that materially change the
 knowledge system, records what it learns as structured **requirements**,
 summarises them for the user to confirm, and stops at `DOMAIN_READY`, where
-the Domain Blueprint (#19) takes over. Setup is an explicit, saved state
+the Domain Blueprint (#11) takes over. Setup is an explicit, saved state
 machine, so the user can leave and come back.
 
 ## How the code is today
 
-- **The knowledge system record** (`app/knowledge_system.py`, #17): `state`
+- **The knowledge system record** (`app/knowledge_system.py`, #9): `state`
   is `NEW` or `READY`; a reset sets `NEW`; admins land on the setup page
   (`web/static/js/knowledge_system.js`, `SetupPage`), now a placeholder.
 - **Agent loops**: the answer graph's agents run through the AgentCore
@@ -40,7 +40,7 @@ machine, so the user can leave and come back.
 
 ### 1. States (`app/initialization/state.py`)
 
-All of epic #27's states, with the transitions allowed between them:
+All of epic #19's states, with the transitions allowed between them:
 
 ```
 NEW → DISCOVERING_DOMAIN → CLARIFYING ⇄ (user turns) → DOMAIN_READY
@@ -52,7 +52,7 @@ NEW → DISCOVERING_DOMAIN → CLARIFYING ⇄ (user turns) → DOMAIN_READY
 plus going back: from any later state to `CLARIFYING` (change the
 requirements), and from `READY` / `EVALUATING` to
 `AWAITING_SOURCE_SELECTION` or `AWAITING_CONTENT_SELECTION` (fix gaps,
-#25). `transition(to, user)` checks the table, writes the state on the
+#17). `transition(to, user)` checks the table, writes the state on the
 knowledge system record and an audit event; anything else raises. This
 issue drives `NEW` → `DOMAIN_READY`; later issues drive the rest.
 
@@ -64,7 +64,7 @@ app_setup_turns   turn_id, at, role (user | agent), text, state (when it was sai
 app_setup         one row: requirements jsonb (current), updated_at
 ```
 
-Both cleared by a reset (#17's list gains them).
+Both cleared by a reset (#9's list gains them).
 
 ### 3. The Initialization Supervisor (`app/initialization/supervisor.py`)
 
@@ -86,13 +86,13 @@ tools, until it answers with text (its next message to the user):
 
 Roles as prompts in one loop: this issue writes the **Clarification** role
 (and the supervisor's own prompt); the Domain Analyst, Research and the
-rest join it in #19 onwards. The prompt says: ask one or two questions at a
+rest join it in #11 onwards. The prompt says: ask one or two questions at a
 time, only what would change the knowledge system, offer sensible defaults
 ("UK, for general passengers?"), never a fixed questionnaire; stop asking
 when the requirements are enough.
 
 **Confirming**: the user presses "Looks right" (or says so) →
-`DOMAIN_READY`, the requirements frozen for #19. "Change" goes on
+`DOMAIN_READY`, the requirements frozen for #11. "Change" goes on
 clarifying.
 
 Limits: at most 6 tool turns per message; the transcript is cut to its last
@@ -113,7 +113,7 @@ The page shows the six user-facing steps (Purpose → Blueprint → Sources →
 Content → Build and evaluate → Go live) with the current one highlighted
 (mapped from the state); the conversation; a **What I've learnt** panel
 with the requirements as they are recorded; and, once complete, "Looks
-right" / "Change something". Later steps (#19 onwards) replace the chat
+right" / "Change something". Later steps (#11 onwards) replace the chat
 with structured screens at their states.
 
 ### 6. Tracing
@@ -225,4 +225,4 @@ the model calls as generations with their tool calls.
    testing phases 3–4 (deleting the demo documents just seeded; reseeding
    takes a minute now that local models work). OK?
 3. **Where it stops**: this issue ends at `DOMAIN_READY` with confirmed
-   requirements. The domain research and blueprint are #19. OK?
+   requirements. The domain research and blueprint are #11. OK?

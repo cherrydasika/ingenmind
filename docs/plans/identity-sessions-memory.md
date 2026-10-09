@@ -218,7 +218,7 @@ Checkpoint 6: both themes on every page.
   SESSION_SECRET if set, prints no values, checks the 4 KiB limit)
 - [x] README ("Users, sign-in and sessions"), infra/README.md,
   AWS_MIGRATION.md (invite-only authentication ticked)
-- [x] Merged `identity` into `main` through PR #1 (CI passed): `2e45ca1`
+- [x] Merged `identity` into `main` through PR 1 (earlier repository) (CI passed): `2e45ca1`
 - [x] `terraform apply` from main: 3 added, 0 changed, 0 destroyed — pool
   `<user-pool-id>`, client `<client-id>`, domain
   `rag-systems-<account-id>` (`terraform output cognito`)

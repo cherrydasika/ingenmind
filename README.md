@@ -491,7 +491,7 @@ in the logs).
 The URLs to ingest live in the database (`kb_urls`, in order). On first
 start, an existing `data/urls.json` is **imported once**; after that the
 database is the list and the file is not read again (not even after a
-reset). Guided setup's ingestion plan will manage the list (epic #27);
+reset). Guided setup's ingestion plan will manage the list (epic #19);
 until then, give a fresh install its list as `data/urls.json` before its
 first start.
 
@@ -756,7 +756,7 @@ for guided setup), the URL count, and a history of events.
   questions on the Retrieval page answer "This knowledge system is being
   set up" (the flow playground and evaluations still run). The demo seed
   marks its install ready.
-- **Guided setup** (`app/initialization/`, epic #27) is a conversation
+- **Guided setup** (`app/initialization/`, epic #19) is a conversation
   with the setup agent, saved as it goes, so it can be left and resumed.
   It opens with "What would you like your knowledge system to help users
   with?" and asks only what changes the knowledge system (regions, who

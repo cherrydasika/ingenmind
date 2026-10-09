@@ -1,5 +1,5 @@
 """What the setup conversation learns about the knowledge system to build:
-the input the Domain Blueprint (#19) is written from.
+the input the Domain Blueprint (#11) is written from.
 
 Every field is optional while the conversation runs; `missing()` says what
 setup still needs before the user can confirm. The model fills them through
