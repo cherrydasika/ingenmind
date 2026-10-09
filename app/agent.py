@@ -1331,10 +1331,15 @@ def _source_validator(state: KbState, config) -> dict:
     return {"validation": validation}
 
 
+# Evaluations measure the knowledge base as it is: they never add to it (nothing
+# goes into the knowledge base without the user's approval).
+READ_ONLY_SOURCES = ("eval",)
+
+
 @_guarded
 def _ingest_sources(state: KbState, config) -> dict:
     """Automatically ingest validated sources into the isolated research store,
-    then run retrieval again."""
+    then run retrieval again. An evaluation run ingests nothing: the gap stays."""
     run: _Run = config["configurable"]["run"]
     task = state["task"]
     client = storage.get_client("research")
@@ -1343,6 +1348,9 @@ def _ingest_sources(state: KbState, config) -> dict:
         if not source["accepted"]:
             continue
         url = source["url"]
+        if getattr(run, "source", None) in READ_ONLY_SOURCES:
+            ingested.append({"url": url, "status": "not_ingested_evaluation", "seconds": 0})
+            continue
         fetched = run.fetched.get(url) or research.fetch_source(url)
         policy = guardrails.check("research", task["task"], fetched.get("text", ""), scope=_scope(getattr(run, "settings", None)))
         if not policy.allowed:
@@ -1872,7 +1880,8 @@ def answer(question: str, session_id: str, user_id: str | None, max_iterations: 
     flow: (spec, version) to run; default the live flow. The input guardrail
     runs first whatever the flow. source ("users", "playground", "eval")
     labels the run's metrics; on_metrics(metrics) also hears them (numbers,
-    scores and labels only), for flow evaluations."""
+    scores and labels, and the URLs of the pages retrieved and cited — never
+    their text), for flow evaluations."""
     spec, version = flow or live_flow()
     # One Langfuse trace per question: the input check, every agent turn and
     # tool call, the evaluators, and the scores they gave.
@@ -1922,6 +1931,7 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
             on_event(public)
 
     run = _Run(session_id, user_id, limit, progress, retrieval_view)
+    run.source = source
     run.agents = flow_agents(spec)
     run.settings = settings
     run.trace_id = trace_id
@@ -2005,6 +2015,7 @@ def _drive(run_id: str, run: "_Run", config: dict, question: str, graph_input, s
                             {"output": final.get("output_guardrail")}, round(time.time() - started, 3))
     internal = _result_of(run, final, question, result["total"])
     evaluation = final.get("answer_evaluation") or {}
+    result["sources"] = _cited_sources(result["answer"], internal["searches"])
     run.metrics = {"seconds": result["total"], "rounds": internal["rounds"], "tasks": len(internal["delegations"]),
                    "input_tokens": internal["usage"]["input_tokens"], "output_tokens": internal["usage"]["output_tokens"],
                    "output_blocked": (final.get("output_guardrail") or {}).get("decision") not in (None, "ALLOW"),
@@ -2013,10 +2024,14 @@ def _drive(run_id: str, run: "_Run", config: dict, question: str, graph_input, s
                    # for flow evaluations: the evaluator's numbers and labels, never its text
                    "scores": evaluation.get("scores") if evaluation else None,
                    "failed_on": evaluation.get("failed_on") if evaluation else None,
-                   "answer_type": evaluation.get("answer_type") if evaluation else None}
+                   "answer_type": evaluation.get("answer_type") if evaluation else None,
+                   # and which pages it found and cited (URLs only) and the live tools it called
+                   "retrieved": sorted({c["source_url"] for search in internal["searches"]
+                                        for c in search["retrieval"]["chunks"] if c.get("source_url")}),
+                   "cited": [s["url"] for s in result["sources"]],
+                   "live_tools": sorted({c["tool"] for c in run.calls if c.get("tool")})}
     for key in ("rounds", "usage", "model_seconds", "search_seconds", "api_seconds", "max_iterations", "path"):
         result[key] = internal[key]
-    result["sources"] = _cited_sources(result["answer"], internal["searches"])
     result["answer_check"] = {key: evaluation.get(key) for key in (
         "passed", "overall", "scores", "failed_on", "answer_type")} if evaluation else None
     result["agents"] = {role: {**{key: data[key] for key in (

@@ -829,15 +829,46 @@ for guided setup), the URL count, and a history of events.
   restarted build carries on; an index check follows. Every chunk carries
   its provenance (plan version and entry, source, section, areas, who
   approved it and when): **Why?** on the Sources page, and under a
-  Retrieval answer's sources, traces a page back to it. Today setup then
-  stops at `EVALUATING`; evaluation and going live follow.
+  Retrieval answer's sources, traces a page back to it. Setup then waits at
+  `EVALUATING`; going live follows (#17).
+- **Evaluate** (`initialization/evaluation.py`): once the build finishes,
+  setup prepares the evaluation by itself. It publishes a **candidate
+  flow**, a copy of the live flow with the blueprint's brief, domain,
+  scope, supervisor instructions and search country, which is **not made
+  live**. It also writes an evaluation set, `setup_evaluation`:
+  - **answer:** up to 3 questions per knowledge area with pages, each
+    with its expected answer, page and supporting quote. A question is
+    kept only if the quote's words are in that page.
+  - **not covered:** one question per area with no pages.
+  - **live:** one question per area answered by live tools.
+  - **out of scope:** two questions the scope excludes.
+
+  **Run the evaluation** sends every question through the candidate flow,
+  one at a time; 16 questions took about 7 minutes and 780k tokens
+  locally. Each question is judged by what it tests:
+
+  | Kind | Met when |
+  |---|---|
+  | answer | an answer that passes the answer check |
+  | not covered | "not available", or an answer that passes the check |
+  | live | a live tool was called, or "not available" |
+  | out of scope | it was refused |
+
+  The results come per knowledge area: retrieval relevance (the expected
+  page was retrieved), correctness, groundedness, citation accuracy (the
+  expected page was cited), coverage and refusals done right. The setup
+  page shows them under the Build step. The set is editable, and its runs
+  show the same table, on the Evaluations page. **Evaluations never add
+  pages to the knowledge base**: research during a run finds and checks
+  pages, but reports the gap instead of ingesting.
   A live check for two domains (UK trains, flights; Tavily, the chat model
   and real pages; stores nothing): `RUN_LIVE=1 python -m unittest -v
   test_blueprint_live`.
 - **Reset** empties the knowledge base and everything learnt from it so
   the knowledge system can be set up again: both chunk tables, ingestion
   jobs, the URL list, data-source profiles and reports, saved evaluation
-  sets and all evaluation runs, agent memory and the local harness's
+  sets and all evaluation runs, setup's evaluation preparations, agent
+  memory and the local harness's
   conversations. It keeps users, people's sessions, flow versions and the
   live flow, the embedding setting, built-in evaluation sets and Langfuse.
   It needs the typed word `RESET`, refuses while an ingestion job or an
@@ -1120,7 +1151,8 @@ app/
                            #   blueprint.py (the Domain Blueprint), blueprint_run.py (research, revise, confirm),
                            #   sources.py (discovery, the source registry), sources_run.py (choosing sources),
                            #   site_map.py (robots.txt, sitemaps, sections), content.py (mapping, choosing content),
-                           #   plan.py (the ingestion plan), build.py (Build RAG, provenance)
+                           #   plan.py (the ingestion plan), build.py (Build RAG, provenance),
+                           #   evaluation.py (the candidate flow, the evaluation set, its run)
 data/
   urls.example.json      # sample URL list showing the expected format
   urls.json              # URLs to ingest, imported once into the database (gitignored, local)

@@ -1,9 +1,10 @@
 # Plan: evaluation set from the blueprint, run per knowledge area
 
-Status: **Phase 1 — plan written; waiting for the user's answers** (open
-questions at the end). Branch `init/evaluation`. Update this file at the
-end of every step: tick what is done, note what was found, say what comes
-next.
+Status: **Phases 1–5 done up to the deploy**: PR #41 is ready for review
+(into `main`). The deploy waits for the user to merge #41, and for #26 (the new repository's GitHub Actions
+variables and the publish role's trust) before any deploy from
+`ingenmind`. Update this file at the end of every step: tick what is done,
+note what was found, say what comes next.
 
 GitHub: issue #16, part of epic #19 (RAG Initialization Agent); builds on
 #11 (the blueprint) and #14 (the build: setup is then at `EVALUATING`).
@@ -125,18 +126,111 @@ today.
 ## Phases
 
 - [x] **1. Plan** — this file. Stop for the user's answers.
-- [ ] **2. The candidate flow and the dataset builder** (kinds, grounding
+- [x] **2. The candidate flow and the dataset builder** (kinds, grounding
   check, storage as an eval set), tests (a built knowledge base gets
   questions for every static area plus failure cases — stubbed) and a live
   run on the local build. Stop.
-- [ ] **3. The run and per-area metrics** (retrieved and cited pages from
+  - `app/initialization/evaluation.py`: `candidate_flow`, `build_set`,
+    `prepare` (background, one at a time), `ensure_prepared`, `view`;
+    table `app_setup_evaluations` (emptied by a reset). `flows.evals`
+    keeps `kind` (one of `KINDS`), `area`, `expected_source` on questions.
+    API: `GET /api/setup/evaluation`, `POST /api/setup/evaluation/prepare`
+    (`manage_settings`); `GET /api/setup` prepares it by itself once per
+    approved plan when setup is at `EVALUATING`; the setup view has
+    `evaluation`.
+  - Changed from the design while building: `not_covered` and `live`
+    questions are the area's first example question (no model call); the
+    answer questions per area share the room left under the 50 limit
+    (ceil of room ÷ areas left, at most 3); the grounding check compares
+    **words only, in order** (case, whitespace and punctuation ignored) —
+    the first live run dropped 3 of 13 good questions because the model
+    joined a bulleted list's items with ";" and ","; a second question from
+    the **same page and quote** is dropped (areas share pages: the live run
+    had near-duplicates); dropped entries keep the page and quote; the
+    scope writer is told not to use what the scope sends to live tools
+    (it wrote a live-departures question, which is not a refusal).
+  - Tests: 11 in `test_setup.Evaluation` (questions for every area and the
+    failure cases, the candidate flow's settings and that it is not live,
+    it compiles, the grounding check, once per plan, not before the build,
+    failures listed or failing the preparation, the 50 limit, one question
+    per passage, question fields, the API). Full suite: 376 pass.
+  - Live on the local build (plan 4, 49 chunks, Claude via Anthropic):
+    25 s, 16 questions — 10 answer (4 areas, 2–3 each), 3 not covered
+    (accessibility, station facilities, Eurostar), 1 live, 2 out of scope;
+    2 dropped as the same passage. Candidate flow
+    `setup_uk_train_information` (v1–v4 locally from these runs, none
+    live; the live pointer is still the built-in).
+- [x] **3. The run and per-area metrics** (retrieved and cited pages from
   the runner, expectations by kind, `summary["areas"]`), tests and a live
   run of the local set. Stop.
-- [ ] **4. The Evaluation part of the setup page**, and the new fields on
+  - `agent._drive` adds `retrieved`, `cited` (page URLs only) and
+    `live_tools` (tool names) to a run's metrics. `agent_eval_results`
+    gains `kind`, `area`, `retrieved`, `cited`, `live_tools`,
+    `expected_retrieved` and `expected_cited`, frozen at run time.
+    `flows.evals.expectation()` judges by kind, and an `answer` question
+    must get an answer: a "not available" with its page at hand is a miss.
+    `summarise_areas()` holds the six metrics (definitions in its
+    docstring) in `summary["areas"]`. `evaluation.run()` and
+    `POST /api/setup/evaluation/run` queue the set against the candidate
+    flow, one run at a time. The view shows the latest run and an estimate
+    (30 s per question).
+  - **Evaluations never ingest** (`agent.READ_ONLY_SOURCES`, source
+    `eval`). The live run's research agent added 5 unreviewed pages
+    (Eurostar, King's Cross, station lists) to `research_chunks`, and the
+    "Eurostar: not covered" question then got a cited answer. The user's
+    rule (2026-10-09): nothing goes into the database without their
+    approval or rejection, done in the front end. For now research during
+    users' questions keeps ingesting as before, and the 5 local pages stay.
+  - The candidate flow empties the guardrail's block, clarify and output
+    messages, so they name the blueprint's domain. The live run refused
+    with the old flow's "UK trains and the weather".
+  - Live run on the local build, before these fixes: 16 questions in 7 min
+    (p50 20 s), 779k tokens (about 49k per question). The 4 answer areas
+    had retrieval relevance 1.0, correctness 0.97–1.0, groundedness
+    0.95–1.0 and citation accuracy 0.67–1.0. Refunds' miss was "not
+    available" with the expected page retrieved, now counted as a miss.
+    The 3 not-covered areas said "not available" or were answered from the
+    researched pages, which no longer happens. The **live-departures
+    question was blocked**: the blueprint's scope lists live train times as
+    out of scope and there is no live UK train tool. That is a real gap,
+    for #17's readiness report. Both out-of-scope questions were blocked.
+  - Tests: 382 pass (new: expectations by kind, per-area summary, a setup
+    run end to end, one run at a time, the agent's page metrics, an
+    evaluation run that never ingests).
+- [x] **4. The Evaluation part of the setup page**, and the new fields on
   the Evaluations page, checked in the browser. Stop.
+  - Setup page (`web/static/js/setup.js`): at `EVALUATING` a full-width
+    **Evaluation** card under the Build step. While questions are written:
+    a spinner (the page polls). Once ready: the questions by area (with
+    each expected page), the questions left out and why, the candidate
+    flow (not live), a link to edit the set on the Evaluations page, **Run
+    the evaluation** with an estimate, and **Write the questions again**.
+    While it runs: progress. Then the results: how many met their
+    expectation, the per-area table, what the columns mean, and each
+    question's outcome (page found or cited, tools, the answer).
+  - `web/static/js/eval_areas.js`: the per-area table and its definitions,
+    shared with the Evaluations page (`flow_evals.js`). That page shows
+    each question's area, kind and expected page, whether the page was
+    found or cited, and the table per version. Editing a set as text keeps
+    a question's kind, area and expected page while its text is unchanged
+    (before, saving the setup set there would have dropped them).
+  - Checked in Chrome (headless, `playwright-core` from the scratchpad)
+    against the local build at 1360 px and 390 px: no page errors, no
+    sideways page scroll; on a phone the area table scrolls inside its
+    box. The first layout put the table in the narrow column, which hid
+    two metrics, so the card now spans the page. The local run shown was
+    scored before phase 3's last fixes (the refunds "not available" shows
+    as expected; a new run counts it as a miss).
 - [ ] **5. Docs, PR, deploy.**
+  - [x] README: the Evaluate step (candidate flow, the set's four kinds,
+    the run, how each kind is judged, the per-area metrics, evaluations
+    never ingest), the reset list, the project layout.
+  - [x] PR #41 ready for review.
+  - [ ] Deploy: after the user merges #41, and once #26 is done.
+    On EC2 the setup state is READY (existing install), so the Evaluate
+    step does not show there until setup is run for real (#39).
 
-## Open questions for the user
+## The user's answers (2026-10-09): the recommendations, all four
 
 1. **Questions per area**: 3 (recommended; a local run of about 25
    questions takes roughly 10–15 minutes and some model spend, each

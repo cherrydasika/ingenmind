@@ -17,7 +17,7 @@ import knowledge_system
 import llm
 from tracing import current_trace_id, observation, tag_current_trace
 
-from . import blueprint, blueprint_run, build, content, conversation, sources_run, state
+from . import blueprint, blueprint_run, build, content, conversation, evaluation, sources_run, state
 from .requirements import SetupRequirements, merge, missing
 
 OPENING = "What would you like your knowledge system to help users with?"
@@ -91,7 +91,9 @@ def view() -> dict:
             "content": content.view() if state.STATES.index(current) >= state.STATES.index(state.ANALYSING_SOURCES)
                        else None,
             "build": build.view() if state.STATES.index(current) >= state.STATES.index(state.INGESTION_APPROVED)
-                     else None}
+                     else None,
+            "evaluation": evaluation.view() if state.STATES.index(current) >= state.STATES.index(state.EVALUATING)
+                          else None}
 
 
 def _system(values: SetupRequirements, complete: bool) -> str:

@@ -148,6 +148,17 @@ class ResearchIngestionFlow(unittest.TestCase):
         self.assertTrue(finding["status"].startswith("GOOD_EVIDENCE"))
         self.assertIn("after ingesting researched sources", finding["status"])
 
+    def test_an_evaluation_run_never_ingests(self):
+        fake = FakeRun([GOOD_CHUNKS], [GAP])
+        fake.fetched = {"https://www.nightjet.com/en": source("https://www.nightjet.com/en")}
+        fake.validator = assessments()
+        fake.source = "eval"
+        out = self.graph.invoke({"task": TASK}, config={"configurable": {"run": fake, "thread_id": str(uuid.uuid4())}})
+        self.assertEqual(self.ingested, [])
+        self.assertEqual([i["status"] for i in out["ingested"]], ["not_ingested_evaluation"])
+        self.assertEqual(fake.retrieval_calls, 1)                  # the gap stays: nothing to search again
+        self.assertFalse(out["findings"][0]["status"].startswith("GOOD_EVIDENCE"))
+
     def test_rejected_source_ingests_nothing(self):
         fake, config, out = self.start([GOOD_CHUNKS], [GAP], [source("https://www.nightjet.com/en", text="short")])
         self.assertNotIn("__interrupt__", out)

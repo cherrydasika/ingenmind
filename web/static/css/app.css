@@ -800,3 +800,12 @@ tr.user-edit-row > td { background: var(--surface-2); }
 .plan-table input[type=number] { width: 72px; }
 .build-bar { height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; margin: 8px 0; }
 .build-bar > span { display: block; height: 100%; background: var(--accent); }
+.area-table th[scope="row"] { font-weight: 600; }
+.area-table td.num, .area-table th.num { text-align: right; white-space: nowrap; }
+.area-defs { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+.area-defs dt { font-weight: 600; }
+.area-defs dd { margin: 0; }
+.eval-set-area { margin-bottom: 10px; }
+.eval-set-area ol { margin: 4px 0 0; padding-left: 22px; }
+.eval-outcomes { list-style: none; padding-left: 0; }
+.eval-outcomes > li { padding: 6px 0; border-bottom: 1px solid var(--border); }

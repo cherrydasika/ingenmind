@@ -36,8 +36,8 @@ import agent_memory as memory_store   # web_api.agent_memory is a route handler
 import auth
 import identity
 import knowledge_system
-from initialization import (blueprint_run, build as setup_build, content as setup_content, plan as setup_plan, sources_run,
-                            state as setup_state, supervisor)
+from initialization import (blueprint_run, build as setup_build, content as setup_content,
+                            evaluation as setup_evaluation, plan as setup_plan, sources_run, state as setup_state, supervisor)
 import sessions
 import source_profiles
 import evaluation_archive as evaluation
@@ -841,6 +841,8 @@ async def knowledge_system_reset(request: Request) -> Response:
 # ---------- Setup (the Initialization Agent, epic #19) ----------
 
 def setup_view(request: Request) -> Response:
+    # Once the build has finished, the evaluation is prepared by itself (once per plan).
+    setup_evaluation.ensure_prepared(_publish_check)
     return _json(supervisor.view())
 
 
@@ -1046,6 +1048,30 @@ async def setup_build_retry(request: Request) -> Response:
     except (setup_state.TransitionNotAllowed, ValueError, RuntimeError) as exc:
         return _json({"error": str(exc)}, 409)
     return _json(await run_in_threadpool(supervisor.view))
+
+
+def setup_evaluation_view(request: Request) -> Response:
+    return _json(setup_evaluation.view())
+
+
+async def setup_evaluation_prepare(request: Request) -> Response:
+    """Write the candidate flow and the evaluation set again (in the background)."""
+    try:
+        await run_in_threadpool(setup_evaluation.prepare, (auth.current_user(request) or {}).get("user_id"),
+                                _publish_check)
+    except (setup_state.TransitionNotAllowed, ValueError, RuntimeError) as exc:
+        return _json({"error": str(exc)}, 409)
+    return _json(await run_in_threadpool(setup_evaluation.view))
+
+
+async def setup_evaluation_run(request: Request) -> Response:
+    """Run the prepared set against the candidate flow (in the background)."""
+    try:
+        await run_in_threadpool(setup_evaluation.run, (auth.current_user(request) or {}).get("user_id"),
+                                _eval_execute, _run_check)
+    except (setup_state.TransitionNotAllowed, ValueError, RuntimeError, flows.FlowError) as exc:
+        return _json({"error": str(exc)}, 409)
+    return _json(await run_in_threadpool(setup_evaluation.view))
 
 
 def knowledge_provenance(request: Request) -> Response:
@@ -1347,6 +1373,9 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/setup/plan/approve", setup_plan_approve, methods=["POST"]),
     Route("/api/setup/build/start", setup_build_start, methods=["POST"]),
     Route("/api/setup/build/retry", setup_build_retry, methods=["POST"]),
+    Route("/api/setup/evaluation", setup_evaluation_view),
+    Route("/api/setup/evaluation/prepare", setup_evaluation_prepare, methods=["POST"]),
+    Route("/api/setup/evaluation/run", setup_evaluation_run, methods=["POST"]),
     Route("/api/knowledge/provenance", knowledge_provenance),
     Route("/api/setup/back-to-content", setup_back_to_content, methods=["POST"]),
     Route("/api/overview", overview),

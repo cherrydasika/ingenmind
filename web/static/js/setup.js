@@ -3,7 +3,8 @@
 // Later steps (blueprint, sources, content, build) arrive with epic #19.
 
 import { api } from "./api.js";
-import { badge, errorBox, h, loading, md, note } from "./ui.js";
+import { KIND_LABEL, areaTable } from "./eval_areas.js";
+import { badge, errorBox, fmtTime, h, loading, markdown, md, note } from "./ui.js";
 
 const FIELDS = [
   ["purpose", "Purpose"], ["audience", "Who asks"], ["regions", "Regions"], ["question_types", "Questions"],
@@ -18,6 +19,7 @@ const BUILDING = ["INGESTING", "INDEXING"];
 const PAGE_STATUS = { pending: "waiting", ingested: "read", unchanged: "unchanged", skipped: "no text",
   failed: "failed", blocked: "not allowed" };
 const POLL_MS = 4000;   // while the blueprint research runs
+const RUNNING = ["queued", "running"];   // an evaluation run that is not finished
 // How each knowledge area is answered (blueprint.py KnowledgeClass).
 const ANSWERED_BY = [
   ["STATIC_KNOWLEDGE", "From the knowledge base", "Stable facts that pages hold"],
@@ -110,6 +112,7 @@ export class SetupPage {
     this.root.replaceChildren(h("div", { class: "stack" },
       this.renderSteps(v),
       h("div", { class: "setup-layout" }, main, side),
+      v.state === "EVALUATING" && v.build ? this.renderEvaluation(v) : null,
       v.build || this.review ? h("details", {}, h("summary", {}, "Content"),
         h("div", { class: "details-body" }, this.renderContent(v))) : null,
       onContent && v.sources ? h("details", {}, h("summary", {}, "Sources"),
@@ -141,7 +144,9 @@ export class SetupPage {
     const analysing = v.content && (v.state === "ANALYSING_SOURCES"
       || v.content.sites.some((site) => site.analysis?.status === "analysing"));
     const building = BUILDING.includes(v.state) && ["queued", "running"].includes(v.build?.job?.status);
-    if (researching || discovering || analysing || building) {
+    const e = v.evaluation;
+    const evaluating = v.state === "EVALUATING" && (!e || e.status === "preparing" || RUNNING.includes(e.run?.status));
+    if (researching || discovering || analysing || building || evaluating) {
       this.timer = setTimeout(async () => { await this.refresh(); this.render(); }, POLL_MS);
     }
   }
@@ -260,8 +265,7 @@ export class SetupPage {
         + "been running).",
       INGESTING: stuck ? "The build stopped before it finished." : "Reading the plan's pages, politely, one at a time…",
       INDEXING: stuck ? "The build stopped while checking the index." : "Checking the index…",
-      EVALUATING: "The knowledge base is built. Evaluating it against the blueprint is the next step; it is not in "
-        + "this version yet.",
+      EVALUATING: "The knowledge base is built. Next, check how well it answers: see Evaluation below.",
     };
     children.push(h("p", {}, lines[v.state] || ""));
     if (job?.status === "failed" && job.error) children.push(h("div", { class: "alert err" }, `The job failed: ${job.error}`));
@@ -303,8 +307,100 @@ export class SetupPage {
       actions.push(back);
     }
     if (actions.length) children.push(h("div", { class: "toolbar", style: "justify-content:flex-start;gap:12px;margin-top:12px" }, actions));
-    return h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Build")),
+    const card = h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Build")),
       children);
+    return card;
+  }
+
+  // Evaluation (#16): the set written from the blueprint, its run on the candidate flow, results per area.
+  renderEvaluation(v) {
+    const e = v.evaluation;
+    const head = h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Evaluation"));
+    const wrap = (...children) => h("div", { class: "card" }, head, ...children);
+    const intro = h("p", {}, "Questions written from the blueprint and the pages you built, for every knowledge "
+      + "area, plus questions it should refuse. They run on the assistant the blueprint describes, before it goes "
+      + "live. Evaluations never add pages to the knowledge base.");
+    if (!e || e.status === "preparing") {
+      return wrap(intro, h("div", { class: "toolbar", style: "justify-content:flex-start;gap:10px" },
+        h("div", { class: "spinner" }), h("span", { class: "note" },
+          "Writing the questions: one model call per knowledge area…")));
+    }
+    const prepare = h("button", { class: "btn btn-ghost", type: "button" }, "Write the questions again");
+    prepare.addEventListener("click", () => this.act(async () => { await api.setupEvaluationPrepare(); return api.setup(); },
+      prepare));
+    if (e.status === "failed") {
+      prepare.className = "btn btn-primary";
+      return wrap(intro, h("div", { class: "alert err" }, `Writing the questions didn't finish: ${e.error}`),
+        h("div", { class: "toolbar", style: "justify-content:flex-start" }, prepare));
+    }
+    const areas = e.record?.areas || {};
+    const names = Object.fromEntries(Object.entries(areas).map(([k, a]) => [k, a.name]));
+    const run = e.run;
+    const running = RUNNING.includes(run?.status);
+    const children = [intro];
+    if (this.error) children.push(h("div", { class: "alert err" }, this.error));
+    children.push(h("div", { class: "note" }, `${e.questions.length} questions · assistant `,
+      h("code", {}, `${e.flow_id} v${e.flow_version}`), " (not live) · ",
+      h("a", { href: "#/evaluations" }, "edit the questions on the Evaluations page")));
+    children.push(this.renderEvaluationSet(e, names));
+    if (running) {
+      children.push(h("div", { class: "build-bar", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": run.total,
+        "aria-valuenow": run.completed }, h("span", { style: `width:${run.total ? (100 * run.completed) / run.total : 0}%` })),
+      h("div", {}, h("strong", {}, `${run.completed} of ${run.total} questions answered`),
+        h("span", { class: "note" }, " · one at a time, each a full answer")));
+    } else {
+      const start = h("button", { class: "btn btn-primary", type: "button", disabled: !e.questions.length },
+        run ? "Run the evaluation again" : "Run the evaluation");
+      start.addEventListener("click", () => this.act(async () => { await api.setupEvaluationRun(); return api.setup(); },
+        start));
+      children.push(h("div", { class: "toolbar", style: "justify-content:flex-start;gap:12px;margin-top:12px" }, start,
+        prepare, h("span", { class: "note" }, `About ${Math.max(1, e.estimate.minutes)} min of real agent and model `
+          + `calls (${e.estimate.questions} questions).`)));
+    }
+    if (run && run.summary?.areas) children.push(this.renderEvaluationResults(run, names));
+    return wrap(...children);
+  }
+
+  renderEvaluationSet(e, names) {
+    const groups = {};
+    e.questions.forEach((q, i) => { (groups[q.area || "other"] ||= []).push([q, i]); });
+    const dropped = e.record?.dropped || [];
+    return h("div", { class: "stack" },
+      h("details", {}, h("summary", {}, `The questions (${e.questions.length}, by knowledge area)`),
+        h("div", { class: "details-body" }, Object.entries(groups).map(([area, items]) => h("div", { class: "eval-set-area" },
+          h("strong", {}, names[area] || area.replace(/_/g, " ")), " ",
+          badge(KIND_LABEL[items[0][0].kind] || items[0][0].kind || "question", items[0][0].kind === "answer" ? "info" : "neutral"),
+          h("ol", {}, items.map(([q]) => h("li", {}, q.question,
+            q.expected_source ? h("div", { class: "note" }, "From ",
+              h("a", { href: q.expected_source, target: "_blank", rel: "noopener" }, new URL(q.expected_source).pathname)) : null))))))),
+      dropped.length ? h("details", {}, h("summary", {}, `Questions left out (${dropped.length})`),
+        h("ul", { class: "details-body" }, dropped.map((d) => h("li", {},
+          d.question ? `“${d.question}”` : names[d.area] || d.area, h("span", { class: "note" },
+            ` · ${names[d.area] || d.area} · ${d.reason}`))))) : null);
+  }
+
+  renderEvaluationResults(run, names) {
+    const s = run.summary;
+    const outcome = (r) => r.failed ? ["didn't run", "err"] : r.expectation_met ? ["as expected", "ok"] : ["missed", "err"];
+    return h("div", { class: "stack", style: "margin-top:16px" },
+      h("h3", {}, `Results · ${String(run.finished_at || run.created_at).slice(0, 16).replace("T", " ")}`),
+      h("div", {}, h("strong", {}, `${s.expectations_met} of ${s.expectations} as expected`),
+        h("span", { class: "note" }, ` · ${s.input_blocked + s.output_blocked} refused · median ${s.p50_seconds === null ? "—"
+          : fmtTime(s.p50_seconds)} per question · ${Math.round((s.tokens || 0) / 1000)}k tokens`)),
+      areaTable(s.areas, names),
+      h("details", {}, h("summary", {}, "Each question"),
+        h("ul", { class: "details-body eval-outcomes" }, run.results.map((r) => {
+          const q = run.questions[r.idx] || {};
+          const [label, kind] = outcome(r);
+          return h("li", {}, badge(label, kind), " ", q.question || `Question ${r.idx + 1}`,
+            h("div", { class: "note" }, [names[q.area] || q.area, KIND_LABEL[q.kind] || q.kind,
+              r.input_blocked || r.output_blocked ? "refused" : r.answer_type?.replace("_", " "),
+              q.expected_source ? (r.expected_retrieved ? "page found" : "page not found") : null,
+              q.expected_source && r.expected_retrieved ? (r.expected_cited ? "and cited" : "but not cited") : null,
+              r.live_tools?.length ? `tools: ${r.live_tools.join(", ")}` : null].filter(Boolean).join(" · ")),
+            r.answer ? h("details", {}, h("summary", {}, "Answer"),
+              h("div", { class: "details-body eval-answer", html: markdown(r.answer) })) : null);
+        }))));
   }
 
   renderSite(site, names, choosing) {

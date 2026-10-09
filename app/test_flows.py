@@ -1022,6 +1022,20 @@ class Tracing(unittest.TestCase):
         self.assertEqual(recorder.updates(tools["Leeds"])["level"], "ERROR")
         self.assertEqual(recorder.updates(tools["Leeds"])["output"], "no such place")
 
+    def test_a_run_reports_the_pages_it_found_and_cited_and_its_live_tools(self):
+        run = agent._Run("s", "u", 6, lambda event: None, lambda search: search)
+        run.searches = [{"n": 1, "first": 1, "seconds": 0.1, "query": "q", "retrieval": {"chunks": [
+            {"source_url": "https://a.example/one", "text": "x"}, {"source_url": "https://a.example/two", "text": "y"}]}}]
+        run.calls = [{"n": 1, "tool": "get_weather", "seconds": 0.2}]
+        graph = Mock()
+        graph.invoke.return_value = {"final_answer": "Yes [2].", "answer": "Yes [2].",
+                                     "output_guardrail": {"decision": "ALLOW"}, "findings": [], "round": 1}
+        with patch.object(agent, "observation", Recorder()), patch.object(agent.agent_memory, "learn"):
+            agent._drive(str(uuid.uuid4()), run, {}, "q", {}, time.time(), graph=graph)
+        self.assertEqual((run.metrics["retrieved"], run.metrics["cited"], run.metrics["live_tools"]),
+                         (["https://a.example/one", "https://a.example/two"], ["https://a.example/two"],
+                          ["get_weather"]))
+
     def test_the_verdicts_become_trace_scores(self):
         scored = []
         final = {"output_guardrail": {"decision": "ALLOW"},
