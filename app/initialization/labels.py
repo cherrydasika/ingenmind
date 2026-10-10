@@ -3,7 +3,7 @@ is about, on every chunk of it (payload field `meta`), for retrieval to use.
 
     label_url(client, url, ...)  a stored page's labels, from its payload and
                                  stored text, merged onto all its chunks
-    relabel(plan_version)        every page of the approved plan, in the
+    relabel(plan_version)        every page of the approved plan and research, in the
                                  background (the setup page's Relabel)
     view()                       the latest relabel run
 
@@ -297,13 +297,28 @@ def view() -> dict | None:
     return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in row.items()} if row else None
 
 
+def research_urls() -> list[str]:
+    """The pages research added that are still stored (research_chunks), oldest first."""
+    client = storage.get_client("research")
+    try:
+        with client.connection() as connection:
+            rows = connection.execute(f"""
+                SELECT source_url FROM {client.table} WHERE expires_at > now()
+                GROUP BY source_url ORDER BY min(payload->>'ingested_at'), source_url""").fetchall()
+    except Exception:           # no research table yet
+        return []
+    return [r["source_url"] for r in rows]
+
+
 def relabel(user_id: str | None = None, labeller: Callable | None = None) -> int:
-    """Label every stored page of the approved plan again, from its stored text; the run's id."""
+    """Label every stored page of the approved plan, and the pages research added, again
+    from their stored text; the run's id."""
     approved = plan.latest("approved")
     if not approved:
         raise ValueError("there is no approved plan to label")
     bp = content._confirmed_blueprint()
-    urls = [p["url"] for p in plan.pages(approved["version"]) if p["status"] in ("ingested", "unchanged")]
+    pages = [("plan", p["url"]) for p in plan.pages(approved["version"]) if p["status"] in ("ingested", "unchanged")]
+    pages += [("research", url) for url in research_urls()]
     ensure_schema()
     view()                                       # a stale run no longer blocks
     with _connect() as connection:
@@ -312,18 +327,18 @@ def relabel(user_id: str | None = None, labeller: Callable | None = None) -> int
             raise RuntimeError("the pages are already being labelled")
         run_id = connection.execute("""
             INSERT INTO kb_labelling_runs (plan_version, status, total, started_by)
-            VALUES (%s, 'labelling', %s, %s) RETURNING id""", (approved["version"], len(urls), user_id)).fetchone()["id"]
+            VALUES (%s, 'labelling', %s, %s) RETURNING id""", (approved["version"], len(pages), user_id)).fetchone()["id"]
 
     def work():
-        client = storage.get_client()
+        clients = {"plan": storage.get_client(), "research": storage.get_client("research")}
         sources_by_id = {s["source_id"]: s for s in sources.list_sources(include_removed=True)}
         sections_by_id = {c["content_id"]: c for c in content.list_sections()}
         done = model = 0
         try:
             with observation(as_type="span", name="relabel", input={"plan_version": approved["version"],
-                                                                     "pages": len(urls)}):
-                for url in urls:
-                    meta = label_url(client, url, bp, sources_by_id, sections_by_id, labeller)
+                                                                     "pages": len(pages)}):
+                for table, url in pages:
+                    meta = label_url(clients[table], url, bp, sources_by_id, sections_by_id, labeller)
                     done += 1
                     model += bool(meta and meta.get("labelled_by") == "rules+model")
                     with _connect() as connection:
@@ -342,6 +357,20 @@ def relabel(user_id: str | None = None, labeller: Callable | None = None) -> int
     return run_id
 
 
+def _research_summary() -> dict:
+    """The pages research added: how many are stored and how many are labelled."""
+    client = storage.get_client("research")
+    try:
+        with client.connection() as connection:
+            row = connection.execute(f"""
+                SELECT count(DISTINCT source_url) AS pages,
+                       count(DISTINCT source_url) FILTER (WHERE payload ? 'meta') AS labelled
+                FROM {client.table} WHERE expires_at > now()""").fetchone()
+    except Exception:
+        return {"pages": 0, "labelled": 0}
+    return {"pages": row["pages"], "labelled": row["labelled"]}
+
+
 def summary(plan_version: int) -> dict:
     """How the plan's stored chunks are labelled: pages with labels, and the values per field."""
     client = storage.get_client()
@@ -349,7 +378,8 @@ def summary(plan_version: int) -> dict:
         rows = connection.execute(f"""
             SELECT DISTINCT ON (source_url) source_url, payload->'meta' AS meta FROM {client.table}
             WHERE payload->>'plan_version' = %s ORDER BY source_url, chunk_index""", (str(plan_version),)).fetchall()
-    out = {"pages": len(rows), "labelled": 0, "by_model": 0, "content_type": {}, "organisation": {}, "fields": {}}
+    out = {"pages": len(rows), "labelled": 0, "by_model": 0, "content_type": {}, "organisation": {}, "fields": {},
+           "research": _research_summary()}
     for r in rows:
         meta = r["meta"] or {}
         if not meta:

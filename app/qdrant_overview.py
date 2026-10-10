@@ -15,6 +15,16 @@ from ttl_cache import ttl_cache
 OVERVIEW_CACHE_SECONDS = 60
 
 
+def page_labels(payload: dict) -> dict | None:
+    """What a page is about (#15), for the Sources and Ingestion pages; None when unlabelled."""
+    meta = payload.get("meta") or {}
+    if not meta:
+        return None
+    return {"topic": meta.get("topic") or [], "organisation": meta.get("organisation"),
+            "content_type": meta.get("content_type"), "effective_date": meta.get("effective_date"),
+            "fields": meta.get("fields") or {}, "labelled_by": meta.get("labelled_by")}
+
+
 @ttl_cache(OVERVIEW_CACHE_SECONDS)
 def fetch_qdrant_overview() -> tuple[int | None, list[dict]]:
     client = storage.get_client()
@@ -40,6 +50,7 @@ def fetch_qdrant_overview() -> tuple[int | None, list[dict]]:
             ),
             "dedup_chars": payload.get("dedup_removed_chars"),
             "chunks": p["chunks"],
+            "labels": page_labels(payload),
         })
     rows.sort(key=lambda r: r["ingested_at"], reverse=True)
     return count, rows
@@ -64,6 +75,7 @@ def fetch_research_overview() -> list[dict]:
             "task": payload.get("research_task"),
             "publisher": payload.get("research_publisher"),
             "scores": payload.get("research_scores"),
+            "labels": page_labels(payload),
         })
     return rows
 

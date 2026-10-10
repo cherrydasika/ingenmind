@@ -4,7 +4,7 @@
 
 import { api } from "./api.js";
 import { KIND_LABEL, areaTable } from "./eval_areas.js";
-import { badge, errorBox, fmtTime, h, loading, markdown, md, note } from "./ui.js";
+import { badge, errorBox, fmtTime, h, labelText, loading, markdown, md, note } from "./ui.js";
 
 const FIELDS = [
   ["purpose", "Purpose"], ["audience", "Who asks"], ["regions", "Regions"], ["question_types", "Questions"],
@@ -156,7 +156,8 @@ export class SetupPage {
     const building = BUILDING.includes(v.state) && ["queued", "running"].includes(v.build?.job?.status);
     const e = v.evaluation;
     const evaluating = v.state === "EVALUATING" && (!e || e.status === "preparing" || RUNNING.includes(e.run?.status));
-    if (researching || discovering || analysing || building || evaluating) {
+    const labelling = v.build?.labels?.run?.status === "labelling";
+    if (researching || discovering || analysing || building || evaluating || labelling) {
       this.timer = setTimeout(async () => { await this.refresh(); this.render(); }, POLL_MS);
     }
   }
@@ -317,9 +318,40 @@ export class SetupPage {
       actions.push(back);
     }
     if (actions.length) children.push(h("div", { class: "toolbar", style: "justify-content:flex-start;gap:12px;margin-top:12px" }, actions));
+    if (b.labels && !BUILDING.includes(v.state) && v.state !== "INGESTION_APPROVED") children.push(this.renderLabels(b.labels));
     const card = h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Build")),
       children);
     return card;
+  }
+
+  // Labels (#15): what the built pages are about, and relabelling them from their stored text.
+  renderLabels({ run, summary }) {
+    const counts = (values) => Object.entries(values || {}).sort((a, b) => b[1] - a[1])
+      .map(([k, n]) => `${labelText(k)} ${n}`).join(", ");
+    const labelling = run?.status === "labelling";
+    const relabel = h("button", { class: "btn", type: "button", disabled: labelling }, labelling ? "Relabelling…" : "Relabel");
+    relabel.addEventListener("click", () => this.act(() => api.setupRelabel(), relabel));
+    const rows = summary ? [
+      ["Content types", counts(summary.content_type)],
+      ["Publishers", counts(summary.organisation)],
+      ...Object.entries(summary.fields || {}).map(([field, values]) => [labelText(field), counts(values)]),
+    ].filter(([, text]) => text) : [];
+    return h("div", { style: "margin-top:16px" },
+      h("div", { class: "step-title" }, "Labels"),
+      h("p", { class: "note" }, "Each page is labelled with what it is about, so searches can favour a topic and "
+        + "filter by publisher or kind of page. Relabel labels the plan's pages and the pages research added "
+        + "again, from their stored text; nothing is fetched."),
+      summary ? h("div", {}, h("strong", {}, `${summary.labelled} of ${summary.pages} pages labelled`),
+        summary.labelled ? ` · ${summary.by_model} by the model, the rest by rules only` : "") : null,
+      summary?.research?.pages ? h("div", { class: "note" },
+        `Pages added by research: ${summary.research.labelled} of ${summary.research.pages} labelled.`) : null,
+      rows.length ? h("ul", { class: "note" }, rows.map(([name, text]) => h("li", {}, `${name}: ${text}`))) : null,
+      run ? h("div", { class: run.status === "failed" ? "alert err" : "note" },
+        labelling ? `Relabelling: ${run.done} of ${run.total} pages…`
+          : run.status === "failed" ? `The last relabel failed: ${run.error || "unknown error"}`
+            : `Last relabelled ${String(run.finished_at || run.created_at).slice(0, 16).replace("T", " ")}: `
+              + `${run.done} of ${run.total} pages, ${run.model} by the model.`) : null,
+      h("div", { class: "toolbar", style: "justify-content:flex-start;margin-top:8px" }, relabel));
   }
 
   // Readiness (#17): the scores, each defined and computed; the gaps and what to do; Go live.

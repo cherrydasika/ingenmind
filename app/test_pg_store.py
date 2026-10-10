@@ -557,10 +557,15 @@ class PgStoreTest(unittest.TestCase):
             async def json(self):
                 return self.body
 
+        storage.merge_payload(research_client, other, {"meta": {"topic": ["catering"], "organisation": "IRCTC",
+                                                                "content_type": "guide", "labelled_by": "rules+model"}})
         fetch_research_overview.clear()
         listed = {r["url"]: r for r in fetch_research_overview()}
         self.assertEqual((listed[other]["task"], listed[other]["publisher"], listed[other]["chunks"]),
                          ("Pantry car on trains", "IRCTC", 1))
+        self.assertEqual(listed[other]["labels"], {"topic": ["catering"], "organisation": "IRCTC", "content_type": "guide",
+                                                   "effective_date": None, "fields": {}, "labelled_by": "rules+model"})
+        self.assertIsNone(listed[self.source]["labels"])                              # unlabelled: none
         for bad in ({"dataset": "other", "urls": [other]}, {"dataset": "research", "urls": []},
                     {"dataset": "research", "urls": [1]}, {"dataset": "research", "urls": ["u"] * 201}):
             self.assertEqual(asyncio.run(remove_sources(Request(bad))).status_code, 400, bad)

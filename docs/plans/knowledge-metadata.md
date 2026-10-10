@@ -1,14 +1,9 @@
 # Plan: knowledge metadata from the blueprint, and retrieval that uses it
 
-Status: **Phase 3, resumed 2026-10-10 with #57** (topic as a preference;
-[below](#57-topic-as-a-preference)): the user chose A (extra votes in the
-fusion); the code is written and tested (409 pass), not committed. The
-comparison (6 questions, twice per side) is done: after is equal or better
-on every question. Waiting for the user before committing. The code for filters and
-authority is written and tested (407 pass) and pushed to branch
-`init/metadata` (draft PR #56), not merged. The comparison found the agent
-over-uses the topic filter, which hides pages filed under a neighbouring
-topic. Update this file at the end of every step.
+Status: **Phase 4 (UI) done and pushed (2026-10-10); next is phase 5
+(docs, PR out of draft, deploy) when the user asks.** Phase 3 with #57 (topic as a
+preference) is committed and pushed to `init/metadata` (draft PR #56,
+`a7e5e82`, CI passes). Update this file at the end of every step.
 
 GitHub: issue #15, part of epic #19 (RAG Initialization Agent); builds on
 #11 (the blueprint and its `metadata_fields`) and #14 (the build: each page's
@@ -175,8 +170,35 @@ builds label as they ingest. Research pages: question 4.
   - **#57, topic as a preference** (see
     [its section](#57-topic-as-a-preference)): A chosen and written
     2026-10-10, 409 pass; compared (after 10/12 met vs before 8/12).
-- [ ] **4. UI**: labels on the Sources and Ingestion pages and in citations;
+- [x] **4. UI**: labels on the Sources and Ingestion pages and in citations;
   the relabel action on the setup page; checked in the browser. Stop.
+  - `qdrant_overview.page_labels()`: each Sources row and each research row
+    carries `labels` (topics, organisation, content type, date, the
+    blueprint's fields, who labelled it), None when unlabelled. The answer's
+    cited sources (`agent._cited_sources`) carry the page's `organisation`
+    and `effective_date` when it has them.
+  - `ui.js`: `labelsCell()` (topic badges, then kind of page and publisher)
+    in a Labels column on the Sources page and in "Pages added by research";
+    `sourceItem()` shows the publisher and date before the citation numbers.
+  - The setup Build card (after the build): a Labels section with pages
+    labelled (and how many by the model), content types, publishers and the
+    blueprint's fields with counts, the latest relabel run, and **Relabel**
+    (`POST /api/setup/relabel`; disabled while one runs; the page polls
+    until it finishes).
+  - Tests: the research overview's labels (and none when unlabelled); cited
+    sources carry publisher and date. Full suite: 409 pass.
+  - Browser (Playwright, local build): Sources shows the labels of all 17
+    pages; the Build card shows 17 of 17 labelled, by the model; no page
+    errors. Citations could not be seen in a real answer (questions are
+    refused until setup is READY), so the citation line was rendered from
+    the served `ui.js` with sample data. The 5 research pages showed no
+    labels (added before research pages were labelled; Relabel covered
+    only the plan's pages), so at the user's request **Relabel now covers
+    research pages too** (`labels.research_urls()`; the summary has
+    `research`: pages and labelled, shown on the Build card). Test: relabel
+    labels a research page; full suite 410 pass. Live: Relabel clicked in
+    the browser labelled 22 of 22 pages (17 plan, 5 research), all by the
+    model; the research table shows their labels.
 - [ ] **5. Docs, PR, deploy.**
 
 ## The user's answers (2026-10-09): the recommendations, all five

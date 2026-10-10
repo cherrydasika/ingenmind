@@ -114,6 +114,7 @@ export const api = {
   setupBuildStart: (version) => post("/api/setup/build/start", { version }),
   setupBuildRetry: () => post("/api/setup/build/retry", {}),
   setupBackToContent: () => post("/api/setup/back-to-content", {}),
+  setupRelabel: () => post("/api/setup/relabel", {}),
   setupEvaluation: () => request("/api/setup/evaluation"),
   setupEvaluationPrepare: () => post("/api/setup/evaluation/prepare", {}),
   setupEvaluationRun: () => post("/api/setup/evaluation/run", {}),

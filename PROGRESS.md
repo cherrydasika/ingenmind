@@ -52,8 +52,12 @@ blueprint's own fields) by rules plus one model call per page; the local
 build is relabelled (PR #56, draft, not merged). **Phase 3
 resumed 2026-10-10 with #57** (topic as a preference, not a filter): the
 user chose extra votes in the fusion (plan file, #57 section); written and
-tested (409 pass), not committed. Compared on 6 questions, twice per
-side: after met 10/12 vs before 8/12, none worse (details in the plan). Filters, authority and the agent's optional
+tested (409 pass); compared on 6 questions, twice per side: after met
+10/12 vs before 8/12, none worse; committed and pushed (`a7e5e82`).
+**Phase 4 (UI)** done and pushed: labels on Sources, research pages and
+citations, Relabel on the setup Build card, now covering research pages too
+(the local build: 22 of 22 pages labelled). Next: phase 5 (docs, PR #56 out
+of draft, the user merges; details in the plan). Filters, authority and the agent's optional
 filters are written and tested (407 pass) and pushed to the branch; the
 before/after comparison found the agent over-uses the topic filter.
 

@@ -2013,6 +2013,22 @@ class Labels(Building):
             with self.assertRaises(RuntimeError):
                 labels.relabel("admin-1")
 
+    def test_relabel_covers_the_pages_research_added(self):
+        self.approve("help")
+        self.work()
+        research = storage.get_client("research")
+        storage.ensure_collection(research)
+        storage.upsert_chunks(research, "https://blog.example/railcards", ["Railcards save a third."],
+                              [[1.0] + [0.0] * 255], "h", 90, extra_payload={
+                                  "origin": "research_agent", "research_publisher": "Rail Blog"})
+        self.assertEqual(labels.summary(plan.latest("approved")["version"])["research"], {"pages": 1, "labelled": 0})
+        with patch.object(labels, "_start_thread", side_effect=lambda work: work()):
+            labels.relabel("admin-1", labeller=self.label)
+        self.assertEqual((labels.view()["total"], labels.view()["done"]), (8, 8))      # 7 plan pages and 1 research page
+        meta = storage.get_existing_metadata(research, "https://blog.example/railcards")["meta"]
+        self.assertEqual((meta["topic"], meta["organisation"]), (["refunds"], "Rail Blog"))
+        self.assertEqual(labels.summary(plan.latest("approved")["version"])["research"], {"pages": 1, "labelled": 1})
+
     def test_the_relabel_api(self):
         import web_api
         self.approve("help")

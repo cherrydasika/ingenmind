@@ -2135,15 +2135,19 @@ def _public_result(question: str, answer: str, policies: dict, total: float = 0)
 
 
 def _cited_sources(answer: str, searches: list[dict]) -> list[dict]:
-    """The pages the answer's [n] citations point to: URLs and citation
-    numbers only, never chunk text (safe for the browser)."""
+    """The pages the answer's [n] citations point to: URLs, citation numbers
+    and, when labelled (#15), the publisher and the page's date; never chunk
+    text (safe for the browser)."""
     cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
     pages: dict[str, list[int]] = {}
+    about: dict[str, dict] = {}
     for search in searches:
         for i, chunk in enumerate(search["retrieval"]["chunks"]):
             if search["first"] + i in cited:
                 pages.setdefault(chunk["source_url"], []).append(search["first"] + i)
-    return [{"url": url, "cited": sorted(numbers)} for url, numbers in pages.items()]
+                meta = chunk.get("meta") or {}
+                about.setdefault(chunk["source_url"], {k: meta[k] for k in ("organisation", "effective_date") if meta.get(k)})
+    return [{"url": url, "cited": sorted(numbers), **about[url]} for url, numbers in pages.items()]
 
 
 def _result_of(run: "_Run", final: dict, question: str, total: float) -> dict:
