@@ -38,29 +38,20 @@ the failed job and publish and deploy follow. CI pulls its pgvector image
 from Docker Hub signed in (`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`
 secrets). Tunnels close after 60 minutes idle (was 20).
 
-**Active work:** epic #19, RAG Initialization Agent. Done and deployed:
-#9–#14 (the conversation, blueprint, sources, content and the build; plans
-in [docs/plans/](docs/plans/)), **#16** evaluation from the blueprint, per
-knowledge area ([plan](docs/plans/evaluation.md); evaluations never
-ingest), and **#17** readiness report, gaps and Go live
-([plan](docs/plans/readiness.md)). **Now: #15** (knowledge metadata from
-the blueprint, used by retrieval;
-[plan](docs/plans/knowledge-metadata.md)): the user took all five
-recommendations. **Phase 2 done** on branch `init/metadata`: every stored
-page is labelled (topic, organisation, authority, dates, content type, the
-blueprint's own fields) by rules plus one model call per page; the local
-build is relabelled (PR #56, draft, not merged). **Phase 3
-resumed 2026-10-10 with #57** (topic as a preference, not a filter): the
-user chose extra votes in the fusion (plan file, #57 section); written and
-tested (409 pass); compared on 6 questions, twice per side: after met
-10/12 vs before 8/12, none worse; committed and pushed (`a7e5e82`).
-**Phase 4 (UI)** done and pushed: labels on Sources, research pages and
-citations, Relabel on the setup Build card, now covering research pages too
-(the local build: 22 of 22 pages labelled). **Phase 5:** README
-written, PR #56 ready for review; waiting for the user to merge (deploys to
-EC2 by itself). Filters, authority and the agent's optional
-filters are written and tested (407 pass) and pushed to the branch; the
-before/after comparison found the agent over-uses the topic filter.
+**Epic #19 (RAG Initialization Agent) is done (closed 2026-10-10):** the
+MVP #9–#17 is merged and deployed, the last being **#15** knowledge
+metadata (PR #56, merged and deployed as `70d15d4` on 2026-10-10;
+[plan](docs/plans/knowledge-metadata.md)): every page is labelled from the
+blueprint (topic, organisation, authority, dates, content type, the
+blueprint's own fields); the knowledge-base agent may filter by
+organisation and content type and prefer a topic (**#57**: a topic only
+ranks pages higher, never hides them; compared on 6 questions, twice per
+side: 10/12 met after vs 8/12 before, none worse); the Sources, research and
+citation views show the labels; **Relabel** on the setup Build card labels
+the plan's pages and research's (local build: 22 of 22). Still open from
+the epic, as their own issues: #39 (guided setup on EC2 for real) and #18
+(learning from live use, after the MVP). **No active work:** the next item
+is the user's choice from the backlog.
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is
@@ -97,10 +88,11 @@ kind: start from [AGENTS.md](AGENTS.md); the backlog is the open issues
 
 - EC2 `<instance-id>` (eu-west-2) was **running** on 2026-10-09
   (stop it with `session.sh stop` when done). Its active release is
-  `37a819c` (PR #54, deployed by GitHub Actions; #16, #17, #25, the two
-  research fixes and the rebrand before it; setup there is READY/existing
-  with its 5 URLs, so the setup steps don't show until #39; the live flow
-  is unchanged).
+  `70d15d4` (PR #56, #15 knowledge metadata, deployed by GitHub Actions on
+  2026-10-10; #16, #17, #25, the two research fixes and the rebrand before
+  it; setup there is READY/existing with its 5 URLs and no confirmed
+  blueprint, so no page is labelled and the setup steps don't show until
+  #39; the live flow is unchanged).
   Sign-in is Amazon Cognito (AUTH_MODE=oidc); the first account,
   `admin@example.com`, works, and sign-out ends the Cognito session too.
 - The live flow on EC2 is `travel_assistant` **v3** (UK trains and weather
