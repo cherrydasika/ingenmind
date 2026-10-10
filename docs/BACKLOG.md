@@ -5,13 +5,8 @@ The backlog is the repository's open
 for an item by its number or title; when one starts, write its plan in
 `docs/plans/` and say so in PROGRESS.md.
 
-## Guided setup (epic #19)
+## Guided setup (epic #19: MVP done, closed 2026-10-10)
 
-- #16 Evaluation set generated from the blueprint, run per knowledge area —
-  **in progress**: [plan](plans/evaluation.md), waiting for answers
-- #17 Readiness report, gaps and go live
-- #15 Knowledge metadata from the blueprint, and retrieval that filters and
-  weighs by it
 - #39 Run guided setup on the EC2 deployment for real
 - #33 Live data sources in setup
 - #18 Learning from live use (after the MVP)

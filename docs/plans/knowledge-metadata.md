@@ -1,9 +1,7 @@
 # Plan: knowledge metadata from the blueprint, and retrieval that uses it
 
-Status: **Phase 5 (2026-10-10): docs written, PR #56 ready for review;
-waiting for the user to merge, which deploys to EC2.** Phase 3 with #57 (topic as a
-preference) is committed and pushed to `init/metadata` (draft PR #56,
-`a7e5e82`, CI passes). Update this file at the end of every step.
+Status: **Done (2026-10-10).** PR #56 merged and deployed to EC2 as
+`70d15d4`; #15 and #57 closed.
 
 GitHub: issue #15, part of epic #19 (RAG Initialization Agent); builds on
 #11 (the blueprint and its `metadata_fields`) and #14 (the build: each page's
@@ -199,16 +197,16 @@ builds label as they ingest. Research pages: question 4.
     labels a research page; full suite 410 pass. Live: Relabel clicked in
     the browser labelled 22 of 22 pages (17 plan, 5 research), all by the
     model; the research table shows their labels.
-- [ ] **5. Docs, PR, deploy.**
+- [x] **5. Docs, PR, deploy.**
   - [x] README: Labels (what each page is about, how searches use them:
     organisation and content type filter, topic is a preference), the
     knowledge-base agent, Retrieval and ingestion, the Build step, Retrieval
     ranking, the project layout; the roadmap no longer lists metadata.
   - [x] PR #56 out of draft, its description covering phases 2–5.
-  - [ ] The user merges; CI, publish and Deploy to EC2 follow. On EC2,
-    nothing is labelled until a build or Relabel there (setup on EC2 is
-    READY/existing with 5 URLs and no approved plan, so Relabel is not
-    offered: #39), so search there behaves as before.
+  - [x] The user merged (2026-10-10, `70d15d4`); CI, publish and Deploy
+    to EC2 passed. On EC2, nothing is labelled until a build or Relabel
+    there (setup on EC2 is READY/existing with 5 URLs and no approved plan,
+    so Relabel is not offered: #39), so search there behaves as before.
 
 ## The user's answers (2026-10-09): the recommendations, all five
 
