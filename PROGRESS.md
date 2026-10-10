@@ -56,8 +56,9 @@ tested (409 pass); compared on 6 questions, twice per side: after met
 10/12 vs before 8/12, none worse; committed and pushed (`a7e5e82`).
 **Phase 4 (UI)** done and pushed: labels on Sources, research pages and
 citations, Relabel on the setup Build card, now covering research pages too
-(the local build: 22 of 22 pages labelled). Next: phase 5 (docs, PR #56 out
-of draft, the user merges; details in the plan). Filters, authority and the agent's optional
+(the local build: 22 of 22 pages labelled). **Phase 5:** README
+written, PR #56 ready for review; waiting for the user to merge (deploys to
+EC2 by itself). Filters, authority and the agent's optional
 filters are written and tested (407 pass) and pushed to the branch; the
 before/after comparison found the agent over-uses the topic filter.
 
