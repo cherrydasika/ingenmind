@@ -86,8 +86,10 @@ kind: start from [AGENTS.md](AGENTS.md); the backlog is the open issues
 
 ## Current state
 
-- EC2 `<instance-id>` (eu-west-2) was **running** on 2026-10-09
-  (stop it with `session.sh stop` when done). Its active release is
+- EC2 `<instance-id>` (eu-west-2) is **stopped** (2026-10-10, with
+  `session.sh stop`: the stack first, then EC2; no AgentCore endpoints were
+  on, and no other instance runs in any region). Start it with
+  `session.sh start`. Its active release is
   `70d15d4` (PR #56, #15 knowledge metadata, deployed by GitHub Actions on
   2026-10-10; #16, #17, #25, the two research fixes and the rebrand before
   it; setup there is READY/existing with its 5 URLs and no confirmed
