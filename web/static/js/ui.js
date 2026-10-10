@@ -194,9 +194,25 @@ export function md(text, cls = "prose") {
   return h("div", { class: cls, html: markdown(text) });
 }
 
-// One source an answer cites: a link (ad-hoc documents have no web address)
-// and the citation numbers that point to it.
-export function sourceItem({ url, cited }) {
+// One source an answer cites: a link (ad-hoc documents have no web address),
+// who published it and its date when the page is labelled (#15), and the
+// citation numbers that point to it.
+export function sourceItem({ url, cited, organisation, effective_date }) {
   const page = /^https?:\/\//.test(url) ? h("a", { href: url, target: "_blank", rel: "noopener" }, shortUrl(url)) : h("span", {}, url);
-  return h("li", {}, page, h("span", { class: "faint" }, ` · ${cited.map((n) => `[${n}]`).join(" ")}`));
+  const about = [organisation, effective_date].filter(Boolean).join(", ");
+  return h("li", {}, page, h("span", { class: "faint" }, `${about ? ` · ${about}` : ""} · ${cited.map((n) => `[${n}]`).join(" ")}`));
+}
+
+// A label key as words: "tickets_and_railcards" → "Tickets and railcards".
+export function labelText(key) {
+  const words = String(key).replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+// What a stored page is about (#15): its topics, kind of page and publisher, for a table cell.
+export function labelsCell(labels) {
+  if (!labels) return h("td", { class: "faint" }, "—");
+  const kind = [labels.content_type && labelText(labels.content_type), labels.organisation].filter(Boolean).join(" · ");
+  return h("td", { class: "wrap" }, (labels.topic || []).map((t) => badge(labelText(t))),
+    kind ? h("div", { class: "faint", style: "white-space:nowrap" }, kind) : null);
 }

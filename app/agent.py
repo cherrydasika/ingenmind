@@ -78,6 +78,7 @@ import guardrails
 import llm
 import research
 import source_profiles
+from initialization import labels
 from common import config as common_config, ingest, storage
 from retrieval import TOP_K, hybrid_search
 from tracing import current_trace_id, observation, score, tag_current_trace
@@ -656,6 +657,13 @@ class _Run:
         query = str(_input(use).get("query") or "").strip()[:MAX_TEXT_CHARS]
         if not query:
             return _result(use, "The query is empty.", error=True)
+        # Optional labels (#15): only values the knowledge base carries; others are ignored. Organisation
+        # and content type filter; a topic is only preferred (#57): a page is often about several things.
+        vocabulary = (self.settings or {}).get("filters") or {}
+        chosen = {k: v for k, v in _input(use).items()
+                  if k in ("topic", "organisation", "content_type") and isinstance(v, str) and v in (vocabulary.get(k) or ())}
+        prefer = {k: v for k, v in chosen.items() if k == "topic"}
+        filters = {k: v for k, v in chosen.items() if k != "topic"}
         with self.lock:
             n = len(self.searches) + 1
             self.searches.append(None)  # reserve the number
@@ -666,17 +674,25 @@ class _Run:
         self.emit({"type": "search", "state": "start", "agent": "knowledge_base", "n": n, "turn": use["turn"],
                    "delegation": delegation, "query": query})
         started = time.monotonic()
-        try:
-            search = hybrid_search(query, top_k=retrieval["top_k"], prefetch=retrieval.get("prefetch"),
-                                   rrf_k=retrieval.get("rrf_k", 2), dense=retrieval.get("dense", True),
-                                   full_text=retrieval.get("full_text", True), on_stage=lambda stage, state, **info: self.emit(
+        def run_search(chosen):
+            return hybrid_search(query, top_k=retrieval["top_k"], prefetch=retrieval.get("prefetch"),
+                                 rrf_k=retrieval.get("rrf_k", 2), dense=retrieval.get("dense", True),
+                                 full_text=retrieval.get("full_text", True), filters=chosen or None,
+                                 prefer=prefer or None,
+                                 on_stage=lambda stage, state, **info: self.emit(
                 {"type": "stage", "agent": "knowledge_base", "n": n, "stage": stage, "state": state, **info}))
+        unfiltered = False
+        try:
+            search = run_search(filters)
+            if filters and not search["rankings"]["fused"]:
+                search, unfiltered = run_search(None), True     # nothing matched the filter: search everything
         except Exception as error:
             self.emit({"type": "search", "state": "error", "agent": "knowledge_base", "n": n, "error": str(error)})
             return _result(use, f"Search failed: {type(error).__name__}: {error}", error=True)
         view = self.retrieval_view(search)
         record = {"n": n, "turn": use["turn"], "delegation": delegation, "query": query, "first": first,
-                  "seconds": round(time.monotonic() - started, 3), "retrieval": view}
+                  "seconds": round(time.monotonic() - started, 3), "retrieval": view,
+                  "filters": filters or None, "prefer": prefer or None, "unfiltered_retry": unfiltered}
         with self.lock:
             self.searches[n - 1] = record
         self.emit({"type": "search", "state": "done", "agent": "knowledge_base", "n": n, "turn": use["turn"],
@@ -684,9 +700,14 @@ class _Run:
                    "sources": len(view["sources"]), "first": first})
         if not view["chunks"]:
             return _result(use, f"No knowledge base results for: {query}")
-        lines = [f"Results for: {query}", ""]
+        pairs = lambda labels: ", ".join(f"{k}={v}" for k, v in labels.items())
+        notes = ([f"nothing matched {pairs(filters)}: searched everything" if unfiltered else f"filtered by {pairs(filters)}"]
+                 if filters else []) + ([f"preferring {pairs(prefer)}"] if prefer else [])
+        lines = [f"Results for: {query}" + (f" ({'; '.join(notes)})" if notes else ""), ""]
         for number, chunk in enumerate(view["chunks"], first):
-            lines += [f"[{number}] {chunk['source_url']}", chunk["text"].strip(), ""]
+            meta = chunk.get("meta") or {}
+            about = ", ".join(str(x) for x in (meta.get("organisation"), meta.get("effective_date")) if x)
+            lines += [f"[{number}] {chunk['source_url']}" + (f" ({about})" if about else ""), chunk["text"].strip(), ""]
         return _result(use, "\n".join(lines).rstrip())
 
     def _over_budget(self, delegation: int, kind: str) -> bool:
@@ -810,6 +831,28 @@ ROUNDS_TEXT = f"(at most {MAX_ROUNDS} rounds in all)"
 SEARCH_COUNT_TEXT = "Returns the 5 best chunks"
 
 
+FILTER_TEXT = (
+    " Optional labels: organisation and content_type narrow the search to the pages labelled with them; use "
+    "one only when the task clearly names that organisation or kind of page, and leave them out otherwise. A "
+    "filtered search that finds nothing is run again without the filter. topic only ranks that knowledge "
+    "area's pages higher and never hides other pages, so it is safe whenever the task is about one area.")
+
+
+def _filter_properties(vocabulary: dict) -> dict:
+    """The search tool's optional filters, with the values the knowledge base carries (#15)."""
+    out = {}
+    if vocabulary.get("topic"):
+        out["topic"] = {"type": "string", "enum": list(vocabulary["topic"]),
+                        "description": "Knowledge area to favour (other pages still appear): " + "; ".join(f"{k} ({v})" for k, v in vocabulary["topic"].items())}
+    if vocabulary.get("organisation"):
+        out["organisation"] = {"type": "string", "enum": vocabulary["organisation"],
+                               "description": "Only pages published by this organisation"}
+    if vocabulary.get("content_type"):
+        out["content_type"] = {"type": "string", "enum": vocabulary["content_type"],
+                               "description": "Only this kind of page"}
+    return out
+
+
 def _apply_settings(role: str, settings: dict, system: list[dict], tools: list[dict]) -> tuple[list[dict], list[dict]]:
     """A flow's settings in a role's prompt and tools: the supervisor's word
     limit and rounds, the search tool's chunk count, the API tools offered."""
@@ -822,11 +865,15 @@ def _apply_settings(role: str, settings: dict, system: list[dict], tools: list[d
         if settings.get("max_rounds"):
             text = text.replace(ROUNDS_TEXT, f"(at most {settings['max_rounds']} rounds in all)")
         system = [{**system[0], "text": text}, *system[1:]]
-    elif role == "knowledge_base" and (settings.get("retrieval") or {}).get("top_k"):
+    elif role == "knowledge_base" and ((settings.get("retrieval") or {}).get("top_k") or settings.get("filters")):
         tools = json.loads(json.dumps(tools))
         spec = tools[0]["config"]["inlineFunction"]
-        spec["description"] = spec["description"].replace(
-            SEARCH_COUNT_TEXT, f"Returns the {settings['retrieval']['top_k']} best chunks")
+        if (settings.get("retrieval") or {}).get("top_k"):
+            spec["description"] = spec["description"].replace(
+                SEARCH_COUNT_TEXT, f"Returns the {settings['retrieval']['top_k']} best chunks")
+        if settings.get("filters"):
+            spec["description"] += FILTER_TEXT
+            spec["inputSchema"]["properties"].update(_filter_properties(settings["filters"]))
     elif role == "external_apis" and settings.get("api_tools") is not None:
         tools = [t for t in tools if t["name"] in settings["api_tools"]]
     return system, tools
@@ -1366,6 +1413,11 @@ def _ingest_sources(state: KbState, config) -> dict:
                          "research_publisher": source.get("publisher"), "research_date": source.get("date"),
                          "research_scores": source["scores"], "validated_at": datetime.now(timezone.utc).isoformat()},
         })
+        if outcome.get("status") in INGESTED and (bp := labels.blueprint_or_none()):
+            try:                # what the page is about (#15); never stops the research
+                labels.label_url(client, url, bp)
+            except Exception as error:
+                log.warning("could not label %s: %s", url, error)
         record = {"url": url, **{k: v for k, v in outcome.items() if k != "url"},
                   "seconds": round(time.monotonic() - started, 3)}
         ingested.append(record)
@@ -1935,6 +1987,10 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
     run = _Run(session_id, user_id, limit, progress, retrieval_view)
     run.source = source
     run.agents = flow_agents(spec)
+    try:                    # the labels the knowledge-base agent may filter by (#15)
+        settings = {**settings, "filters": labels.vocabulary()}
+    except Exception as error:
+        log.warning("no filter vocabulary: %s", error)
     run.settings = settings
     run.trace_id = trace_id
     run_id = str(uuid.uuid4())
@@ -2079,15 +2135,19 @@ def _public_result(question: str, answer: str, policies: dict, total: float = 0)
 
 
 def _cited_sources(answer: str, searches: list[dict]) -> list[dict]:
-    """The pages the answer's [n] citations point to: URLs and citation
-    numbers only, never chunk text (safe for the browser)."""
+    """The pages the answer's [n] citations point to: URLs, citation numbers
+    and, when labelled (#15), the publisher and the page's date; never chunk
+    text (safe for the browser)."""
     cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
     pages: dict[str, list[int]] = {}
+    about: dict[str, dict] = {}
     for search in searches:
         for i, chunk in enumerate(search["retrieval"]["chunks"]):
             if search["first"] + i in cited:
                 pages.setdefault(chunk["source_url"], []).append(search["first"] + i)
-    return [{"url": url, "cited": sorted(numbers)} for url, numbers in pages.items()]
+                meta = chunk.get("meta") or {}
+                about.setdefault(chunk["source_url"], {k: meta[k] for k in ("organisation", "effective_date") if meta.get(k)})
+    return [{"url": url, "cited": sorted(numbers), **about[url]} for url, numbers in pages.items()]
 
 
 def _result_of(run: "_Run", final: dict, question: str, total: float) -> dict:

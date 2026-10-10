@@ -3,7 +3,7 @@
 
 import { api } from "./api.js";
 import { sourcePicker } from "./source_picker.js";
-import { card, daysLeft, errorBox, fmtInt, fmtTimestamp, h, loading, metric, note } from "./ui.js";
+import { card, daysLeft, errorBox, fmtInt, fmtTimestamp, h, labelsCell, loading, metric, note } from "./ui.js";
 
 export class SourcesPage {
   title = "Sources";
@@ -44,6 +44,7 @@ export class SourcesPage {
         this.mount(true);
       },
       columns: [
+        { label: "Labels", cell: (r) => labelsCell(r.labels) },
         { label: "Ingested", cell: (r) => h("td", {}, fmtTimestamp(r.ingested_at)) },
         { label: "TTL (days)", num: true, cell: (r) => num(r.ttl_days ?? "—") },
         { label: "Expires in", num: true, cell: (r) => num(daysLeft(r.expires_at)) },

@@ -106,6 +106,7 @@ def ensure_collection(client: PgStore) -> None:
                 ("source", "(source_url)"), ("expiry", "(expires_at)"),
                 ("paragraphs", "USING gin (paragraph_hashes)"), ("text", "USING gin (search_document)"),
                 ("embedding", "USING hnsw (embedding vector_cosine_ops)"),
+                ("meta", "USING gin ((payload->'meta') jsonb_path_ops)"),    # label filters (#15)
             ):
                 connection.execute(sql.SQL("CREATE INDEX IF NOT EXISTS {} ON {} {}").format(
                     sql.Identifier(f"{table}_{suffix}"), sql.Identifier(table), sql.SQL(definition)))
@@ -377,35 +378,65 @@ def delete_expired(client: PgStore) -> None:
             connection.execute(sql.SQL("DELETE FROM {} WHERE expires_at < now()").format(sql.Identifier(table)))
 
 
-def search_dense(client: PgStore, vector: list[float], limit: int) -> list[dict]:
+FILTER_KEYS = ("topic", "organisation", "content_type")   # and "fields.<name>" (the blueprint's own)
+
+
+def meta_filter(filters: dict | None) -> tuple[str, list]:
+    """An SQL condition on the chunks' labels (payload `meta`, #15) and its parameters:
+    all of the given keys, any of each key's values. {"topic": ["refunds"],
+    "organisation": "National Rail", "fields.ticket_type": ["advance"]}. Empty: no condition."""
+    conditions, params = [], []
+    for key, values in (filters or {}).items():
+        values = [v for v in (values if isinstance(values, (list, tuple)) else [values]) if isinstance(v, str) and v]
+        if not values:
+            continue
+        if key in ("topic",):
+            probes = [{"topic": [v]} for v in values]
+        elif key in ("organisation", "content_type"):
+            probes = [{key: v} for v in values]
+        elif key.startswith("fields.") and key.count(".") == 1:
+            probes = [{"fields": {key.split(".", 1)[1]: [v]}} for v in values]
+        else:
+            raise ValueError(f"unknown filter {key!r}")
+        conditions.append("(" + " OR ".join(["payload->'meta' @> %s"] * len(probes)) + ")")
+        params += [Jsonb(p) for p in probes]
+    return (" AND " + " AND ".join(conditions), params) if conditions else ("", [])
+
+
+def search_dense(client: PgStore, vector: list[float], limit: int, filters: dict | None = None) -> list[dict]:
     vector = np.asarray(vector, dtype=np.float32)
+    where, params = meta_filter(filters)
     with client.connection() as connection:
         _check_embedding(connection)
-        rows = connection.execute("""
+        if where:
+            # A filtered vector search keeps scanning the index until it has enough matches (pgvector 0.8).
+            connection.execute("SET LOCAL hnsw.iterative_scan = relaxed_order")
+        rows = connection.execute(f"""
             SELECT id, payload, embedding, 1 - distance AS score FROM (
                 (SELECT id, payload, embedding, embedding <=> %s AS distance
-                 FROM rag_chunks WHERE expires_at > now() ORDER BY embedding <=> %s LIMIT %s)
+                 FROM rag_chunks WHERE expires_at > now(){where} ORDER BY embedding <=> %s LIMIT %s)
                 UNION ALL
                 (SELECT id, payload, embedding, embedding <=> %s AS distance
-                 FROM research_chunks WHERE expires_at > now() ORDER BY embedding <=> %s LIMIT %s)
+                 FROM research_chunks WHERE expires_at > now(){where} ORDER BY embedding <=> %s LIMIT %s)
             ) AS candidates ORDER BY distance, id LIMIT %s
-        """, (vector, vector, limit, vector, vector, limit, limit)).fetchall()
+        """, (vector, *params, vector, limit, vector, *params, vector, limit, limit)).fetchall()
     return [{**row, "id": str(row["id"]), "vector": row["embedding"].to_list()} for row in rows]
 
 
-def search_text(client: PgStore, question: str, limit: int) -> list[dict]:
+def search_text(client: PgStore, question: str, limit: int, filters: dict | None = None) -> list[dict]:
+    where, params = meta_filter(filters)
     with client.connection() as connection:
-        rows = connection.execute("""
+        rows = connection.execute(f"""
             SELECT id, payload, embedding, score FROM (
                 (SELECT id, payload, embedding, ts_rank_cd(search_document, plainto_tsquery('english', %s)) AS score
-                 FROM rag_chunks WHERE expires_at > now() AND search_document @@ plainto_tsquery('english', %s)
+                 FROM rag_chunks WHERE expires_at > now() AND search_document @@ plainto_tsquery('english', %s){where}
                  ORDER BY score DESC, id LIMIT %s)
                 UNION ALL
                 (SELECT id, payload, embedding, ts_rank_cd(search_document, plainto_tsquery('english', %s)) AS score
-                 FROM research_chunks WHERE expires_at > now() AND search_document @@ plainto_tsquery('english', %s)
+                 FROM research_chunks WHERE expires_at > now() AND search_document @@ plainto_tsquery('english', %s){where}
                  ORDER BY score DESC, id LIMIT %s)
             ) AS candidates ORDER BY score DESC, id LIMIT %s
-        """, (question, question, limit, question, question, limit, limit)).fetchall()
+        """, (question, question, *params, limit, question, question, *params, limit, limit)).fetchall()
     return [{**row, "id": str(row["id"]), "vector": row["embedding"].to_list()} for row in rows]
 
 

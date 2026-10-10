@@ -3,7 +3,7 @@
 import { api } from "./api.js";
 import { sourcePicker } from "./source_picker.js";
 import { SourceReports } from "./source_reports.js";
-import { card, dataTable, daysLeft, errorBox, fmtInt, fmtTimestamp, h, loading, md, metric, note } from "./ui.js";
+import { card, dataTable, daysLeft, errorBox, fmtInt, fmtTimestamp, h, labelsCell, loading, md, metric, note } from "./ui.js";
 
 const STATE_KIND = { success: "ok", failed: "err", running: "info", queued: "neutral", up_for_retry: "warn", upstream_failed: "err" };
 const STATE_ICON = { success: "✓", failed: "✕", running: "↻", queued: "…", up_for_retry: "↺", upstream_failed: "⛔" };
@@ -85,6 +85,7 @@ export class IngestionPage {
         columns: [
           { label: "Added for", cell: (r) => h("td", { class: "wrap" }, r.task || "—") },
           { label: "Publisher", cell: (r) => h("td", {}, r.publisher || "—") },
+          { label: "Labels", cell: (r) => labelsCell(r.labels) },
           { label: "Score", num: true, cell: (r) => num(overall(r.scores)) },
           { label: "Ingested", cell: (r) => h("td", {}, fmtTimestamp(r.ingested_at)) },
           { label: "Expires in", num: true, cell: (r) => num(daysLeft(r.expires_at)) },

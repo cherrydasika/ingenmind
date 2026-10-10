@@ -218,6 +218,11 @@ class ExecutionTests(unittest.TestCase):
                                    {"url": "https://c.example/3", "cited": [7]}])
         self.assertNotIn("private", str(sources))
         self.assertEqual(agent._cited_sources("No citations.", searches), [])
+        searches[0]["retrieval"]["chunks"][0]["meta"] = {"organisation": "National Rail", "effective_date": "2026-08-07",
+                                                         "topic": ["refunds"]}
+        self.assertEqual(agent._cited_sources("Refunds [1].", searches),     # labelled (#15): publisher and date
+                         [{"url": "https://a.example/1", "cited": [1], "organisation": "National Rail",
+                           "effective_date": "2026-08-07"}])
 
     def test_activity_events_preserve_highlights_without_content(self):
         cases = [({"type": "stage", "stage": "embedding"}, "embedding"),

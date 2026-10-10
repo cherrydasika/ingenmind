@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-09
+Last updated: 2026-10-10
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -43,9 +43,24 @@ secrets). Tunnels close after 60 minutes idle (was 20).
 in [docs/plans/](docs/plans/)), **#16** evaluation from the blueprint, per
 knowledge area ([plan](docs/plans/evaluation.md); evaluations never
 ingest), and **#17** readiness report, gaps and Go live
-([plan](docs/plans/readiness.md)). **Next: #15** (knowledge metadata from
-the blueprint, used by retrieval), paused at the user's request; nothing of
-it is written yet.
+([plan](docs/plans/readiness.md)). **Now: #15** (knowledge metadata from
+the blueprint, used by retrieval;
+[plan](docs/plans/knowledge-metadata.md)): the user took all five
+recommendations. **Phase 2 done** on branch `init/metadata`: every stored
+page is labelled (topic, organisation, authority, dates, content type, the
+blueprint's own fields) by rules plus one model call per page; the local
+build is relabelled (PR #56, draft, not merged). **Phase 3
+resumed 2026-10-10 with #57** (topic as a preference, not a filter): the
+user chose extra votes in the fusion (plan file, #57 section); written and
+tested (409 pass); compared on 6 questions, twice per side: after met
+10/12 vs before 8/12, none worse; committed and pushed (`a7e5e82`).
+**Phase 4 (UI)** done and pushed: labels on Sources, research pages and
+citations, Relabel on the setup Build card, now covering research pages too
+(the local build: 22 of 22 pages labelled). **Phase 5:** README
+written, PR #56 ready for review; waiting for the user to merge (deploys to
+EC2 by itself). Filters, authority and the agent's optional
+filters are written and tested (407 pass) and pushed to the branch; the
+before/after comparison found the agent over-uses the topic filter.
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is

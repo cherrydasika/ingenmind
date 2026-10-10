@@ -171,7 +171,7 @@ Details: [Knowledge system: setup and reset](#knowledge-system-setup-and-reset).
 ## Roadmap
 
 Next on the list (see the [issues](https://github.com/cherrydasika/ingenmind/issues)):
-metadata from the blueprint for sharper retrieval, a reranker, approving
+a reranker, approving
 researched pages in the app before they are added, an analytics page (where
 questions fail and which sources help), and suggestions learnt from live
 use, approved by an admin.
@@ -214,7 +214,9 @@ The graph behind every question is shown in [How it works](#how-it-works).
 - **Supervisor** delegates one self-contained task per specialist, in
   parallel, for up to two rounds, then writes a short answer that keeps the
   specialists' citations.
-- **Knowledge-base agent** searches with hybrid retrieval; the **evidence
+- **Knowledge-base agent** searches with hybrid retrieval, optionally
+  favouring a topic and filtering by publisher or kind of page (see
+  [Labels](#labels-what-each-page-is-about)); the **evidence
   evaluator** combines deterministic checks with a model judgement and routes
   to the answer, one rewritten retry, or research (conflicting or
   insufficient evidence ends the task with a status).
@@ -243,6 +245,9 @@ safe progress metadata reach the browser. Details:
 
 - **Hybrid search** — pgvector cosine plus PostgreSQL full text, fused by
   reciprocal rank fusion.
+- **Labels** — every page is labelled from the blueprint (topic,
+  publisher, kind of page, date, the domain's own fields), so searches can
+  favour a topic and filter by publisher or kind of page.
 - **Ingestion** — polite scraping (trafilatura), cross-page paragraph
   dedup, chunking, embedding and per-document expiry, as a durable
   PostgreSQL-backed job queue; paste ad-hoc documents directly too.
@@ -740,6 +745,42 @@ does not overwrite either copy. Reciprocal rank fusion
 combines the two rankings in `app/retrieval.py`. PostgreSQL full-text ranking
 is not Qdrant BM25, so the old score explanations do not apply.
 
+### Labels: what each page is about
+
+Each page's chunks carry the same labels in their payload's `meta`, from
+the confirmed blueprint:
+
+| Label | From |
+|---|---|
+| `topic` | the page's own knowledge areas, from one small model call per page (its section's areas when the model gives none) |
+| `organisation`, `source_type` | the blueprint's organisation whose website the page (or its source) is on |
+| `authority` | the source's authority from discovery: high 1.0, medium 0.6, low 0.3 |
+| `content_type` | policy, guide, FAQ, form, news, contact, timetable, reference or other: the section's flags, else the model |
+| `effective_date`, `retrieved_at` | the page's own date when it states one; when it was read |
+| `fields` | the blueprint's metadata fields (e.g. ticket type, passenger category), values only from each field's examples |
+
+The build labels each page it reads, and the research agent each page it
+adds; a failed model call keeps the rules' labels and never stops either.
+**Relabel** on the setup page's Build card labels the plan's pages and the
+pages research added again, from their stored text (nothing is fetched).
+The Sources page and "Pages added by research" show each page's labels, and
+an answer's sources show the publisher and the page's date.
+
+**How searches use them.** The knowledge-base agent's search tool offers
+the label values the stored pages actually carry:
+
+- `organisation` and `content_type` are **filters**: only pages with that
+  label (a GIN index on `payload->'meta'`; pgvector's iterative index scan
+  keeps a filtered vector search filling its limit). A filtered search that
+  finds nothing runs again without the filter, and says so.
+- `topic` is a **preference**, never a filter: a page is often about
+  several things, so a page labelled with a neighbouring topic must still be
+  found. Both searches run again over the topic's pages, and those rankings
+  vote in the fusion too: the topic's pages rank higher, and a page both
+  searches put first still makes the results.
+
+With no labels chosen, search is exactly as before.
+
 ## Web app
 
 ### Guardrail Scope
@@ -941,6 +982,10 @@ for guided setup), the URL count, and a history of events.
   approved it and when): **Why?** on the Sources page, and under a
   Retrieval answer's sources, traces a page back to it. Setup then waits at
   `EVALUATING` for the evaluation and Go live.
+- **Labels** (`initialization/labels.py`): the build labels each page it
+  reads, and research each page it adds; see
+  [Labels](#labels-what-each-page-is-about). The Build card summarises them
+  and has **Relabel**.
 - **Evaluate** (`initialization/evaluation.py`): once the build finishes,
   setup prepares the evaluation by itself. It publishes a **candidate
   flow**, a copy of the live flow with the blueprint's brief, domain,
@@ -1207,7 +1252,9 @@ BGE-M3. A Bedrock-based evaluation workflow is a separate migration step.
 
 Retrieval fuses cosine-ranked and full-text-ranked chunks by RRF (`k = 2`,
 top 10 from each list). A result at zero-based position `p` receives
-`1 / (2 + p)` from each list where it appears.
+`1 / (2 + p)` from each list where it appears. A preferred topic adds the
+same two searches over the topic's pages as two more lists. Equal fused
+scores put the more authoritative source first.
 Ingestion and Sources read one metadata row and a chunk count per source from
 PostgreSQL; results are cached for 60 seconds and job history is read from PostgreSQL.
 
@@ -1288,7 +1335,8 @@ app/
                            #   site_map.py (robots.txt, sitemaps, sections), content.py (mapping, choosing content),
                            #   plan.py (the ingestion plan), build.py (Build RAG, provenance),
                            #   evaluation.py (the candidate flow, the evaluation set, its run),
-                           #   readiness.py (the readiness report, gaps, Go live)
+                           #   readiness.py (the readiness report, gaps, Go live),
+                           #   labels.py (page labels, relabelling, the search tool's vocabulary)
 data/
   urls.example.json      # sample URL list showing the expected format
   urls.json              # URLs to ingest, imported once into the database (gitignored, local)

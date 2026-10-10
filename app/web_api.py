@@ -37,7 +37,7 @@ import auth
 import identity
 import knowledge_system
 from initialization import (blueprint_run, build as setup_build, content as setup_content,
-                            evaluation as setup_evaluation, plan as setup_plan, readiness as setup_readiness, sources_run,
+                            evaluation as setup_evaluation, labels as setup_labels, plan as setup_plan, readiness as setup_readiness, sources_run,
                             state as setup_state, supervisor)
 import sessions
 import source_profiles
@@ -1100,6 +1100,15 @@ async def setup_go_live(request: Request) -> Response:
     return _json(await run_in_threadpool(supervisor.view))
 
 
+async def setup_relabel(request: Request) -> Response:
+    """Label the approved plan's stored pages again, from their stored text (in the background)."""
+    try:
+        await run_in_threadpool(setup_labels.relabel, (auth.current_user(request) or {}).get("user_id"))
+    except (ValueError, RuntimeError) as exc:
+        return _json({"error": str(exc)}, 409)
+    return _json(await run_in_threadpool(supervisor.view))
+
+
 def knowledge_provenance(request: Request) -> Response:
     """Why is this page in the knowledge base? ?url=…"""
     url = (request.query_params.get("url") or "").strip()
@@ -1403,6 +1412,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/setup/evaluation/prepare", setup_evaluation_prepare, methods=["POST"]),
     Route("/api/setup/evaluation/run", setup_evaluation_run, methods=["POST"]),
     Route("/api/setup/readiness", setup_readiness_view),
+    Route("/api/setup/relabel", setup_relabel, methods=["POST"]),
     Route("/api/setup/go-live", setup_go_live, methods=["POST"]),
     Route("/api/knowledge/provenance", knowledge_provenance),
     Route("/api/setup/back-to-content", setup_back_to_content, methods=["POST"]),

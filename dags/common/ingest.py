@@ -33,6 +33,15 @@ def ingest_url(client: storage.PgStore, entry: dict, force: bool = False) -> dic
     except Exception as exc:
         return {"url": url, "status": "failed", "stage": "extract", "error": f"{type(exc).__name__}: {exc}"}
 
+    # The page's own date (published or modified), when an HTML page states one:
+    # the knowledge metadata's effective_date (#15).
+    page_date = None
+    if not pdf:
+        try:
+            page_date = scraping.extract_metadata(page, url).get("date")
+        except Exception:
+            page_date = None
+
     page_hash = scraping.content_hash(text)
     existing_hash = existing["content_hash"] if existing else None
     if existing_hash == page_hash and not force:
@@ -55,7 +64,8 @@ def ingest_url(client: storage.PgStore, entry: dict, force: bool = False) -> dic
     storage.upsert_chunks(
         client, url, chunks, vectors, page_hash, ttl_days,
         # entry["metadata"]: provenance, e.g. from the research agent.
-        extra_payload={**{f"dedup_{k}": v for k, v in dedup_stats.items()}, **(entry.get("metadata") or {})},
+        extra_payload={**{f"dedup_{k}": v for k, v in dedup_stats.items()},
+                       **({"page_date": page_date} if page_date else {}), **(entry.get("metadata") or {})},
         paragraph_hashes=owned_hashes,
         replace_existing=existing_hash is not None,
     )

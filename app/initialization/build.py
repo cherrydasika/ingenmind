@@ -10,7 +10,8 @@ knowledge base by the ingestion worker, and why each page is there.
                          its provenance, its result written to the plan as it
                          finishes (the checkpoint: a restart carries on with the
                          pending pages); then INGESTING → INDEXING, the indexing
-                         check, INDEXING → EVALUATING
+                         check, INDEXING → EVALUATING. Each page read is labelled
+                         (labels.py: what it is about, from the blueprint)
     retry()              failed pages back to pending, and a new job; also carries on a
                          build whose job stopped (at INGESTING or INDEXING)
 
@@ -35,7 +36,7 @@ import knowledge_system
 from common import ingest, scraping, storage
 from tracing import observation
 
-from . import content, plan, site_map, sources, state
+from . import content, labels, plan, site_map, sources, state
 
 RESULT = {"updated": "ingested", "skipped_fresh": "unchanged", "unchanged_ttl_refreshed": "unchanged",
           "empty": "skipped", "failed": "failed"}
@@ -151,13 +152,18 @@ def _check_index(client: storage.PgStore, version: int) -> dict:
 
 
 def run(client: storage.PgStore, version: int, stop: threading.Event | None = None,
-        ingest_url: Callable = ingest.ingest_url, robots: Robots | None = None) -> bool:
+        ingest_url: Callable = ingest.ingest_url, robots: Robots | None = None,
+        labeller: Callable | None = None) -> bool:
     """Read the plan's pending pages; True when none is left (the job is done)."""
     approved = plan.latest("approved")
     if not approved or approved["version"] != version:
         return True                    # superseded meanwhile: a newer plan has its own job
     robots = robots or Robots()
     hosts = {s["source_id"]: s["host"] for s in sources.list_sources()}
+    # What each page is about (labels.py, #15), labelled once it is stored.
+    bp = labels.blueprint_or_none()
+    sources_by_id = {s["source_id"]: s for s in sources.list_sources(include_removed=True)}
+    sections_by_id = {c["content_id"]: c for c in content.list_sections()}
     with observation(as_type="span", name="ingestion_plan", input={"plan_version": version}) as span:
         removed = _remove_dropped(client, approved) if not plan.pages(version, "ingested") else 0
         for page in plan.pages(version, "pending"):
@@ -173,6 +179,11 @@ def run(client: storage.PgStore, version: int, stop: threading.Event | None = No
             if status == "unchanged":      # not fetched again, or the same text: the chunks take this plan
                 storage.merge_payload(client, page["url"], entry["metadata"])
             _record(version, page["url"], status, result.get("chunks", 0), result.get("error"))
+            if bp and status in ("ingested", "unchanged"):
+                try:
+                    labels.label_url(client, page["url"], bp, sources_by_id, sections_by_id, labeller)
+                except Exception:
+                    pass                # labels never stop a build; Relabel can redo them
         done = plan.view()
         span.update(output={"progress": done["progress"], "removed_pages": removed})
     _finish(client, version, done["progress"])
@@ -245,4 +256,8 @@ def view() -> dict:
             out["job"] = next(iter(storage.list_jobs(storage.get_client(), "ingest_plan", 1)), None)
         except psycopg.Error:           # no knowledge store yet: the page still shows the plan
             out["job"] = None
+        try:                            # what the pages are labelled as (#15)
+            out["labels"] = {"run": labels.view(), "summary": labels.summary(out["plan"]["version"])}
+        except psycopg.Error:
+            out["labels"] = None
     return out

@@ -19,8 +19,8 @@ from psycopg import sql
 import knowledge_system
 from common import config
 import llm
-from initialization import (blueprint, blueprint_run, build, content, conversation, evaluation, plan, readiness,
-                            requirements, site_map, sources, sources_run, state, supervisor)
+from initialization import (blueprint, blueprint_run, build, content, conversation, evaluation, labels, plan,
+                            readiness, requirements, site_map, sources, sources_run, state, supervisor)
 import flows
 from common import scraping, storage
 import guardrails
@@ -54,6 +54,7 @@ class SetupDatabase(unittest.TestCase):
         content.reset_schema_cache()
         plan.reset_schema_cache()
         evaluation.reset_schema_cache()
+        labels.reset_schema_cache()
         flows.evals.reset_schema_cache()
         flows.store.reset_schema_cache()
 
@@ -64,9 +65,9 @@ class SetupDatabase(unittest.TestCase):
             for table in ("app_knowledge_system", "app_knowledge_system_events", "kb_urls", "app_setup_turns",
                           "app_setup", "app_domain_blueprints", "kb_sources",
                           "app_source_discoveries", "kb_site_analyses", "kb_content", "kb_ingestion_plan_pages",
-                          "kb_ingestion_plans", "rag_chunks", "ingestion_jobs", "app_setup_evaluations",
+                          "kb_ingestion_plans", "rag_chunks", "research_chunks", "ingestion_jobs", "app_setup_evaluations",
                           "agent_eval_results", "agent_eval_runs", "agent_eval_sets", "agent_flow_versions",
-                          "agent_live_flow", "agent_flow_runs", "agent_flows"):
+                          "agent_live_flow", "agent_flow_runs", "agent_flows", "kb_labelling_runs"):
                 connection.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(table)))
         self.reset_caches()
         with patch.object(config, "URLS_CONFIG_PATH", Path("/nonexistent/urls.json")):
@@ -1271,7 +1272,10 @@ class Building(AnalysedSites):
         fakes = [patch.object(scraping, "fetch_bytes", side_effect=self.fetch_bytes),
                  patch.object(scraping, "fetch_html", side_effect=self.fetch_html),
                  patch.object(scraping, "extract_text", side_effect=lambda page, url: f"All about {url}, in full."),
-                 patch("common.embedding.embed_texts", side_effect=lambda texts: [[1.0] + [0.0] * 255 for _ in texts])]
+                 patch("common.embedding.embed_texts", side_effect=lambda texts: [[1.0] + [0.0] * 255 for _ in texts]),
+                 # The page labeller (#15) is a model call: stubbed, labelling nothing beyond the rules.
+                 patch.object(labels, "label_with_llm", side_effect=lambda *a, **k: self.labeller(*a, **k))]
+        self.labeller = lambda bp, url, text, with_topic: {}
         for fake in fakes:
             fake.start()
             self.addCleanup(fake.stop)
@@ -1903,6 +1907,136 @@ class Readiness(Evaluated):
         response = web_api.setup_readiness_view(SetupApi.Request())
         self.assertEqual((response.status_code, json.loads(response.body)["overall"]["value"]), (200, 0.767))
         self.assertEqual(supervisor.view()["readiness"]["overall"]["value"], 0.767)
+
+
+class Labels(Building):
+    """#15: what each stored page is about, from the blueprint, on all its chunks. The model is stubbed."""
+
+    def setUp(self):
+        super().setUp()
+        version = knowledge_system.status()["blueprint_version"]
+        bp = blueprint.get(version)["blueprint"]
+        bp["organisations"].append({"name": "National Rail", "role": "operator",
+                                    "website": "https://www.nationalrail.co.uk"})
+        bp["metadata_fields"] = [
+            {"field": "ticket_type", "description": "Kind of ticket", "examples": ["Advance", "Season", "Off-peak"]},
+            {"field": "passenger_category", "description": "Who", "examples": ["disabled", "child"]}]
+        with blueprint._connect() as connection:
+            connection.execute("UPDATE app_domain_blueprints SET blueprint = %s WHERE version = %s",
+                               (psycopg.types.json.Jsonb(bp), version))
+        self.calls = []
+        self.labeller = self.label
+
+    def label(self, bp, url, text, with_topic):
+        self.calls.append((url, with_topic))
+        return {"content_type": "Guide", "fields": {"ticket_type": ["advance", "made-up"], "passenger_category": "[\"disabled\"]",
+                                                    "not_a_field": ["x"]}, "topic": ["refunds"]}
+
+    def metas(self):
+        with self.client.connection() as connection:
+            return {r["source_url"]: r["meta"] for r in connection.execute(
+                "SELECT DISTINCT ON (source_url) source_url, payload->'meta' AS meta FROM rag_chunks "
+                "ORDER BY source_url, chunk_index").fetchall()}
+
+    def test_a_built_page_carries_the_blueprints_labels(self):
+        with patch.object(scraping, "extract_metadata", return_value={"date": "2026-08-07"}):
+            self.approve("help")
+            self.work()
+        meta = self.metas()[f"{SITE}/help/2"]
+        self.assertEqual({k: meta[k] for k in ("topic", "organisation", "source_type", "authority", "region",
+                                               "effective_date", "content_type", "fields", "labelled_by")},
+                         {"topic": ["refunds"], "organisation": "National Rail", "source_type": "operator",
+                          "authority": 1.0, "region": "UK", "effective_date": "2026-08-07", "content_type": "guide",
+                          "fields": {"ticket_type": ["Advance"], "passenger_category": ["disabled"]},
+                          "labelled_by": "rules+model"})
+        self.assertTrue(meta["retrieved_at"])
+        self.assertEqual(len(self.metas()), 7)                               # every page read
+        self.assertTrue(all(with_topic for _, with_topic in self.calls))     # the page's own topics, not its section's
+        with self.client.connection() as connection:                         # on every chunk of the page
+            self.assertEqual(connection.execute("SELECT count(*) AS n FROM rag_chunks WHERE payload ? 'meta'")
+                             .fetchone()["n"], connection.execute("SELECT count(*) AS n FROM rag_chunks").fetchone()["n"])
+
+    def test_a_failed_labeller_keeps_the_rules_and_the_build_goes_on(self):
+        def broken(*args):
+            raise llm.NoToolCall("no tool call")
+        self.labeller = broken
+        self.approve("help")
+        self.work()
+        meta = self.metas()[f"{SITE}/help/0"]
+        self.assertEqual((meta["labelled_by"], meta["organisation"], meta["topic"]),
+                         ("rules", "National Rail", ["accessibility"]))           # the section's areas, as a fallback
+        self.assertNotIn("fields", meta)
+        self.assertEqual(knowledge_system.status()["state"], state.EVALUATING)
+
+    def test_the_rules(self):
+        bp = content._confirmed_blueprint()
+        regulator = labels.deterministic({"source_url": "https://www.orr.gov.uk/refunds/x", "areas": ["refunds"]},
+                                         {**bp, "regions": ["UK", "Ireland"]}, None, {"flags": ["news"]})
+        self.assertEqual(regulator, {"topic": ["refunds"], "organisation": "Office of Rail and Road",
+                                     "source_type": "regulator", "content_type": "news"})
+        research = labels.deterministic({"source_url": "https://blog.example/x", "origin": "research_agent",
+                                         "research_publisher": "Rail Blog", "research_date": "2025-01-01",
+                                         "research_scores": {"authority": 0.4}}, bp, None, None)
+        self.assertEqual({k: research[k] for k in ("organisation", "authority", "effective_date")},
+                         {"organisation": "Rail Blog", "authority": 0.4, "effective_date": "2025-01-01"})
+        self.assertNotIn("topic", research)
+
+    def test_a_research_page_gets_its_topic_from_the_labeller(self):
+        research = storage.get_client("research")
+        storage.ensure_collection(research)
+        storage.upsert_chunks(research, "https://blog.example/railcards", ["Railcards save a third."],
+                              [[1.0] + [0.0] * 255], "h", 90, extra_payload={
+                                  "origin": "research_agent", "research_publisher": "Rail Blog",
+                                  "research_scores": {"authority": 0.7}})
+        meta = labels.label_url(research, "https://blog.example/railcards", content._confirmed_blueprint(),
+                                labeller=self.label)
+        self.assertEqual((meta["topic"], meta["authority"], meta["organisation"]), (["refunds"], 0.7, "Rail Blog"))
+        self.assertEqual(self.calls[-1], ("https://blog.example/railcards", True))
+
+    def test_relabel_from_stored_text(self):
+        self.labeller = lambda *a: {}
+        self.approve("help")
+        self.work()
+        self.assertNotIn("fields", self.metas()[f"{SITE}/help/0"])
+        inline = patch.object(labels, "_start_thread", side_effect=lambda work: work())
+        with inline:
+            labels.relabel("admin-1", labeller=self.label)
+        run = labels.view()
+        self.assertEqual((run["status"], run["total"], run["done"], run["model"]), ("done", 7, 7, 7))
+        self.assertEqual(self.metas()[f"{SITE}/help/0"]["fields"]["ticket_type"], ["Advance"])
+        summary = labels.summary(plan.latest("approved")["version"])
+        self.assertEqual((summary["pages"], summary["labelled"], summary["by_model"]), (7, 7, 7))
+        self.assertEqual(summary["fields"]["ticket_type"], {"Advance": 7})
+        self.assertEqual(knowledge_system.events()[0]["event"], "relabelled")
+        with patch.object(labels, "_start_thread"):                           # one run at a time
+            labels.relabel("admin-1")
+            with self.assertRaises(RuntimeError):
+                labels.relabel("admin-1")
+
+    def test_relabel_covers_the_pages_research_added(self):
+        self.approve("help")
+        self.work()
+        research = storage.get_client("research")
+        storage.ensure_collection(research)
+        storage.upsert_chunks(research, "https://blog.example/railcards", ["Railcards save a third."],
+                              [[1.0] + [0.0] * 255], "h", 90, extra_payload={
+                                  "origin": "research_agent", "research_publisher": "Rail Blog"})
+        self.assertEqual(labels.summary(plan.latest("approved")["version"])["research"], {"pages": 1, "labelled": 0})
+        with patch.object(labels, "_start_thread", side_effect=lambda work: work()):
+            labels.relabel("admin-1", labeller=self.label)
+        self.assertEqual((labels.view()["total"], labels.view()["done"]), (8, 8))      # 7 plan pages and 1 research page
+        meta = storage.get_existing_metadata(research, "https://blog.example/railcards")["meta"]
+        self.assertEqual((meta["topic"], meta["organisation"]), (["refunds"], "Rail Blog"))
+        self.assertEqual(labels.summary(plan.latest("approved")["version"])["research"], {"pages": 1, "labelled": 1})
+
+    def test_the_relabel_api(self):
+        import web_api
+        self.approve("help")
+        self.work()
+        with patch.object(labels, "_start_thread", side_effect=lambda work: work()):
+            status, view = SetupApi().call(web_api.setup_relabel)
+        self.assertEqual((status, view["build"]["labels"]["run"]["status"], view["build"]["labels"]["summary"]["pages"]),
+                         (200, "done", 7))
 
 
 if __name__ == "__main__":

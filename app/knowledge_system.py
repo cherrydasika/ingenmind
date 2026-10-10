@@ -240,6 +240,7 @@ EMPTIED = (
     ("kb_ingestion_plan_pages", "Pages of the ingestion plans"),
     ("kb_ingestion_plans", "Ingestion plans"),
     ("app_setup_evaluations", "Setup's evaluation preparations"),
+    ("kb_labelling_runs", "Runs labelling the pages"),
 )
 KEPT = ("Users and permissions", "People's sessions and their history", "Flow versions and the live flow",
         "The embedding model setting", "Built-in evaluation sets", "Langfuse traces")
