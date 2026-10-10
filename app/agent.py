@@ -657,10 +657,13 @@ class _Run:
         query = str(_input(use).get("query") or "").strip()[:MAX_TEXT_CHARS]
         if not query:
             return _result(use, "The query is empty.", error=True)
-        # Optional label filters (#15): only values the knowledge base carries; others are ignored.
+        # Optional labels (#15): only values the knowledge base carries; others are ignored. Organisation
+        # and content type filter; a topic is only preferred (#57): a page is often about several things.
         vocabulary = (self.settings or {}).get("filters") or {}
-        filters = {k: v for k, v in _input(use).items()
-                   if k in ("topic", "organisation", "content_type") and isinstance(v, str) and v in (vocabulary.get(k) or ())}
+        chosen = {k: v for k, v in _input(use).items()
+                  if k in ("topic", "organisation", "content_type") and isinstance(v, str) and v in (vocabulary.get(k) or ())}
+        prefer = {k: v for k, v in chosen.items() if k == "topic"}
+        filters = {k: v for k, v in chosen.items() if k != "topic"}
         with self.lock:
             n = len(self.searches) + 1
             self.searches.append(None)  # reserve the number
@@ -675,6 +678,7 @@ class _Run:
             return hybrid_search(query, top_k=retrieval["top_k"], prefetch=retrieval.get("prefetch"),
                                  rrf_k=retrieval.get("rrf_k", 2), dense=retrieval.get("dense", True),
                                  full_text=retrieval.get("full_text", True), filters=chosen or None,
+                                 prefer=prefer or None,
                                  on_stage=lambda stage, state, **info: self.emit(
                 {"type": "stage", "agent": "knowledge_base", "n": n, "stage": stage, "state": state, **info}))
         unfiltered = False
@@ -688,7 +692,7 @@ class _Run:
         view = self.retrieval_view(search)
         record = {"n": n, "turn": use["turn"], "delegation": delegation, "query": query, "first": first,
                   "seconds": round(time.monotonic() - started, 3), "retrieval": view,
-                  "filters": filters or None, "unfiltered_retry": unfiltered}
+                  "filters": filters or None, "prefer": prefer or None, "unfiltered_retry": unfiltered}
         with self.lock:
             self.searches[n - 1] = record
         self.emit({"type": "search", "state": "done", "agent": "knowledge_base", "n": n, "turn": use["turn"],
@@ -696,10 +700,10 @@ class _Run:
                    "sources": len(view["sources"]), "first": first})
         if not view["chunks"]:
             return _result(use, f"No knowledge base results for: {query}")
-        lines = [f"Results for: {query}"
-                 + (f" (filtered by {', '.join(f'{k}={v}' for k, v in filters.items())})" if filters and not unfiltered
-                    else f" (nothing matched {', '.join(f'{k}={v}' for k, v in filters.items())}: searched everything)"
-                    if unfiltered else ""), ""]
+        pairs = lambda labels: ", ".join(f"{k}={v}" for k, v in labels.items())
+        notes = ([f"nothing matched {pairs(filters)}: searched everything" if unfiltered else f"filtered by {pairs(filters)}"]
+                 if filters else []) + ([f"preferring {pairs(prefer)}"] if prefer else [])
+        lines = [f"Results for: {query}" + (f" ({'; '.join(notes)})" if notes else ""), ""]
         for number, chunk in enumerate(view["chunks"], first):
             meta = chunk.get("meta") or {}
             about = ", ".join(str(x) for x in (meta.get("organisation"), meta.get("effective_date")) if x)
@@ -828,9 +832,10 @@ SEARCH_COUNT_TEXT = "Returns the 5 best chunks"
 
 
 FILTER_TEXT = (
-    " Optional filters narrow the search to the pages labelled with them: use one only when the task clearly "
-    "names that topic, organisation or kind of page; leave them out otherwise. A filtered search that finds "
-    "nothing is run again without the filter.")
+    " Optional labels: organisation and content_type narrow the search to the pages labelled with them; use "
+    "one only when the task clearly names that organisation or kind of page, and leave them out otherwise. A "
+    "filtered search that finds nothing is run again without the filter. topic only ranks that knowledge "
+    "area's pages higher and never hides other pages, so it is safe whenever the task is about one area.")
 
 
 def _filter_properties(vocabulary: dict) -> dict:
@@ -838,7 +843,7 @@ def _filter_properties(vocabulary: dict) -> dict:
     out = {}
     if vocabulary.get("topic"):
         out["topic"] = {"type": "string", "enum": list(vocabulary["topic"]),
-                        "description": "Knowledge area: " + "; ".join(f"{k} ({v})" for k, v in vocabulary["topic"].items())}
+                        "description": "Knowledge area to favour (other pages still appear): " + "; ".join(f"{k} ({v})" for k, v in vocabulary["topic"].items())}
     if vocabulary.get("organisation"):
         out["organisation"] = {"type": "string", "enum": vocabulary["organisation"],
                                "description": "Only pages published by this organisation"}

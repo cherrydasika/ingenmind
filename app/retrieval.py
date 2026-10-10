@@ -26,10 +26,12 @@ def _hit_to_chunk(hit: dict) -> dict:
 
 
 def _fuse(dense_hits: list[dict], text_hits: list[dict], top_k: int,
-          rrf_k: int = RRF_K) -> tuple[list[dict], list[dict]]:
+          rrf_k: int = RRF_K, preferred: tuple[list[dict], ...] = ()) -> tuple[list[dict], list[dict]]:
+    """preferred: more rankings that vote in the fusion, the same searches over
+    the preferred pages only (#57): those pages rank higher, none is excluded."""
     scores = {}
     hits = {}
-    for ranking in (dense_hits, text_hits):
+    for ranking in (dense_hits, text_hits, *preferred):
         for position, hit in enumerate(ranking):
             scores[hit["id"]] = scores.get(hit["id"], 0) + 1 / (rrf_k + position)
             hits[hit["id"]] = hit
@@ -42,6 +44,7 @@ def _fuse(dense_hits: list[dict], text_hits: list[dict], top_k: int,
     breakdown = []
     dense_ids = [hit["id"] for hit in dense_hits]
     text_ids = [hit["id"] for hit in text_hits]
+    preferred_ids = [[hit["id"] for hit in ranking] for ranking in preferred]
     for hit in fused:
         dense_position = dense_ids.index(hit["id"]) if hit["id"] in dense_ids else None
         text_position = text_ids.index(hit["id"]) if hit["id"] in text_ids else None
@@ -50,6 +53,8 @@ def _fuse(dense_hits: list[dict], text_hits: list[dict], top_k: int,
             "dense_part": 1 / (rrf_k + dense_position) if dense_position is not None else 0,
             "sparse_rank": text_position + 1 if text_position is not None else None,
             "sparse_part": 1 / (rrf_k + text_position) if text_position is not None else 0,
+            **({"preferred_part": sum(1 / (rrf_k + ids.index(hit["id"])) for ids in preferred_ids if hit["id"] in ids)}
+               if preferred else {}),
         })
     return fused, breakdown
 
@@ -59,20 +64,25 @@ def ignore_stage(stage: str, state: str, **info) -> None:
 
 
 def hybrid_search(question: str, top_k: int = TOP_K, on_stage=ignore_stage, prefetch: int | None = None,
-                  rrf_k: int = RRF_K, dense: bool = True, full_text: bool = True, filters: dict | None = None) -> dict:
+                  rrf_k: int = RRF_K, dense: bool = True, full_text: bool = True, filters: dict | None = None,
+                  prefer: dict | None = None) -> dict:
     """on_stage(stage, state, **info) is told when the embedding and retrieval
     stages start and finish, for the Retrieval page's live workflow chart.
     prefetch: candidates per search before fusion (default 2 × top_k, at
     least top_k); rrf_k: the reciprocal-rank-fusion constant; dense /
     full_text: run the vector or the keyword search (at least one). The query
     is embedded either way: the embedding plots show it. filters: only chunks
-    whose labels match (storage.meta_filter, #15); none: every chunk, as before."""
+    whose labels match (storage.meta_filter, #15); none: every chunk, as before.
+    prefer: labels to favour, not require (#57): the same searches run again
+    over the pages with them (within filters), and their rankings vote in the
+    fusion too; none: as before."""
     if not (dense or full_text):
         raise ValueError("hybrid_search needs the dense or the full-text search")
     prefetch = max(prefetch or top_k * 2, top_k)
     with observation(as_type="span", name="hybrid_search",
                      input={"question": question, "top_k": top_k, "prefetch": prefetch, "rrf_k": rrf_k,
-                            **({"filters": filters} if filters else {})}) as span:
+                            **({"filters": filters} if filters else {}),
+                            **({"prefer": prefer} if prefer else {})}) as span:
         client = storage.get_client()
         on_stage("embedding", "start")
         start = time.perf_counter()
@@ -89,8 +99,16 @@ def hybrid_search(question: str, top_k: int = TOP_K, on_stage=ignore_stage, pref
         text_hits = storage.search_text(client, question, prefetch, filters) if full_text else []
         text_seconds = time.perf_counter() - start
 
+        preferred = ()
+        if prefer:
+            start = time.perf_counter()
+            narrowed = {**(filters or {}), **prefer}
+            preferred = ((storage.search_dense(client, dense_vector, prefetch, narrowed),) if dense else ()) \
+                + ((storage.search_text(client, question, prefetch, narrowed),) if full_text else ())
+            text_seconds += time.perf_counter() - start
+
         start = time.perf_counter()
-        fused_hits, breakdown = _fuse(dense_hits, text_hits, top_k, rrf_k)
+        fused_hits, breakdown = _fuse(dense_hits, text_hits, top_k, rrf_k, preferred)
         fused_seconds = time.perf_counter() - start
         rankings = {
             "dense": [_hit_to_chunk(hit) for hit in dense_hits[:top_k]],
@@ -106,6 +124,7 @@ def hybrid_search(question: str, top_k: int = TOP_K, on_stage=ignore_stage, pref
             "dense_vector": dense_vector,
             "sparse_term_count": len(question.split()),
             "filters": filters or None,
+            "prefer": prefer or None,
             "explain": {
                 "index": get_index_info(),
                 "fused": {"k": rrf_k, "prefetch": prefetch, "rows": breakdown},

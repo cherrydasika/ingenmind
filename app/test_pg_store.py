@@ -131,6 +131,28 @@ class PgStoreTest(unittest.TestCase):
         fused = {c["source_url"]: c for c in plain["rankings"]["fused"]}
         self.assertEqual(fused[orr]["meta"]["organisation"], "Office of Rail and Road")   # labels for citations
 
+    def test_a_preferred_topic_ranks_higher_and_hides_nothing(self):
+        orr, nr = self.labelled()
+        with patch.object(embedding, "embed_texts", return_value=[[1.0] + [0.0] * 255]), \
+                patch("retrieval.observation", return_value=NoopSpan()):
+            plain = hybrid_search("refund policy", top_k=5)
+            again = hybrid_search("refund policy", top_k=5, prefer=None)
+            preferring = hybrid_search("refund policy", top_k=5, prefer={"topic": "railcards"})
+        order = lambda result: [c["source_url"] for c in result["rankings"]["fused"]]
+        self.assertEqual(order(plain), order(again))                                  # none: as before
+        self.assertEqual(order(preferring)[0], nr)                                    # the railcards page first
+        self.assertEqual(set(order(preferring)), set(order(plain)))                  # and nothing hidden
+        self.assertEqual(preferring["prefer"], {"topic": "railcards"})
+        self.assertIn("preferred_part", preferring["explain"]["fused"]["rows"][0])
+        self.assertNotIn("preferred_part", plain["explain"]["fused"]["rows"][0])
+
+    def test_a_preference_outvoted_by_both_searches(self):
+        hit = lambda i: {"id": i, "payload": {}}
+        best, a, b = hit("best"), hit("a"), hit("b")       # "best" is first in both searches but off the topic
+        fused, rows = _fuse([best, a, b], [best, b, a], 3, preferred=([a, b], [b, a]))
+        self.assertIn("best", [h["id"] for h in fused])
+        self.assertEqual(len(rows), 3)
+
     def test_authority_breaks_ties_only(self):
         hit = lambda i, authority: {"id": i, "payload": {"meta": {"authority": authority}}}
         blog, regulator = hit("a", 0.3), hit("b", 1.0)

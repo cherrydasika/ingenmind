@@ -1,12 +1,14 @@
 # Plan: knowledge metadata from the blueprint, and retrieval that uses it
 
-Status: **Paused in phase 3 (2026-10-09), at the user's request.** The
-code for filters and authority is written and tested (407 pass) and pushed
-to branch `init/metadata` (draft PR #56), not merged. The comparison found
-the agent over-uses the topic filter, which hides pages filed under a
-neighbouring topic. The fix (topic as a preference, not an exclusion, and a
-re-run of the comparison twice per side) is in the backlog as **#57**.
-Resume there. Update this file at the end of every step.
+Status: **Phase 3, resumed 2026-10-10 with #57** (topic as a preference;
+[below](#57-topic-as-a-preference)): the user chose A (extra votes in the
+fusion); the code is written and tested (409 pass), not committed. The
+comparison (6 questions, twice per side) is done: after is equal or better
+on every question. Waiting for the user before committing. The code for filters and
+authority is written and tested (407 pass) and pushed to branch
+`init/metadata` (draft PR #56), not merged. The comparison found the agent
+over-uses the topic filter, which hides pages filed under a neighbouring
+topic. Update this file at the end of every step.
 
 GitHub: issue #15, part of epic #19 (RAG Initialization Agent); builds on
 #11 (the blueprint and its `metadata_fields`) and #14 (the build: each page's
@@ -170,6 +172,9 @@ builds label as they ingest. Research pages: question 4.
     changes* and *Ticket acceptance*, which explain ticket types but are
     labelled refunds and passenger rights. Next: #57 (topic as a
     preference), then the comparison twice per side.
+  - **#57, topic as a preference** (see
+    [its section](#57-topic-as-a-preference)): A chosen and written
+    2026-10-10, 409 pass; compared (after 10/12 met vs before 8/12).
 - [ ] **4. UI**: labels on the Sources and Ingestion pages and in citations;
   the relabel action on the setup page; checked in the browser. Stop.
 - [ ] **5. Docs, PR, deploy.**
@@ -194,3 +199,91 @@ builds label as they ingest. Research pages: question 4.
 5. **Pages already stored**: relabel them from their stored text when you
    press **Relabel** on the setup page (recommended: no fetching, about one
    small call per page); or only label new builds.
+
+## #57: topic as a preference
+
+GitHub: issue #57. The agent put `topic` on nearly every search, and a
+strict topic filter hides pages labelled with a neighbouring topic that
+still answer the question (*Refunds and changes* and *Ticket acceptance*
+explain ticket types but are labelled refunds and passenger rights).
+
+**What changes**
+
+- `organisation` and `content_type` stay strict filters (facts about a
+  page), with the unfiltered retry when nothing matches, as now.
+- `topic` becomes a **preference**: the search runs over the whole
+  knowledge base (within any strict filters), and pages with the topic rank
+  higher. `hybrid_search(..., prefer={"topic": [...]})`; `meta_filter` is
+  unchanged. No preference: results exactly as today (a test).
+- The tool's description says `topic` *favours* that knowledge area and
+  never hides other pages; the search record shows `prefer` apart from
+  `filters`; the result line says "preferring topic=…".
+
+**How a preference ranks: the open question.** Ranking "topic pages first,
+then fill the remaining slots" as the issue words it does not fix the
+example: "save money booking" had more than 5 `tickets_and_railcards`
+hits, so no slot is left and the refunds page stays hidden. Two ways that
+do:
+
+- **A. The topic-filtered ranking as extra votes in the fusion**
+  (recommended). Run the dense and full-text searches with and without the
+  topic and fuse all four rankings by reciprocal rank, as today's two. A
+  page with the topic that ranks well gets extra votes; an off-topic page
+  that both searches put first still makes the top 5. No new constant;
+  costs two more queries per search (milliseconds).
+- **B. Reserved slots.** Of the top 5, up to 3 from the topic's pages and
+  at least 2 from the whole knowledge base by the usual ranking. A firm
+  guarantee, but the split is a fixed number to tune.
+
+**Tests:** a preference reorders but never excludes (an off-topic best
+match stays in the results); no preference = today's results; strict
+filters unchanged; the tool schema and wording; the search record.
+
+**The comparison, twice per side** (one pass moves by 2–3 questions by
+chance): `travel_basics` and the setup evaluation on the local build,
+"before" with filters off, "after" with the change; two runs per side for
+each set, eight in all. Report the mean and both runs, and recheck "How can I save money when booking a
+train ticket?" in the after runs for *Refunds and changes*.
+
+**Done (2026-10-10): A, as the user chose.**
+
+- `retrieval._fuse(..., preferred=())`: more rankings vote by reciprocal
+  rank; the explain rows gain `preferred_part` only when there is a
+  preference. `hybrid_search(..., prefer=None)` runs the dense and
+  full-text searches again over `filters` plus the preference and passes
+  them as `preferred`; the result and the span carry `prefer`.
+- The agent: `topic` goes to `prefer`, `organisation` and `content_type`
+  stay `filters`; the unfiltered retry drops only the filters and keeps the
+  preference. The search record has `prefer`; the result line says
+  "(filtered by …; preferring topic=…)". The tool's description and the
+  topic's description say a topic never hides other pages.
+- Tests: `test_pg_store` (a preferred topic ranks first and hides nothing;
+  none = as before; an off-topic page first in both searches stays in);
+  `test_flows` (topic preferred not filtered, the retry keeps it, the
+  wording). Full suite: 409 pass.
+- **The comparison (2026-10-10)**, shortened at the user's request to a
+  6-question set `topic_preference_check` (saved locally, not in git): the
+  "save money", "how far in advance" and "travelling with children"
+  questions from `travel_basics` with their gold answers, and the Railcard
+  savings, refund and Delay Repay questions from the setup evaluation; all
+  on the setup flow `setup_uk_train_information` v4. "Before" ran phase 2
+  (`d6eb73d`, no filters), "after" this change; alternated before, after,
+  before, after.
+
+  | Run | Met | Pass rate | Overall |
+  |---|---|---|---|
+  | Before 1 | 4/6 | 67% | 0.80 |
+  | Before 2 | 4/6 | 67% | 0.79 |
+  | After 1 | 4/6 | 67% | 0.80 |
+  | After 2 | 6/6 | 100% | 0.99 |
+
+  Railcard savings, refunds and Delay Repay pass in every run. "How far in
+  advance" failed both before runs and passed both after runs. "Travelling
+  with children" failed three times and passed only in after 2. "Save
+  money" was met both times before by declining ("not enough on ticket
+  types") though both pages were retrieved; after, one run failed the
+  answer check and one passed. Reading: no question is worse, but six
+  questions are mostly noise, and whether each search used a topic could
+  not be checked (search records are not stored, and the local Langfuse is
+  down). "Save money" depends more on how the answer is written than on
+  what is retrieved.
