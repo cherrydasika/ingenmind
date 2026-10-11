@@ -71,9 +71,48 @@ function placeResources(resources, edges, positions, steps) {
   }
 }
 
+// Sub-agents (#66) sit to the right of their parent, top to bottom, each with its own
+// tools and evaluators beside it, and their sub-agents further right.
+const TREE_GAP = { x: 70, y: 26 };
+function placeSubAgents(flow, byRaw, positions, subs) {
+  const plugsInto = (target, test) => flow.edges.filter((e) => e.kind === "resource" && e.target === target && test(e.source))
+    .map((e) => byRaw[e.source]).filter(Boolean);
+  const place = (parent) => {
+    let cursor = positions[parent.raw].y;
+    let bottom = cursor + parent.height;
+    for (const child of plugsInto(parent.raw, (raw) => subs.has(raw))) {
+      const x = positions[parent.raw].x + parent.width + TREE_GAP.x;
+      positions[child.raw] = { x, y: cursor };
+      let end = cursor + child.height;
+      let ry = cursor;
+      const own = plugsInto(child.raw, (raw) => !subs.has(raw) && !positions[raw]);
+      const ownWidth = own.length ? Math.max(...own.map((r) => r.width)) : 0;
+      for (const r of own) {                       // its tools and evaluators, beside it
+        positions[r.raw] = { x: x + child.width + TREE_GAP.y, y: ry };
+        ry += r.height + 10;
+      }
+      end = Math.max(end, ry - 10);
+      if (own.length) child.width += TREE_GAP.y + ownWidth;   // its sub-agents go past them
+      end = Math.max(end, place(child));
+      cursor = end + TREE_GAP.y;
+      bottom = Math.max(bottom, end);
+    }
+    return bottom;
+  };
+  for (const raw of Object.keys(positions)) {
+    if (!subs.has(raw) && byRaw[raw]?.component?.plugs) place(byRaw[raw]);
+  }
+}
+
 function autoPositions(flow, items) {
-  const steps = items.filter((item) => item.component?.kind !== "resource");
-  const resources = items.filter((item) => item.component?.kind === "resource");
+  const byRaw = Object.fromEntries(items.map((item) => [item.raw, item]));
+  const subs = new Set(flow.edges.filter((e) => e.kind === "resource" && byRaw[e.source]?.component?.plugs).map((e) => e.source));
+  // A resource only sub-agents use sits beside them; one shared with the main path (the LLM) stays left.
+  const feeds = {};
+  for (const e of flow.edges) if (e.kind === "resource") (feeds[e.source] ||= []).push(e.target);
+  const underSub = new Set(Object.entries(feeds).filter(([raw, targets]) => !subs.has(raw) && targets.every((t) => subs.has(t))).map(([raw]) => raw));
+  const steps = items.filter((item) => item.component?.kind !== "resource" && !subs.has(item.raw));
+  const resources = items.filter((item) => item.component?.kind === "resource" && !underSub.has(item.raw));
   // A fan-out's own branch (the supervisor's "answer") goes below the agents it delegates to.
   const fanOut = new Set(items.filter((item) => item.component?.fan_out).map((item) => item.raw));
   const known = new Set(items.map((item) => item.raw));
@@ -83,6 +122,7 @@ function autoPositions(flow, items) {
   }));
   const positions = dagreLayout(steps.map((s) => ({ ...s, id: s.raw })), links);
   placeResources(resources, flow.edges.filter((e) => e.kind === "resource"), positions, steps);
+  if (subs.size) placeSubAgents(flow, Object.fromEntries(items.map((item) => [item.raw, { ...item }])), positions, subs);
   const xs = Object.values(positions);
   const minX = Math.min(...xs.map((p) => p.x)), minY = Math.min(...xs.map((p) => p.y));
   for (const p of xs) {

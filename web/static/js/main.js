@@ -160,8 +160,20 @@ function setDrawer(open) {
   document.getElementById("shell").classList.toggle("nav-open", open);
   document.getElementById("menu-btn").setAttribute("aria-expanded", String(open));
 }
-document.getElementById("menu-btn").addEventListener("click", () =>
-  setDrawer(!document.getElementById("shell").classList.contains("nav-open")));
+// Wide screens: ☰ and « collapse and restore the sidebar (remembered in this browser).
+const WIDE = window.matchMedia("(min-width: 861px)");
+const COLLAPSED_KEY = "ingenmind.sidebar-collapsed";
+function setCollapsed(collapsed) {
+  document.getElementById("shell").classList.toggle("nav-collapsed", collapsed);
+  document.getElementById("menu-btn").setAttribute("aria-expanded", String(!collapsed));
+  try { localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0"); } catch { /* not remembered */ }
+}
+try { if (localStorage.getItem(COLLAPSED_KEY) === "1") setCollapsed(true); } catch { /* shown */ }
+document.getElementById("collapse-btn").addEventListener("click", () => setCollapsed(true));
+document.getElementById("menu-btn").addEventListener("click", () => {
+  if (WIDE.matches) setCollapsed(!document.getElementById("shell").classList.contains("nav-collapsed"));
+  else setDrawer(!document.getElementById("shell").classList.contains("nav-open"));
+});
 document.getElementById("nav-backdrop").addEventListener("click", () => setDrawer(false));
 document.getElementById("nav").addEventListener("click", (event) => {
   if (event.target.closest("a")) setDrawer(false);

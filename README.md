@@ -248,6 +248,16 @@ the classic one's 320–410k.
   Undo/redo, copy-paste and snap. A setting the runtime does not read from
   the flow yet is shown **fixed** (read-only); a component marked **soon**
   stops a flow being published.
+- **Architectures** — a gallery of ready-made architectures, one card at a
+  time (arrows, the keyboard or a swipe), each with a diagram drawn from
+  the flow, how it flows and when to use it: tool-calling agent,
+  evaluator–refinement, self-correcting, generator–critic, fallback,
+  supervisor–worker, router–specialists, parallel agents, sequential
+  agents (orchestrated), planner–executor–reviewer, research–synthesis,
+  debate/consensus and hierarchical delegation. **Apply** puts its agents,
+  sub-agents, evaluators and tools on the canvas, keeping the flow's name,
+  guardrail scope, brief and domain; save the draft to keep it, or undo.
+  Human-in-the-loop, self-learning and blackboard are shown as coming soon.
 - **Versions** — one working draft per flow and immutable published
   versions, with a diff between any two, duplication, and templates to start
   from. Older versions open read-only.
@@ -902,7 +912,7 @@ the pipeline modules directly (`pipeline.answer_question`, `embedding_viz`,
 `index_info`, …).
 
 - **Layout** — left sidebar with the pages grouped, showing only those you
-  may use, and live service status refreshed every 30s; top bar (breadcrumb,
+  may use (on wide screens « hides it and ☰ brings it back, remembered), and live service status refreshed every 30s; top bar (breadcrumb,
   user menu); content as cards:
 
   | Group | Pages |

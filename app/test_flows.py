@@ -599,6 +599,22 @@ class Templates(unittest.TestCase):
             self.assertEqual([i for i in flows.validate(spec) if i["level"] == "warning"], [], template["id"])
             flows.compile_flow(spec, agent._runtime())
 
+    def test_every_architecture_validates_and_runs(self):
+        gallery = flows.architectures.architectures()
+        self.assertEqual(len({a["id"] for a in gallery}), len(gallery))
+        for arch in gallery:
+            self.assertTrue(arch["steps"] and arch["summary"] and arch["when"], arch["id"])
+            if not arch["ready"]:
+                self.assertIsNone(arch["flow"], arch["id"])                     # coming soon: nothing to apply
+                continue
+            spec = flows.FlowSpec.model_validate(arch["flow"])
+            self.assertEqual([i for i in flows.validate(spec) if i["level"] == "error"], [], arch["id"])
+            self.assertEqual(flows.compiler.runnable_issues(spec, agent._runtime()), [], arch["id"])
+            agent.graph_for(spec)
+        ready = {a["id"] for a in gallery if a["ready"]}
+        self.assertTrue({"tool_agent", "evaluator_refinement", "supervisor_worker", "router_specialists",
+                         "parallel_agents"} <= ready)
+
     def test_template_contents(self):
         by_id = {t["id"]: flows.FlowSpec.model_validate(t["flow"]) for t in flows.templates(flows.load_flow())}
         self.assertEqual(agent.flow_agents(by_id["rag_research"]), {"knowledge_base"})

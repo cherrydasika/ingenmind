@@ -330,3 +330,39 @@
 .fl-picker-actions { display: flex; gap: 8px; }
 .fl-classic > summary { cursor: pointer; }
 .fl-error-text { color: var(--err); }
+
+/* ---------- Architecture gallery (#69) ---------- */
+.fl-gallery-backdrop { position: fixed; z-index: 60; }
+.fl-gallery { width: min(980px, 94vw); max-height: 92vh; overflow: auto; display: flex; flex-direction: column; gap: 12px;
+  padding: 18px 20px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.25); touch-action: pan-y; user-select: none; }
+.fl-gallery-head { display: flex; align-items: center; gap: 12px; }
+.fl-gallery-head .fl-faint { margin-left: auto; }
+.fl-gallery-body { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; gap: 8px; }
+.fl-gallery-nav { height: 64px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); font-size: 28px; cursor: pointer; }
+.fl-gallery-nav:hover { border-color: var(--primary); }
+.fl-gallery-card { min-width: 0; animation: fl-slide 0.18s ease; }
+@keyframes fl-slide { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+.fl-gallery-title { display: flex; align-items: center; gap: 10px; }
+.fl-gallery-title h3 { margin: 0; font-size: 20px; }
+.fl-chip.is-soon { opacity: 0.75; font-style: italic; }
+.fl-arch-steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0; font-size: 13px; }
+.fl-arch-steps b { color: var(--muted); margin: 0 4px; font-weight: 400; }
+.fl-arch-step { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); }
+.fl-arch-steps.is-soon { min-height: 120px; justify-content: center; font-size: 15px; }
+.fl-arch-diagram { border: 1px solid var(--border); border-radius: 10px; padding: 8px; background: var(--surface-2); overflow-x: auto; }
+.fl-arch-svg { display: block; width: 100%; max-height: 380px; }
+.fl-arch-svg rect { fill: var(--surface); stroke: var(--border-strong); stroke-width: 1.2; }
+.fl-arch-agent.is-top rect { stroke: var(--primary); stroke-width: 2; }
+.fl-arch-path rect { fill: var(--surface-2); }
+.fl-arch-svg text { fill: var(--text); font-size: 12px; }
+.fl-arch-name { font-weight: 700; font-size: 12.5px; }
+.fl-arch-meta { fill: var(--muted) !important; font-size: 11px !important; }
+.fl-arch-check { fill: var(--ok, #16a34a) !important; font-size: 11px !important; }
+.fl-arch-line { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
+.fl-gallery-foot { display: flex; align-items: center; gap: 12px; }
+.fl-gallery-dots { display: flex; flex-wrap: wrap; gap: 6px; margin-right: auto; }
+.fl-dot { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 1px solid var(--border-strong); background: transparent; cursor: pointer; }
+.fl-dot.is-active { background: var(--primary); border-color: var(--primary); }
+.fl-dot.is-soon { border-style: dashed; }
