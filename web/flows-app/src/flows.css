@@ -314,3 +314,17 @@
 .fl-shortcuts .fl-btn { margin-top: 10px; }
 .fl-node .fl-chip, .fl-group .fl-chip { font-size: 11.5px; }
 .fl-field.is-reference .fl-fixed { display: block; padding: 4px 6px; border-radius: 4px; background: var(--fl-soft, rgba(127,127,127,0.08)); white-space: pre-wrap; word-break: break-word; }
+
+/* A dropped Agent, Evaluator or Guardrail: which kind, and its name. */
+.fl-palette-item.is-generic { font-weight: 600; }
+.fl-picker-backdrop { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; background: rgba(15, 23, 30, 0.35); }
+.fl-picker { width: min(520px, 92%); max-height: 88%; overflow: auto; display: flex; flex-direction: column; gap: 12px;
+  padding: 18px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); }
+.fl-picker-options { display: flex; flex-direction: column; gap: 6px; }
+.fl-picker-option { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); }
+.fl-picker-option.is-chosen { border-color: var(--primary); }
+.fl-picker-option.is-disabled { opacity: 0.55; cursor: not-allowed; }
+.fl-picker-option .fl-field-help { display: block; margin-top: 2px; }
+.fl-picker-actions { display: flex; gap: 8px; }
