@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -50,8 +50,13 @@ side: 10/12 met after vs 8/12 before, none worse); the Sources, research and
 citation views show the labels; **Relabel** on the setup Build card labels
 the plan's pages and research's (local build: 22 of 22). Still open from
 the epic, as their own issues: #39 (guided setup on EC2 for real) and #18
-(learning from live use, after the MVP). **No active work:** the next item
-is the user's choice from the backlog.
+(learning from live use, after the MVP). **Active work (2026-10-11): #60, install with one command** (prebuilt
+images on GHCR, a release compose file, `install.sh`; plan:
+[docs/plans/install.md](docs/plans/install.md)), on branch
+`release/install`: the image (with the code), the release compose file,
+`install.sh` (install, upgrade, uninstall), the release workflow and the
+README are written and tested locally (410 pass), not committed; next:
+commit, PR, and a test release `v0.1.0-rc.1`.
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is

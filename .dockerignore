@@ -1,0 +1,18 @@
+# Only app/, dags/, web/ and the demo data go into the image. Never secrets,
+# the maintainer's own data, or anything for development and AWS.
+.git
+.github
+.env
+.env.*
+!.env.example
+DEPLOYMENT.local.md
+data/urls.json
+data/evaluations
+infra
+agentcore-kb
+docs
+scripts
+**/__pycache__
+**/*.pyc
+web/flows-app
+**/node_modules
