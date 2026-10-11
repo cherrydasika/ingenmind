@@ -48,6 +48,42 @@ export class KnowledgeSystemPage {
     await this.mount();
   }
 
+  // Leave the demo: the same reset, then setup (#60). Two clicks, no typing.
+  async ownDomain(button) {
+    if (!button.dataset.armed) {
+      button.dataset.armed = "1";
+      button.textContent = "Yes, replace the demo and start setup";
+      return;
+    }
+    button.disabled = true;
+    try {
+      await api.resetKnowledgeSystem(this.data.confirmation);
+      setupChanged();
+      location.hash = "#/setup";
+    } catch (err) {
+      this.flash = { kind: "err", text: err.message };
+      await this.mount();
+    }
+  }
+
+  renderOwnDomain(d) {
+    const start = h("button", { class: "btn btn-primary", type: "button", disabled: !d.web_search }, "Set up my own domain");
+    start.addEventListener("click", () => this.ownDomain(start));
+    return card({
+      title: "Use your own domain",
+      sub: "You're using the demo: fictional Lakeshore Rail documents. Set IngenMind up for your own domain "
+        + "instead: the setup agent asks what it is for and researches the domain, then you choose the sources "
+        + "and the content, approve the build, check the evaluation and go live. This replaces the demo documents.",
+      children: [
+        d.web_search ? null : h("div", { class: "alert", style: "margin-bottom:12px" },
+          "Setup researches the web, which needs a Tavily API key (free tier at tavily.com). Add ",
+          h("code", {}, "TAVILY_API_KEY=…"), " to ", h("code", {}, "~/.ingenmind/.env"),
+          " (or .env in a clone), then restart: ", h("code", {}, "docker compose -f ~/.ingenmind/compose.yml up -d"), "."),
+        h("div", { class: "toolbar", style: "justify-content:flex-start" }, start),
+      ],
+    });
+  }
+
   render() {
     const d = this.data;
     const confirmation = h("input", { type: "text", placeholder: `Type ${d.confirmation}`, autocomplete: "off",
@@ -58,6 +94,7 @@ export class KnowledgeSystemPage {
 
     this.root.replaceChildren(h("div", { class: "stack" },
       this.flash ? h("div", { class: `alert ${this.flash.kind}` }, this.flash.text) : null,
+      d.state === "READY" && d.origin === "demo" ? this.renderOwnDomain(d) : null,
       card({
         title: "State",
         children: h("div", { class: "table-wrap" }, h("table", {}, h("tbody", {},

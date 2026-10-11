@@ -47,10 +47,23 @@ class DemoTest(unittest.TestCase):
         for ready, marked in ((False, [(("demo",), {})]), (True, [])):
             with patch.dict(sys.modules, {"adhoc_ingest": ingest}), \
                     patch.object(seed_demo, "documents", return_value=[("Demo", "Text.")]), \
+                    patch.object(knowledge_system, "demo_wanted", return_value=True), \
                     patch.object(knowledge_system, "is_ready", return_value=ready), \
                     patch.object(knowledge_system, "mark_ready") as mark:
                 self.assertEqual(seed_demo.main(), 0)
             self.assertEqual([(c.args, c.kwargs) for c in mark.call_args_list], marked)
+
+    def test_seeding_stays_away_once_the_demo_is_left(self):
+        import sys
+        from unittest.mock import Mock
+        import knowledge_system
+        ingest = Mock(ingest=Mock(return_value={"status": "updated", "chunks": 2}))
+        with patch.dict(sys.modules, {"adhoc_ingest": ingest}), \
+                patch.object(knowledge_system, "demo_wanted", return_value=False), \
+                patch.object(knowledge_system, "mark_ready") as mark:
+            self.assertEqual(seed_demo.main(), 0)
+        ingest.ingest.assert_not_called()                  # a reset or set-up install keeps its own knowledge
+        mark.assert_not_called()
 
 
 if __name__ == "__main__":

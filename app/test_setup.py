@@ -158,6 +158,25 @@ class Conversation(SetupDatabase):
         self.assertEqual((deleted["app_setup_turns"], deleted["app_setup"]), (1, 1))
         self.assertEqual((conversation.turns(), conversation.requirements()["requirements"]), ([], {}))
 
+    def test_the_demo_gets_its_own_scope_and_never_replaces_a_chosen_flow(self):
+        import seed_demo
+        self.assertTrue(seed_demo.install_demo_flow())
+        live = flows.store.live(flows.load_flow())
+        self.assertEqual((live["flow"]["id"], live["version"]), ("lakeshore_demo", 1))
+        nodes = {n["type"]: n.get("config") or {} for n in live["flow"]["nodes"]}
+        self.assertIn("Lakeshore Rail", nodes["input_guardrail"]["scope"])
+        self.assertIn("Lakeshore Rail", nodes["supervisor"]["brief"])
+        self.assertFalse(seed_demo.install_demo_flow())                 # a live flow is there: left alone
+
+    def test_the_demo_is_wanted_only_until_someone_leaves_it(self):
+        self.assertTrue(knowledge_system.demo_wanted())                # a new install
+        knowledge_system.mark_ready("demo")
+        self.assertTrue(knowledge_system.demo_wanted())                # the demo is live: refresh it
+        knowledge_system.reset("RESET", "admin-1")
+        self.assertFalse(knowledge_system.demo_wanted())               # left for their own domain
+        knowledge_system.mark_ready("setup")
+        self.assertFalse(knowledge_system.demo_wanted())
+
 
 
 def scripted(*turns):

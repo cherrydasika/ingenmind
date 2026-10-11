@@ -61,6 +61,11 @@ _key: str | None = None
 
 # ---------- search ----------
 
+def web_search_configured() -> bool:
+    """Whether a Tavily key is set (on AWS it is read from SSM when first used)."""
+    return bool(os.environ.get("TAVILY_API_KEY", "").strip()) or os.environ.get("RAG_DEPLOYMENT") == "aws"
+
+
 def _api_key() -> str:
     """The key is read once; a missing key is retried on the next search."""
     global _key

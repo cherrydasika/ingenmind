@@ -152,6 +152,21 @@ def is_ready() -> bool:
     return status()["state"] == READY
 
 
+def demo_wanted() -> bool:
+    """Whether the demo seed may load its documents: while the demo is the live
+    knowledge system, or on a new install that was never reset. Never once
+    someone has left the demo (a reset) or set up their own domain."""
+    current = status()
+    if current["state"] == READY:
+        return current["origin"] == "demo"
+    if current["state"] != NEW:          # setup is under way
+        return False
+    with _connect() as connection:
+        return connection.execute(
+            "SELECT NOT EXISTS (SELECT 1 FROM app_knowledge_system_events WHERE event = 'reset') AS fresh"
+        ).fetchone()["fresh"]
+
+
 def mark_ready(origin: str, user_id: str | None = None) -> None:
     """The knowledge system has knowledge to answer from (the demo seed; setup's go-live, #17)."""
     if origin not in ORIGINS:

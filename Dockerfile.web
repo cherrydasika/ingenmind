@@ -4,3 +4,15 @@ WORKDIR /app
 
 COPY requirements-web.txt /app/requirements-web.txt
 RUN pip install --no-cache-dir -r /app/requirements-web.txt
+
+# The app's code, so the image runs on its own (the release install). The dev
+# and EC2 compose files bind-mount the checkout over these paths.
+COPY app /app
+COPY dags /app/dags
+COPY web /web
+COPY data/demo /data/demo
+COPY data/urls.example.json /data/urls.example.json
+
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8000
+CMD ["uvicorn", "web_api:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "8000"]

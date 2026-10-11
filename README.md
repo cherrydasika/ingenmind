@@ -114,19 +114,42 @@ flowchart LR
 - **Regulated or high-stakes domains:** where a wrong answer costs more than
   no answer, and every claim needs a source.
 
-## Get started: two commands, one API key
+## Get started: one command, one API key
+
+Needs Docker (Docker Desktop, Rancher Desktop or Docker Engine) and an
+[Anthropic API key](https://console.anthropic.com/).
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cherrydasika/ingenmind/main/install.sh | sh
+```
+
+It asks for the key (and a Tavily key for setting up your own domain later,
+which you can skip), puts a compose file and its settings (`.env`) in
+`~/.ingenmind`, pulls the published image, starts everything on this
+machine and prints the address. Open http://localhost:18000 and sign in:
+the development sign-in asks for your name and email on the first visit and
+makes you the admin; no password. Then ask the Retrieval page something
+like *"Is there step-free access at Kestrel Bay station?"* or *"Can I bring
+my dog on Lakeshore Rail trains?"*. The first start downloads a 130 MB
+embedding model.
+
+| | |
+|---|---|
+| A fixed version | `curl -fsSL https://github.com/cherrydasika/ingenmind/releases/download/v0.1.0/install.sh \| INGENMIND_VERSION=v0.1.0 sh` (each release has the files and their `SHA256SUMS`) |
+| Without a prompt | set `ANTHROPIC_API_KEY` first (and `TAVILY_API_KEY`, or `INGENMIND_NO_PROMPT=1` to skip it); `INGENMIND_PORT`, `INGENMIND_DIR` and `INGENMIND_DEMO=0` (no demo documents) are optional |
+| Stop, start | `docker compose -f ~/.ingenmind/compose.yml stop` (or `start`) |
+| Upgrade | run the install command again: settings and data are kept |
+| Remove | `curl -fsSL https://raw.githubusercontent.com/cherrydasika/ingenmind/main/install.sh \| sh -s -- --uninstall` keeps the data; add `--purge` to delete it and `~/.ingenmind` |
+
+**From source** (to change the code): clone the repository, then
 
 ```bash
 cp .env.example .env      # then paste your key into ANTHROPIC_API_KEY
 docker compose up -d
 ```
 
-Open http://localhost:18000 and sign in: the development sign-in (local
-Docker's default) asks for your name and email on the first visit and makes
-you the admin; no password. Then ask the Retrieval page something like *"Is
-there step-free access at Kestrel Bay station?"* or *"Can I bring my dog on
-Lakeshore Rail trains?"*. The first start builds the image and downloads a
-130 MB embedding model; `docker compose logs -f seed` shows the demo
+This builds the image and mounts the checkout's code into it (see
+[Development](#development)); `docker compose logs -f seed` shows the demo
 documents loading.
 
 What runs: PostgreSQL with pgvector, the web app, the ingestion worker,
@@ -137,9 +160,12 @@ in [data/demo/](data/demo/); the Ingestion page can add the Wikivoyage pages
 in [data/urls.example.json](data/urls.example.json), or your own list in
 `data/urls.json`.
 
-- **The guardrails allow only UK trains and the weather**: any question about
-  UK rail, read broadly, and weather anywhere. Other questions are blocked.
-  See [Adapting it to your domain](#adapting-it-to-your-domain).
+- **The demo's guardrails allow Lakeshore Rail, trains in general and the
+  weather**: loading the demo also makes its own flow live (`lakeshore_demo`,
+  the built-in flow scoped to the fictional operator), unless another flow
+  is already live. Other questions are blocked. The built-in flow itself is
+  scoped to UK trains and the weather; see
+  [Adapting it to your domain](#adapting-it-to-your-domain).
 - **OpenAI** works the same way: `LLM_PROVIDER=openai`, `LLM_MODEL`,
   `OPENAI_API_KEY`. See [Chat model](#chat-model) and [Embeddings](#embeddings).
 - **Fully offline with Ollama** is possible, but small models are poor
@@ -153,17 +179,21 @@ in [data/urls.example.json](data/urls.example.json), or your own list in
 
 ### Set up your own knowledge system
 
-The demo shows the answering side. To build an assistant for your own
-domain, let the agents set it up with you:
+IngenMind starts with the demo; while it runs, an admin is offered their own
+domain after signing in (a notice they can dismiss). To build an assistant
+for your own domain, let the agents set it up with you:
 
-1. Add a Tavily key (`TAVILY_API_KEY` in `.env`; the agents research the
-   web with it).
-2. Start without the demo (leave `COMPOSE_PROFILES` empty), or reset a demo
-   install on **Admin → Knowledge system**.
-3. Sign in: an admin lands on **Set up your knowledge system**. Answer the
-   setup agent's questions, then confirm the blueprint, choose sources and
-   content, approve the build, run the evaluation, read the readiness report
-   and **Go live**.
+1. Have a Tavily key in the settings: the installer asks for it (Enter
+   skips it), or add `TAVILY_API_KEY=…` to `~/.ingenmind/.env` (or `.env` in
+   a clone) and restart (`docker compose -f ~/.ingenmind/compose.yml up -d`).
+   The agents research the web with it.
+2. **Admin → Knowledge system → Set up my own domain** replaces the demo and
+   opens setup. (Or install with `INGENMIND_DEMO=0` to start without the
+   demo; a reset on the same page works too.) Once you leave the demo it
+   never comes back on a restart.
+3. Answer the setup agent's questions, then confirm the blueprint, choose
+   sources and content, approve the build, run the evaluation, read the
+   readiness report and **Go live**.
 
 Each step waits for you, and setup can be left and resumed at any point.
 Details: [Knowledge system: setup and reset](#knowledge-system-setup-and-reset).
@@ -316,6 +346,16 @@ The Python tests need the `pgvector` service running (each database test
 creates and drops its own database). After editing `web/flows-app/src`, run
 `npm run build --prefix web/flows-app` and commit `web/static/flows`; CI
 checks the bundle matches its sources.
+
+**Releases.** Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml`: it
+builds the image for amd64 and arm64, pushes
+`ghcr.io/cherrydasika/ingenmind:X.Y.Z` (and `latest`), and publishes a
+GitHub Release with `compose.yml`, `install.sh` and `SHA256SUMS`. A tag with
+a suffix (`v0.2.0-rc.1`) is a pre-release and never moves `latest`. To test
+the installer against a local build: `docker build -f Dockerfile.web -t
+ingenmind:dev .`, then `INGENMIND_COMPOSE_FILE=deploy/compose.yml
+INGENMIND_IMAGE=ingenmind INGENMIND_IMAGE_TAG=dev INGENMIND_PORT=18100 sh
+install.sh`.
 
 ---
 
@@ -1303,7 +1343,11 @@ scripts/start.sh         # start everything on demand (Docker, app, Langfuse) an
 scripts/stop.sh          # stop it again (--all also quits Rancher Desktop)
 scripts/aws/snapshot.sh  # snapshot EC2's data volume (before a reset), list snapshots
 docker-compose.langfuse.yml  # optional overlay: self-hosted Langfuse stack
-Dockerfile.web           # web app image: Starlette/uvicorn + boto3/langfuse SDKs
+Dockerfile.web           # the app image: dependencies plus the code (app/, dags/, web/, demo data)
+.dockerignore            # keeps secrets, the maintainer's data and AWS/dev files out of the image
+install.sh               # the one-command install, upgrade and uninstall (~/.ingenmind)
+deploy/compose.yml       # the installed stack: pgvector, worker, web app, demo seed, from the published image
+.github/workflows/release.yml  # a v* tag: multi-arch image to GHCR + a GitHub Release with the install files
 requirements-web.txt
 .env                      # Langfuse secrets (gitignored)
 .env.aws                  # local AWS credentials (gitignored; EC2 uses a role instead)

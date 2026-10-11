@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-10
+Last updated: 2026-10-11
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -50,8 +50,21 @@ side: 10/12 met after vs 8/12 before, none worse); the Sources, research and
 citation views show the labels; **Relabel** on the setup Build card labels
 the plan's pages and research's (local build: 22 of 22). Still open from
 the epic, as their own issues: #39 (guided setup on EC2 for real) and #18
-(learning from live use, after the MVP). **No active work:** the next item
-is the user's choice from the backlog.
+(learning from live use, after the MVP). **Active work (2026-10-11): #60, install with one command** (prebuilt
+images on GHCR, a release compose file, `install.sh`; plan:
+[docs/plans/install.md](docs/plans/install.md)), on branch
+`release/install`: PR #61 (the image with the code, the release compose file, `install.sh`,
+the release workflow, the README). Test releases `v0.1.0-rc.1` (found an
+installer bug with a fixed version, fixed) and `rc.2` published; the image
+on GHCR is public, amd64 and arm64. Then, at the user's request, **demo
+first and your own domain from the app**: the installer also asks for a
+Tavily key (skippable), Admin → Knowledge system has **Set up my own
+domain**, admins get a dismissible notice after sign-in, and the seed never
+reloads the demo once it is left (412 pass; checked in the browser). `rc.3` installed as a new user
+found the demo blocked by the UK rail scope: the demo now gets its own flow
+(`lakeshore_demo`), 7 of 7 on its evaluation set. Next: `rc.4`, install it,
+then the user merges PR #61 and `v0.1.0`. In parallel, #62 (the starter
+flow) on branch `flows/starter`.
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is

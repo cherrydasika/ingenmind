@@ -36,6 +36,7 @@ export const session = {
   },
   user: null,
   setupState: null,   // the knowledge system's state (refreshSetup)
+  demo: false,        // the demo is the live knowledge system (refreshSetup)
   get userId() {
     return this.user?.user_id || null;
   },
@@ -193,16 +194,39 @@ function firstAllowedPage() {
 // "Being set up": a notice on every page (but setup's own) until the knowledge system is ready.
 async function refreshSetup() {
   try {
-    session.setupState = (await api.knowledgeSystem()).state;
+    const ks = await api.knowledgeSystem();
+    session.setupState = ks.state;
+    session.demo = ks.state === "READY" && ks.origin === "demo";
   } catch {
     session.setupState = null;   // unknown: no notice; questions say it themselves
+    session.demo = false;
   }
   drawSetupBanner();
 }
 
+// While the demo is live, an admin is offered their own domain once; "Not now" hides it in this browser.
+const DEMO_PROMPT_KEY = "ingenmind.demo-prompt-dismissed";
+function demoPromptDismissed() {
+  try { return localStorage.getItem(DEMO_PROMPT_KEY) === "1"; } catch { return false; }
+}
+
 function drawSetupBanner() {
   const banner = document.getElementById("setup-banner");
-  const onSetup = location.hash.replace(/^#\//, "").split("/")[0] === "setup";
+  const page = location.hash.replace(/^#\//, "").split("/")[0];
+  const onSetup = page === "setup";
+  if (session.demo && session.can("manage_settings") && page !== "knowledge" && !demoPromptDismissed()) {
+    banner.hidden = false;
+    const later = h("button", { class: "btn btn-ghost", type: "button", style: "margin-left:12px" }, "Not now");
+    later.addEventListener("click", () => {
+      try { localStorage.setItem(DEMO_PROMPT_KEY, "1"); } catch { /* the prompt just comes back */ }
+      banner.hidden = true;
+    });
+    banner.replaceChildren(h("div", { class: "alert info" },
+      "You're exploring the demo (fictional Lakeshore Rail). ",
+      h("a", { href: "#/knowledge", style: "font-weight:600;text-decoration:underline" }, "Set IngenMind up for your own domain"),
+      " — any time from Admin → Knowledge system.", later));
+    return;
+  }
   banner.hidden = !session.setupState || session.setupState === "READY" || onSetup;
   if (banner.hidden) return;
   banner.replaceChildren(h("div", { class: "alert info" }, session.can("manage_settings")
