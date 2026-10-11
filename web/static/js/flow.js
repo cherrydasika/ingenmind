@@ -1,4 +1,4 @@
-// Multi-agent workflow graph for the Retrieval page: every step of the
+// Workflow graph for the Ask page: every step of the
 // LangGraph state machine (app/agent.py) as a small box coloured by its
 // state, left to right, with the evidence evaluator's branches drawn out —
 // in the spirit of a workflow scheduler's graph view:
@@ -19,8 +19,8 @@ import { fmtTime, h } from "./ui.js";
 const SVG = "http://www.w3.org/2000/svg";
 const NODE_W = 116, NODE_H = 46, END_W = 92, COL = 140, ROW = 62, PAD = 16;
 
-// key: [label, column, row, width?]
-const NODES = {
+// The full multi-agent flow's layout. key: [label, column, row, width?]
+const BUILTIN_NODES = {
   question: ["Question", 0, 1, END_W],
   input_guardrail: ["Input guard", 1, 1],
   supervisor: ["Supervisor", 2, 1],
@@ -38,7 +38,7 @@ const NODES = {
   answer: ["Answer", 10, 1, END_W],
 };
 // [from, to, branch label?]. A branch is lit only by the evaluator's decision.
-const EDGES = [
+const BUILTIN_EDGES = [
   ["question", "input_guardrail"], ["input_guardrail", "supervisor"],
   ["supervisor", "knowledge_base"], ["supervisor", "external_apis"],
   ["knowledge_base", "search"], ["search", "evaluator"],
@@ -48,12 +48,60 @@ const EDGES = [
   ["external_apis", "call"], ["call", "writer"],
   ["writer", "output_guardrail"], ["output_guardrail", "answer_eval"], ["answer_eval", "answer"],
 ];
+// A flow of one agent (#62): it searches and calls tools itself.
+const AGENT_NODES = {
+  question: ["Question", 0, 1, END_W],
+  input_guardrail: ["Input guard", 1, 1],
+  agent: ["Agent", 2, 1],
+  search: ["Search", 3, 0],
+  call: ["API call", 3, 2],
+  output_guardrail: ["Output guard", 4, 1],
+  answer_eval: ["Answer check", 5, 1],
+  answer: ["Answer", 6, 1, END_W],
+};
+const AGENT_EDGES = [
+  ["question", "input_guardrail"], ["input_guardrail", "agent"], ["agent", "search"], ["agent", "call"],
+  ["agent", "output_guardrail"], ["output_guardrail", "answer_eval"], ["answer_eval", "answer"],
+];
+
+// The chart for the live flow (/api/agent's "live"): the one-agent layout, or the
+// full layout without the parts this flow does not have. Unknown: the full one.
+function layoutFor(live) {
+  const parts = new Set(live?.parts || []);
+  const agentFlow = live?.kind === "agent";
+  const nodes = { ...(agentFlow ? AGENT_NODES : BUILTIN_NODES) };
+  const drop = (...keys) => keys.forEach((key) => delete nodes[key]);
+  if (agentFlow) {
+    if (!parts.has("agent:retriever")) drop("search");
+    if (!parts.has("agent:api_tools")) drop("call");
+  } else if (live?.kind === "supervisor") {
+    if (!parts.has("external_apis")) drop("external_apis", "call");
+    if (!parts.has("knowledge_base")) drop("knowledge_base", "search", "evaluator", "rewrite", "research", "other");
+    if (!parts.has("evidence_evaluator")) drop("evaluator", "rewrite", "research", "other");
+    if (!parts.has("research_agent")) drop("research");
+    if (!parts.has("query_rewriter")) drop("rewrite");
+  }
+  if (live && !parts.has("answer_evaluator")) drop("answer_eval");
+  if (live && !parts.has("input_guardrail")) drop("input_guardrail");
+  const base = agentFlow ? AGENT_EDGES : BUILTIN_EDGES;
+  const edges = base.filter(([a, b]) => nodes[a] && nodes[b]);
+  // Bridge a removed step: an edge into it continues to where it led.
+  const bridge = (a, b, seen = new Set()) => {
+    for (const [, c] of base.filter(([x]) => x === b)) {
+      if (nodes[c]) { if (!edges.some(([x, y]) => x === a && y === c)) edges.push([a, c]); }
+      else if (!seen.has(c)) { seen.add(c); bridge(a, c, seen); }
+    }
+  };
+  for (const [a, b] of base) if (nodes[a] && !nodes[b]) bridge(a, b);
+  return { nodes, edges };
+}
+
 const BRANCH = { GOOD_EVIDENCE: "good", RETRIEVAL_FAILURE: "retry", KNOWLEDGE_GAP: "gap" };
 const BRANCH_NODE = { good: "writer", retry: "rewrite", gap: "research", other: "other" };
 // Activity nodes (agent.py) → the box that shows them.
 const ACTIVITY = {
   knowledge_base: "knowledge_base", external_apis: "external_apis", embedding: "search", retrieval: "search",
-  evaluator: "evaluator", rewriter: "rewrite", call: "call",
+  evaluator: "evaluator", rewriter: "rewrite", call: "call", agent: "agent",
   research: "research", r_search: "research", r_extract: "research", r_validate: "research", r_ingest: "research",
   r_classify: "research", r_known: "research", r_profile: "research", r_probe: "research", r_judge: "research",
 };
@@ -78,27 +126,10 @@ function svg(tag, attrs = {}, ...children) {
   return el;
 }
 
-const box = (key) => {
-  const [, col, row, w = NODE_W] = NODES[key];
-  const x = PAD + col * COL + (NODE_W - w) / 2;
-  return { x, y: PAD + row * ROW, w, h: NODE_H };
-};
-
-function edgePath(from, to) {
-  const a = box(from), b = box(to);
-  if (b.x < a.x) {   // back to Search: leave from the left, arrive on its top or bottom
-    const sx = a.x, sy = a.y + a.h / 2, tx = b.x + b.w / 2;
-    const ty = a.y < b.y ? b.y : b.y + b.h;
-    return `M${sx},${sy} C${sx - 40},${sy} ${tx},${sy} ${tx},${ty}`;
-  }
-  const sx = a.x + a.w, sy = a.y + a.h / 2, tx = b.x, ty = b.y + b.h / 2;
-  if (sy === ty) return `M${sx},${sy} L${tx},${ty}`;
-  const mid = (sx + tx) / 2;
-  return `M${sx},${sy} C${mid},${sy} ${mid},${ty} ${tx},${ty}`;
-}
-
 export class AgenticFlow {
   constructor(cfg, info) {
+    ({ nodes: this.nodes, edges: this.edgeList } = layoutFor(info?.live));
+    this.liveName = info?.live ? `${info.live.name} · v${info.live.version}` : null;
     this.model = info?.harness ? shortModel(info.harness.model) : "the chat model";
     this.hints = {
       question: "The user's question",
@@ -116,6 +147,7 @@ export class AgenticFlow {
       output_guardrail: "Scope and safety check on the answer",
       answer_eval: "Correctness · faithfulness · completeness · citations",
       answer: "What the user sees",
+      agent: `${this.model} · answers the question itself, searching the knowledge base and calling its tools`,
     };
     this.el = this.build();
     this.reset();
@@ -126,17 +158,19 @@ export class AgenticFlow {
   }
 
   build() {
-    const width = PAD * 2 + 10 * COL + NODE_W, height = PAD * 2 + 4 * ROW + NODE_H;
+    const cols = Math.max(...Object.values(this.nodes).map(([, col]) => col));
+    const rows = Math.max(...Object.values(this.nodes).map(([, , row]) => row));
+    const width = PAD * 2 + cols * COL + NODE_W, height = PAD * 2 + rows * ROW + NODE_H;
     const marker = (id) => svg("marker", { id, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" },
       svg("path", { d: "M0,0 L10,5 L0,10 z" }));
     this.edges = {};
     const edgeLayer = svg("g", { class: "dag-edges" });
-    for (const [from, to, branch] of EDGES) {
-      const d = edgePath(from, to);
+    for (const [from, to, branch] of this.edgeList) {
+      const d = this.edgePath(from, to);
       const path = svg("path", { d, class: "dag-edge", "marker-end": "url(#dag-arrow)" });
-      const g = svg("g", { class: `dag-edge-g${box(to).x < box(from).x ? " is-back" : ""}`, "data-state": "idle" }, path);
+      const g = svg("g", { class: `dag-edge-g${this.box(to).x < this.box(from).x ? " is-back" : ""}`, "data-state": "idle" }, path);
       if (branch) {   // the label sits just before the branch's target, clear of the fan
-        const t = box(to);
+        const t = this.box(to);
         g.append(svg("text", { class: "dag-edge-label", x: t.x - 6, y: t.y + NODE_H / 2 - 6, "text-anchor": "end" }, branch));
       }
       edgeLayer.append(g);
@@ -144,8 +178,8 @@ export class AgenticFlow {
     }
     this.boxes = {};
     const nodeLayer = svg("g", { class: "dag-nodes" });
-    for (const [key, [label]] of Object.entries(NODES)) {
-      const { x, y, w } = box(key);
+    for (const [key, [label]] of Object.entries(this.nodes)) {
+      const { x, y, w } = this.box(key);
       const end = key === "question" || key === "answer";
       const title = svg("title");
       const meta = svg("text", { class: "dag-meta", x: x + w / 2, y: y + 33, "text-anchor": "middle" });
@@ -165,6 +199,7 @@ export class AgenticFlow {
       h("span", { class: "dag-key", "data-state": state }, h("i"), STATE_TEXT[state])));
     return h("div", { class: "dag" },
       h("div", { class: "dag-bar" }, h("div", { class: "dag-now" }, h("strong", {}, "Now "), this.now), legend),
+      this.liveName ? h("div", { class: "faint dag-flow-name" }, `The live flow: ${this.liveName}`) : null,
       h("div", { class: "dag-scroll" },
         svg("svg", { class: "dag-svg", viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Workflow graph",
           style: `--dag-w:${width}px` }, svg("defs", {}, marker("dag-arrow")), edgeLayer, nodeLayer)),
@@ -178,6 +213,7 @@ export class AgenticFlow {
   // first start (a step can run more than once: two searches, a retry).
   setNode(key, state, { detail, time } = {}) {
     const n = this.state[key];
+    if (!n) return;   // a step this flow does not have
     n.state = state;
     if (detail !== undefined) n.detail = detail;
     if (state === "active") {
@@ -221,15 +257,15 @@ export class AgenticFlow {
     b.meta.textContent = key === "question" ? (n.state === "done" ? "asked" : STATE_TEXT[n.state])
       : [time != null && n.state !== "skipped" && (!this.restored || key === "answer") ? fmtTime(time) : STATE_TEXT[n.state], n.short]
         .filter(Boolean).join(" · ");
-    b.title.textContent = [NODES[key][0], this.hints[key], n.detail].filter(Boolean).join("\n");
+    b.title.textContent = [this.nodes[key][0], this.hints[key], n.detail].filter(Boolean).join("\n");
   }
 
   // Elapsed time on running steps, and the "Now" line.
   tick() {
-    const running = Object.keys(NODES).filter((key) => this.state[key].state === "active");
+    const running = Object.keys(this.nodes).filter((key) => this.state[key].state === "active");
     for (const key of running) this.draw(key);
     this.now.textContent = this.el.dataset.run !== "running" ? (this.el.dataset.run === "done" ? "Finished" : this.el.dataset.run === "error" ? "Failed" : "Waiting for a question")
-      : running.length ? running.map((key) => NODES[key][0]).join(" · ") : "…";
+      : running.length ? running.map((key) => this.nodes[key][0]).join(" · ") : "…";
   }
 
   step(text, kind = "") {
@@ -240,13 +276,13 @@ export class AgenticFlow {
   reset() {
     clearInterval(this.timer);
     this.timer = null;
-    this.state = Object.fromEntries(Object.keys(NODES).map((key) => [key, { state: "idle", detail: "", time: null, short: "", used: false, since: null }]));
+    this.state = Object.fromEntries(Object.keys(this.nodes).map((key) => [key, { state: "idle", detail: "", time: null, short: "", used: false, since: null }]));
     this.counts = {};
     this.round = 0;
     this.restored = false;
     this.lastBranch = null;
     for (const edge of Object.values(this.edges)) this.setEdge(edge, "idle");
-    for (const key of Object.keys(NODES)) this.draw(key);
+    for (const key of Object.keys(this.nodes)) this.draw(key);
     this.steps.replaceChildren();
     this.stepsCount.textContent = "";
     this.el.dataset.run = "idle";
@@ -271,7 +307,7 @@ export class AgenticFlow {
       return undefined;
     }
     if (e.type === "model" && e.agent === "supervisor") return this.supervisorTurn(e);
-    if (e.type === "model" && (e.agent === "knowledge_base" || e.agent === "external_apis")) {
+    if (e.type === "model" && (e.agent === "knowledge_base" || e.agent === "external_apis" || e.agent === "agent")) {
       this.activity({ node: e.agent, state: e.state === "start" ? "start" : "done" }, false);
       return undefined;
     }
@@ -288,14 +324,14 @@ export class AgenticFlow {
     this.setNode(key, allowed ? "done" : "error", { detail: `Decision: ${e.decision}`, time: e.seconds });
     this.state[key].short = allowed ? "" : e.decision.toLowerCase();
     this.draw(key);
-    this.step(`${NODES[key][0]}: ${e.decision}`, allowed ? "ok" : "err");
+    this.step(`${this.nodes[key][0]}: ${e.decision}`, allowed ? "ok" : "err");
   }
 
   // Activities can nest and repeat (two searches, two tasks): a box stays
   // running until every one of its activities has finished.
   activity(e, counted) {
     const key = ACTIVITY[e.node];
-    if (!key) return;
+    if (!key || !this.state[key]) return;
     const id = counted ? `${key}` : `${key}:model`;
     if (e.state === "start") {
       this.counts[id] = (this.counts[id] || 0) + 1;
@@ -328,7 +364,7 @@ export class AgenticFlow {
     const busy = Object.entries(this.counts).some(([k, n]) => k.split(":")[0] === key && n > 0);
     if (!busy) {
       this.setNode(key, this.state[key].failed ? "error" : "done");
-      if (key === "knowledge_base" || key === "external_apis") this.step(`${NODES[key][0]} finished${e.seconds != null ? ` in ${fmtTime(e.seconds)}` : ""}`);
+      if (key === "knowledge_base" || key === "external_apis") this.step(`${this.nodes[key][0]} finished${e.seconds != null ? ` in ${fmtTime(e.seconds)}` : ""}`);
     } else {
       this.draw(key);
     }
@@ -343,11 +379,12 @@ export class AgenticFlow {
     this.state.evaluator.detail = `${e.decision}${score != null ? ` · score ${score.toFixed(2)}` : ""}${e.attempt > 1 ? " · attempt 2" : ""}`;
     this.branch(name);
     if (name === "other") this.setNode("other", "done", { detail: `${e.decision}: no agent handles this yet` });
-    this.step(`Evidence check: ${this.state.evaluator.detail} → ${name === "good" ? "summarizer" : NODES[BRANCH_NODE[name]][0]}`,
+    this.step(`Evidence check: ${this.state.evaluator.detail} → ${name === "good" ? "summarizer" : (this.nodes[BRANCH_NODE[name]] || [name])[0]}`,
       name === "good" ? "ok" : name === "other" ? "err" : "");
   }
 
   answerCheck(e) {
+    if (!this.state.answer_eval) return undefined;
     if (e.state === "start") return this.setNode("answer_eval", "active");
     this.setNode("answer_eval", e.passed ? "done" : "error", { time: e.seconds,
       detail: e.passed ? `Passed · ${e.overall.toFixed(2)}` : `Failed on ${(e.failed_on || []).join(", ")}: a standard message is sent` });
@@ -359,6 +396,7 @@ export class AgenticFlow {
   // The supervisor's first turns plan (Supervisor); the turn after the
   // findings come back writes the answer (Summarizer): same agent.
   supervisorTurn(e) {
+    if (!this.state.supervisor) return undefined;
     const key = this.round > 0 ? "writer" : "supervisor";
     if (e.state === "start") {
       if (key === "writer" && this.state.supervisor.state === "active") this.setNode("supervisor", "done");
@@ -378,17 +416,18 @@ export class AgenticFlow {
 
   finish(result) {
     for (const [stage, verdict] of Object.entries(result.guardrails || {})) {
-      if (this.state[`${stage}_guardrail`].state !== "done" && this.state[`${stage}_guardrail`].state !== "error") {
+      const g = this.state[`${stage}_guardrail`];
+      if (g && g.state !== "done" && g.state !== "error") {
         this.guardrail({ stage, state: "done", decision: verdict.decision });
       }
     }
     const check = result.answer_check || result.answer_evaluation;
-    if (check && this.state.answer_eval.state !== "done" && this.state.answer_eval.state !== "error") {
+    if (check && this.state.answer_eval && this.state.answer_eval.state !== "done" && this.state.answer_eval.state !== "error") {
       this.answerCheck({ state: "done", ...check });
     }
     const failed = check && !check.passed;
     const blocked = Object.values(result.guardrails || {}).some((v) => v.decision !== "ALLOW");
-    for (const key of Object.keys(NODES)) {
+    for (const key of Object.keys(this.nodes)) {
       const n = this.state[key];
       if (n.state === "active") this.setNode(key, "done");
       else if (n.state === "idle" && key !== "answer") this.setNode(key, "skipped");
@@ -407,8 +446,8 @@ export class AgenticFlow {
   }
 
   fail(message) {
-    const running = Object.keys(NODES).filter((key) => this.state[key].state === "active");
-    for (const key of running.length ? running : ["supervisor"]) this.setNode(key, "error", { detail: message });
+    const running = Object.keys(this.nodes).filter((key) => this.state[key].state === "active");
+    for (const key of running.length ? running : [this.state.supervisor ? "supervisor" : "agent"]) this.setNode(key, "error", { detail: message });
     this.state.answer.short = "none";
     this.setNode("answer", "error", { detail: "No answer" });
     this.step(`Failed: ${message}`, "err");
@@ -431,8 +470,8 @@ export class AgenticFlow {
     for (const [stage, verdict] of Object.entries(result.guardrails || {})) {
       if (stage === "input") this.guardrail({ stage, state: "done", decision: verdict.decision });
     }
-    if (this.state.input_guardrail.state === "done") {
-      this.setNode("supervisor", "done");
+    if (this.state.input_guardrail?.state === "done") {
+      this.setNode(this.state.supervisor ? "supervisor" : "agent", "done");
     }
     for (const [node, state] of Object.entries(result.activities || {})) {
       this.activity({ node, state: "start" }, true);
@@ -443,5 +482,24 @@ export class AgenticFlow {
       if (stage === "output") this.guardrail({ stage, state: "done", decision: verdict.decision });
     }
     this.finish(result);
+  }
+
+  box(key) {
+    const [, col, row, w = NODE_W] = this.nodes[key];
+    const x = PAD + col * COL + (NODE_W - w) / 2;
+    return { x, y: PAD + row * ROW, w, h: NODE_H };
+  }
+
+  edgePath(from, to) {
+    const a = this.box(from), b = this.box(to);
+    if (b.x < a.x) {   // back to Search: leave from the left, arrive on its top or bottom
+      const sx = a.x, sy = a.y + a.h / 2, tx = b.x + b.w / 2;
+      const ty = a.y < b.y ? b.y : b.y + b.h;
+      return `M${sx},${sy} C${sx - 40},${sy} ${tx},${sy} ${tx},${ty}`;
+    }
+    const sx = a.x + a.w, sy = a.y + a.h / 2, tx = b.x, ty = b.y + b.h / 2;
+    if (sy === ty) return `M${sx},${sy} L${tx},${ty}`;
+    const mid = (sx + tx) / 2;
+    return `M${sx},${sy} C${mid},${sy} ${mid},${ty} ${tx},${ty}`;
   }
 }

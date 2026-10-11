@@ -12,7 +12,7 @@ function loadStyles() {
 }
 
 export class FlowsPage {
-  title = "Agent flow";
+  title = "Agent Builder";
 
   constructor(root, { session }) {
     this.root = root;

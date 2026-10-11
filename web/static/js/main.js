@@ -8,15 +8,12 @@ import { AdhocPage } from "./adhoc.js";
 import { AgentMemoryPage } from "./agent_memory.js";
 import { EvaluationsPage } from "./evaluations.js";
 import { FlowsPage } from "./flows.js";
-import { DocsPage } from "./docs.js";
-import { HomePage } from "./home.js";
-import { IngestionPage } from "./ingestion.js";
-import { KnowledgeSystemPage } from "./knowledge_system.js";
+import { KnowledgeBasePage } from "./knowledge_base.js";
+import { MonitoringPage } from "./monitoring.js";
 import { ProfilePage } from "./profile.js";
 import { RetrievalPage } from "./retrieval.js";
 import { SessionsPage } from "./sessions.js";
 import { SetupPage } from "./setup.js";
-import { SourcesPage } from "./sources.js";
 import { UsersPage } from "./users.js";
 
 const STATUS_REFRESH_MS = 30_000;
@@ -47,21 +44,21 @@ export const session = {
 
 // route → [page class, sidebar group (for the breadcrumb), permission needed (null: any signed-in user)]
 const pages = {
-  home: [HomePage, "Overview", null],
-  retrieval: [RetrievalPage, "Workspace", "query_rag"],
-  sessions: [SessionsPage, "Workspace", null],
-  adhoc: [AdhocPage, "Workspace", "upload_documents"],
-  evaluations: [EvaluationsPage, "Workspace", "run_evaluations"],
-  flows: [FlowsPage, "Workspace", "manage_agents"],
-  memory: [AgentMemoryPage, "Workspace", "view_agent_memory"],
-  ingestion: [IngestionPage, "Data", "view_knowledge"],
-  sources: [SourcesPage, "Data", "view_knowledge"],
-  docs: [DocsPage, "Reference", null],
-  profile: [ProfilePage, "Account", null],
+  retrieval: [RetrievalPage, "Ask", "query_rag"],
+  sessions: [SessionsPage, "Ask", null],
+  flows: [FlowsPage, "Build", "manage_agents"],
+  evaluations: [EvaluationsPage, "Evaluate", "run_evaluations"],
+  "knowledge-base": [KnowledgeBasePage, "Data", "view_knowledge"],
+  adhoc: [AdhocPage, "Data", "upload_documents"],
+  monitoring: [MonitoringPage, "Monitoring", null],
+  memory: [AgentMemoryPage, "Monitoring", "view_agent_memory"],
   users: [UsersPage, "Admin", "manage_users"],
-  knowledge: [KnowledgeSystemPage, "Admin", "manage_settings"],
-  setup: [SetupPage, "Setup", "manage_settings"],
+  setup: [SetupPage, "Admin", "manage_settings"],
+  profile: [ProfilePage, "Account", null],
 };
+// Addresses from before the sidebar was reorganised, so old links still land.
+const MOVED = { home: "monitoring", ingestion: "knowledge-base/ingestion", sources: "knowledge-base/sources",
+  knowledge: "profile", docs: "monitoring" };
 let current = null;
 let statusTimer = null;
 
@@ -175,6 +172,13 @@ async function refreshServices() {
   const list = document.getElementById("services");
   try {
     const services = await api.status();
+    // Monitoring → Langfuse: a link out, for people who build flows, while it is up.
+    const langfuse = services.find((s) => s.name === "Langfuse");
+    const link = document.querySelector('#nav a[data-link="langfuse"]');
+    if (link) {
+      link.hidden = !(langfuse?.up && langfuse.url && session.can("manage_agents"));
+      if (langfuse?.url) link.href = langfuse.url;
+    }
     list.replaceChildren(...services.map((s) =>
       h("li", { title: s.up ? "Reachable" : "Not reachable" },
         h("span", { class: `dot ${s.up ? "up" : "down"}` }),
@@ -188,7 +192,7 @@ async function refreshServices() {
 function firstAllowedPage() {
   // While the knowledge system is not set up, an admin starts at setup.
   if (session.setupState && session.setupState !== "READY" && session.can("manage_settings")) return "setup";
-  return ["retrieval", "home"].find((key) => session.can(pages[key][2])) || "home";
+  return ["retrieval", "monitoring"].find((key) => session.can(pages[key][2])) || "monitoring";
 }
 
 // "Being set up": a notice on every page (but setup's own) until the knowledge system is ready.
@@ -214,7 +218,7 @@ function drawSetupBanner() {
   const banner = document.getElementById("setup-banner");
   const page = location.hash.replace(/^#\//, "").split("/")[0];
   const onSetup = page === "setup";
-  if (session.demo && session.can("manage_settings") && page !== "knowledge" && !demoPromptDismissed()) {
+  if (session.demo && session.can("manage_settings") && page !== "profile" && !demoPromptDismissed()) {
     banner.hidden = false;
     const later = h("button", { class: "btn btn-ghost", type: "button", style: "margin-left:12px" }, "Not now");
     later.addEventListener("click", () => {
@@ -223,8 +227,8 @@ function drawSetupBanner() {
     });
     banner.replaceChildren(h("div", { class: "alert info" },
       "You're exploring the demo (fictional Lakeshore Rail). ",
-      h("a", { href: "#/knowledge", style: "font-weight:600;text-decoration:underline" }, "Set IngenMind up for your own domain"),
-      " — any time from Admin → Knowledge system.", later));
+      h("a", { href: "#/profile", style: "font-weight:600;text-decoration:underline" }, "Set IngenMind up for your own domain"),
+      " — any time from Profile → Knowledge system.", later));
     return;
   }
   banner.hidden = !session.setupState || session.setupState === "READY" || onSetup;
@@ -237,7 +241,11 @@ window.addEventListener("rag:setup-changed", refreshSetup);
 
 async function route() {
   if (!session.user) return;
-  const name = location.hash.replace(/^#\//, "").split("/")[0];
+  let name = location.hash.replace(/^#\//, "").split("/")[0];
+  if (MOVED[name]) {
+    history.replaceState(null, "", `#/${MOVED[name]}`);
+    name = MOVED[name].split("/")[0];
+  }
   const key = pages[name] ? name : firstAllowedPage();
   if (key === "setup" && name !== "setup") history.replaceState(null, "", "#/setup");   // so the notice knows
   drawSetupBanner();

@@ -49,6 +49,7 @@ class DemoTest(unittest.TestCase):
                     patch.object(seed_demo, "documents", return_value=[("Demo", "Text.")]), \
                     patch.object(knowledge_system, "demo_wanted", return_value=True), \
                     patch.object(knowledge_system, "is_ready", return_value=ready), \
+                    patch.object(seed_demo, "install_demo_flow", return_value=False), \
                     patch.object(knowledge_system, "mark_ready") as mark:
                 self.assertEqual(seed_demo.main(), 0)
             self.assertEqual([(c.args, c.kwargs) for c in mark.call_args_list], marked)

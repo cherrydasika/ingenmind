@@ -73,7 +73,7 @@ export class SessionsPage {
               `${s.turns} question${s.turns === 1 ? "" : "s"}`,
               s.status === "active" ? "current" : null,
             ].filter(Boolean).join(" · "))))))
-      })) : card({ children: note("No sessions yet: ask a question on the Retrieval page.") })));
+      })) : card({ children: note("No sessions yet: ask a question on the Ask page.") })));
   }
 
   // ---------- one session ----------

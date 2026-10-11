@@ -266,7 +266,7 @@ function FlowDetails({ meta, setMeta, record, onLoadVersion, onViewVersion, conf
               <button type="button" className="fl-link" onClick={() => onDuplicate(v.version)} title="Start a new flow from this version">duplicate</button>
               {!live && (
                 <button type="button" className={`fl-link ${asking || anyway ? "is-confirm" : ""}`} onClick={() => onMakeLive(v.version)}
-                  title="Users on the Retrieval page get this version">
+                  title="Users on the Ask page get this version">
                   {anyway ? "make live without an evaluation" : asking ? "confirm: users get this" : "make live"}</button>
               )}
             </li>

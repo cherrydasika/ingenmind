@@ -1,7 +1,7 @@
-// Retrieval page: ask the live flow a question and read the answer, with the
-// sources it cites. The workflow chart lights up as the agents run. Testing
-// and the run's details (per-node traces, versions, metrics) are on the Agent
-// flow page; full diagnostics are in Langfuse.
+// Ask: put a question to the live flow and read the answer, with the sources it
+// cites. The workflow chart is the live flow's own shape and lights up as it
+// runs. Testing and the run's details (per-node traces, versions, metrics) are
+// in the Agent Builder; full diagnostics are in Langfuse.
 
 import { agentReady } from "./agent.js";
 import { api } from "./api.js";
@@ -10,7 +10,7 @@ import { card, errorBox, fmtTime, h, markdown, section, sourceItem } from "./ui.
 import { whyButton } from "./why.js";
 
 export class RetrievalPage {
-  title = "Retrieval";
+  title = "Ask";
 
   constructor(root, { session }) {
     this.root = root;
@@ -55,9 +55,9 @@ export class RetrievalPage {
       h("div", { class: "stack" },
         this.renderAsk(),
         section("responses", "Answer",
-          "Answers come from the live flow and are checked against their evidence before you see them. Follow-up questions keep the conversation's context; a new session starts after 30 minutes idle, and earlier ones are on the Sessions page. To test a flow and see each step, use the Agent flow page.",
+          "Answers come from the live flow and are checked against their evidence before you see them. Follow-up questions keep the conversation's context; a new session starts after 30 minutes idle, and earlier ones are on the Sessions page. To test a flow and see each step, use the Agent Builder.",
           card({ children: this.renderChat() })),
-        section("workflow", "Multi-agent workflow", null, card({ cls: "wf-card", children: this.flow.element })),
+        section("workflow", "Workflow", "The live flow, as built in the Agent Builder; each step lights up as it runs.", card({ cls: "wf-card", children: this.flow.element })),
       ),
     );
     const input = this.root.querySelector("#question");

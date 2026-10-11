@@ -816,3 +816,19 @@ tr.user-edit-row > td { background: var(--surface-2); }
 .gap-list { list-style: none; padding-left: 0; margin: 0; }
 .gap-list > li { padding: 8px 0; border-bottom: 1px solid var(--border); display: grid; gap: 2px; }
 .gap-list > li .btn { justify-self: start; margin-top: 4px; }
+
+/* ---------- Tabs (Knowledge base) ---------- */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); }
+.tab { padding: 8px 14px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 14px; border: 1px solid transparent; border-bottom: 0; margin-bottom: -1px; }
+.tab:hover { color: var(--text); }
+.tab.is-active { color: var(--text); background: var(--surface); border-color: var(--border); }
+
+/* ---------- Monitoring overview ---------- */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.kpi { padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.kpi-label { font-size: 12px; color: var(--muted); }
+.kpi-value { font-size: 22px; font-weight: 700; margin-top: 2px; }
+.kpi-note { font-size: 12px; color: var(--faint); margin-top: 2px; }
+.service-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.service-row:last-child { border-bottom: 0; }
+.dag-flow-name { font-size: 12px; margin: -4px 0 6px; }

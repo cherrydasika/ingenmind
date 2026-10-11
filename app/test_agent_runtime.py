@@ -160,6 +160,14 @@ class AgentComponentTest(LocalHarnessTest):
         self.assertIn(agent.flows.registry.GENERIC_AGENT_INSTRUCTIONS, first["system"])
         self.assertEqual([t["name"] for t in first["tools"]], ["search_knowledge_base"])   # no API tools plugged in
 
+    def test_the_live_shape_names_the_parts_for_the_chart(self):
+        shape = agent.live_shape(self.starter(tools=["get_weather"]), 3)
+        self.assertEqual((shape["kind"], shape["version"]), ("agent", 3))
+        self.assertTrue({"agent", "agent:retriever", "agent:api_tools", "answer_evaluator"} <= set(shape["parts"]))
+        full = agent.live_shape(agent.FLOW, 0)
+        self.assertEqual(full["kind"], "supervisor")
+        self.assertTrue({"knowledge_base", "external_apis", "research_agent", "evidence_evaluator"} <= set(full["parts"]))
+
     def test_api_tools_plugged_into_the_agent_are_offered_and_count_as_evidence(self):
         chat = ScriptedChat(answer_turn("No tools needed."))
         self.ask(self.starter(tools=["get_weather"]), chat)
