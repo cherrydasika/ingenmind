@@ -84,9 +84,14 @@ def validate(spec: FlowSpec, path: str = "") -> list[dict]:
         label = f"{where}.{edge.source}→{edge.target}"
         if edge.kind == "resource":
             source, target = COMPONENTS[nodes[edge.source].type], COMPONENTS[nodes[edge.target].type]
-            port = edge.port or source.provides
-            if source.kind != "resource":
+            port = edge.port or source.provides or source.plugs
+            if source.kind != "resource" and not source.plugs:
                 issues.append(_issue("error", label, "a resource edge must start at a resource"))
+            elif source.plugs:
+                if port != source.plugs:
+                    issues.append(_issue("error", label, f"{source.title} plugs into {source.plugs!r}, not {port!r}"))
+                elif port not in target.inputs:
+                    issues.append(_issue("error", label, f"{target.title} has no {port!r} input"))
             elif port != source.provides:
                 issues.append(_issue("error", label, f"{source.title} provides {source.provides!r}, not {port!r}"))
             elif port not in target.inputs:
@@ -94,9 +99,22 @@ def validate(spec: FlowSpec, path: str = "") -> list[dict]:
         elif kind[edge.source] == "resource" or kind[edge.target] == "resource":
             issues.append(_issue("error", label, "flow edges connect steps, not resources"))
 
+    # Agents plugged into another agent (sub-agents, #66) are not on the flow path.
+    plugged = {e.source for e in spec.edges if e.kind == "resource" and COMPONENTS[nodes[e.source].type].plugs}
+    for sub in plugged:
+        if any(e.source == sub or e.target == sub for e in flow_edges):
+            issues.append(_issue("error", f"{where}.{sub}", "a sub-agent has no flow edges: it is plugged into its parent"))
+        parents = [e.target for e in spec.edges if e.kind == "resource" and e.source == sub]
+        if len(parents) > 1:
+            issues.append(_issue("error", f"{where}.{sub}", f"a sub-agent plugs into one agent only (has {len(parents)})"))
+    tree = {n.id: [e.source for e in spec.edges if e.kind == "resource" and e.target == n.id and e.source in plugged]
+            for n in spec.nodes}
+    for cycle in _cycles(tree):
+        issues.append(_issue("error", where, f"sub-agents in a loop: {', '.join(sorted(cycle))}"))
+
     for node in spec.nodes:
         component = COMPONENTS[node.type]
-        if component.kind == "resource" or node.type == "end":
+        if component.kind == "resource" or node.type == "end" or node.id in plugged:
             continue
         out = [e for e in flow_edges if e.source == node.id]
         label = f"{where}.{node.id}"
@@ -121,7 +139,7 @@ def validate(spec: FlowSpec, path: str = "") -> list[dict]:
         elif len(out) != 1 or out[0].outcome:
             issues.append(_issue("error", label, f"needs exactly one outgoing flow edge without an outcome (has {len(out)})"))
 
-    steps = [n.id for n in spec.nodes if kind[n.id] != "resource"]
+    steps = [n.id for n in spec.nodes if kind[n.id] != "resource" and n.id not in plugged]
     graph = {n: [e.target for e in flow_edges if e.source == n] for n in steps}
     if starts and ends:
         reached = _reach(graph, starts[0].id)
@@ -142,6 +160,7 @@ def validate(spec: FlowSpec, path: str = "") -> list[dict]:
                                                    "route it through a component that limits it"))
     if not path and spec.state == "main":   # a subflow's End returns to its parent
         issues += _guardrail_policy(spec, graph, starts, kind)
+        issues += _unique_names(spec)
     used = [n.config.get("subflow") for n in spec.nodes if n.type == "subflow"]
     for name, sub in spec.subflows.items():
         if used.count(name) > 1:
@@ -149,6 +168,34 @@ def validate(spec: FlowSpec, path: str = "") -> list[dict]:
         elif name not in used:
             issues.append(_issue("warning", f"{where}/{name}", "subflow is not used by any node"))
         issues += validate(sub, f"{where}/{name}")
+    return issues
+
+
+NAMED = ("agent", "check")   # what a parent or a trace calls by name
+
+
+def node_name(node) -> str:
+    """An agent's or evaluator's name: its label, else its id."""
+    return (node.label or node.id).strip()
+
+
+def _unique_names(spec: FlowSpec) -> list[dict]:
+    """Agents and evaluators have unique names across the flow and its subflows (case-insensitive)."""
+    seen: dict[str, str] = {}
+    issues = []
+    def walk(flow: FlowSpec, where: str) -> None:
+        for node in flow.nodes:
+            if node.type not in NAMED:
+                continue
+            key = " ".join(node_name(node).lower().split())
+            if key in seen:
+                issues.append(_issue("error", f"{where}.{node.id}",
+                                     f"the name {node_name(node)!r} is already used by {seen[key]}: names must be unique"))
+            else:
+                seen[key] = f"{where}.{node.id}"
+        for name, sub in flow.subflows.items():
+            walk(sub, f"{where}/{name}")
+    walk(spec, spec.id)
     return issues
 
 
@@ -296,7 +343,9 @@ def _single_next(spec: FlowSpec, node_id: str) -> EdgeSpec:
 
 def _build(spec: FlowSpec, runtime: Runtime) -> StateGraph:
     graph = StateGraph(runtime.states[spec.state])
-    steps = [n for n in spec.nodes if COMPONENTS[n.type].kind == "flow"]
+    # Sub-agents (#66) run through their parent agent, not as graph steps.
+    plugged = {e.source for e in spec.edges if e.kind == "resource" and COMPONENTS[spec.node(e.source).type].plugs}
+    steps = [n for n in spec.nodes if COMPONENTS[n.type].kind == "flow" and n.id not in plugged]
     for node in steps:
         component = COMPONENTS[node.type]
         if node.type == "subflow":

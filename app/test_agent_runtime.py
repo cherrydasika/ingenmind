@@ -160,6 +160,42 @@ class AgentComponentTest(LocalHarnessTest):
         self.assertIn(agent.flows.registry.GENERIC_AGENT_INSTRUCTIONS, first["system"])
         self.assertEqual([t["name"] for t in first["tools"]], ["search_knowledge_base"])   # no API tools plugged in
 
+    def test_a_sub_agent_is_checked_retries_and_its_citations_reach_the_answer(self):
+        spec = agent.flows.FlowSpec.model_validate({
+            "id": "generic", "name": "Generic", "version": 1, "state": "main", "subflows": {},
+            "nodes": [{"id": "start", "type": "start"}, {"id": "ig", "type": "input_guardrail"},
+                      {"id": "assistant", "type": "agent", "label": "Assistant"},
+                      {"id": "kb", "type": "agent", "label": "Rail facts", "config": {"instructions": "Finds rail facts."}},
+                      {"id": "retriever", "type": "retriever"},
+                      {"id": "strict", "type": "check", "label": "Strict",
+                       "config": {"checks": "criteria", "criteria": "Says every station, not just one."}},
+                      {"id": "final", "type": "check", "label": "Final"},
+                      {"id": "og", "type": "output_guardrail"}, {"id": "end", "type": "end"}],
+            "edges": [{"source": "start", "target": "ig"}, {"source": "ig", "target": "assistant", "outcome": "ALLOW"},
+                      {"source": "ig", "target": "end", "outcome": "BLOCK"}, {"source": "assistant", "target": "og"},
+                      {"source": "og", "target": "end", "outcome": "ALLOW"}, {"source": "og", "target": "end", "outcome": "BLOCK"},
+                      {"source": "kb", "target": "assistant", "kind": "resource", "port": "agents"},
+                      {"source": "retriever", "target": "kb", "kind": "resource"},
+                      {"source": "strict", "target": "kb", "kind": "resource"},
+                      {"source": "final", "target": "assistant", "kind": "resource"}]})
+        ask = llm.Turn([{"toolUse": {"toolUseId": "a1", "name": "ask_kb", "input": {"task": "Step-free access?"}}}],
+                       "tool_use", 10, 5)
+        chat = ScriptedChat(ask, uses_turn("search_knowledge_base"), answer_turn("Kestrel Bay is step-free [1]."),
+                            answer_turn("Every station is step-free [1]."), answer_turn("Yes: every station is step-free [1]."))
+        verdicts = iter([(False, "It names one station only.", {}), (True, "", {})])
+        with patch.object(agent.agent_tree, "check_criteria", side_effect=lambda *a: next(verdicts)):
+            result, seen = self.ask(spec, chat)
+        self.assertEqual(result["answer"], "Yes: every station is step-free [1].")
+        self.assertEqual(result["sources"], [{"url": "https://rail.example/access", "cited": [1]}])
+        self.assertEqual([t["name"] for t in chat.calls[0]["tools"]], ["ask_kb"])           # the top agent's sub-agent
+        self.assertIn("Rail facts", chat.calls[0]["system"])
+        self.assertEqual([t["name"] for t in chat.calls[1]["tools"]], ["search_knowledge_base"])
+        self.assertIn("a sub-agent", chat.calls[1]["system"])
+        retry = chat.calls[3]["messages"][-1]["content"][0]["text"]
+        self.assertIn("did not pass Strict: It names one station only.", retry)              # the evaluator's feedback
+        # The top agent's answer check sees the evidence its sub-agent gathered.
+        self.assertEqual([c["source_url"] for c in seen["chunks"]], ["https://rail.example/access"])
+
     def test_the_live_shape_names_the_parts_for_the_chart(self):
         shape = agent.live_shape(self.starter(tools=["get_weather"]), 3)
         self.assertEqual((shape["kind"], shape["version"]), ("agent", 3))

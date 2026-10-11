@@ -53,14 +53,17 @@ const AGENT_NODES = {
   question: ["Question", 0, 1, END_W],
   input_guardrail: ["Input guard", 1, 1],
   agent: ["Agent", 2, 1],
+  checks: ["Checks", 2, 3],
   search: ["Search", 3, 0],
   call: ["API call", 3, 2],
+  subagents: ["Sub-agents", 3, 3],
   output_guardrail: ["Output guard", 4, 1],
   answer_eval: ["Answer check", 5, 1],
   answer: ["Answer", 6, 1, END_W],
 };
 const AGENT_EDGES = [
   ["question", "input_guardrail"], ["input_guardrail", "agent"], ["agent", "search"], ["agent", "call"],
+  ["agent", "subagents"], ["agent", "checks"],
   ["agent", "output_guardrail"], ["output_guardrail", "answer_eval"], ["answer_eval", "answer"],
 ];
 
@@ -74,6 +77,8 @@ function layoutFor(live) {
   if (agentFlow) {
     if (!parts.has("agent:retriever")) drop("search");
     if (!parts.has("agent:api_tools")) drop("call");
+    if (!parts.has("agent:agent")) drop("subagents");     // sub-agents plugged in (#66)
+    if (!parts.has("agent:check")) drop("checks");        // evaluators plugged in (#66)
   } else if (live?.kind === "supervisor") {
     if (!parts.has("external_apis")) drop("external_apis", "call");
     if (!parts.has("knowledge_base")) drop("knowledge_base", "search", "evaluator", "rewrite", "research", "other");
@@ -101,7 +106,7 @@ const BRANCH_NODE = { good: "writer", retry: "rewrite", gap: "research", other: 
 // Activity nodes (agent.py) → the box that shows them.
 const ACTIVITY = {
   knowledge_base: "knowledge_base", external_apis: "external_apis", embedding: "search", retrieval: "search",
-  evaluator: "evaluator", rewriter: "rewrite", call: "call", agent: "agent",
+  evaluator: "evaluator", rewriter: "rewrite", call: "call", agent: "agent", subagent: "subagents", check: "checks",
   research: "research", r_search: "research", r_extract: "research", r_validate: "research", r_ingest: "research",
   r_classify: "research", r_known: "research", r_profile: "research", r_probe: "research", r_judge: "research",
 };
@@ -147,7 +152,9 @@ export class AgenticFlow {
       output_guardrail: "Scope and safety check on the answer",
       answer_eval: "Correctness · faithfulness · completeness · citations",
       answer: "What the user sees",
-      agent: `${this.model} · answers the question itself, searching the knowledge base and calling its tools`,
+      agent: `${this.model} · answers the question with its tools and sub-agents`,
+      subagents: "Agents it handed a task to; each works with its own tools and reports back",
+      checks: "Evaluators checking an agent's result; a failure gets another try with their feedback",
     };
     this.el = this.build();
     this.reset();

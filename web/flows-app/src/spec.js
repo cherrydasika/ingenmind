@@ -57,8 +57,19 @@ export function connectionProblem(conn, nodes, edges) {
   const sc = source.data.component, tc = target.data.component;
   if (conn.sourceHandle === "provides") {
     if (conn.targetHandle !== "inputs") return "plug a resource into a port (left side)";
-    if (!tc?.inputs?.includes(sc.provides)) return `${tc?.title || "this"} has no ${sc.provides} input`;
+    const port = sc.provides || sc.plugs;
+    if (!tc?.inputs?.includes(port)) return `${tc?.title || "this"} has no ${port} input`;
     if (edges.some((e) => e.source === source.id && e.target === target.id)) return "already plugged in";
+    if (sc.plugs) {   // an agent plugged into another agent: a sub-agent (#66)
+      if (edges.some((e) => e.source === source.id && e.data?.resource)) return "a sub-agent plugs into one agent only";
+      const below = new Set([source.id]);
+      for (let grew = true; grew;) {
+        grew = false;
+        for (const e of edges) if (e.data?.resource && below.has(e.target) && !below.has(e.source)
+          && nodes.find((n) => n.id === e.source)?.data.component?.plugs) { below.add(e.source); grew = true; }
+      }
+      if (below.has(target.id)) return "that would put the agents in a loop";
+    }
     return null;
   }
   if (conn.targetHandle !== "in") return "flow edges go into the top of a step";
@@ -73,6 +84,12 @@ export function connectionProblem(conn, nodes, edges) {
   }
   return null;
 }
+
+/** The name an agent or evaluator goes by: its label, else its id (unique, case-insensitive). */
+export function nodeName(node) {
+  return (node.label || node.id || "").trim();
+}
+export const nameKey = (name) => name.toLowerCase().split(/\s+/).filter(Boolean).join(" ");
 
 /** Default settings a new node needs (required fields without defaults). */
 export function initialConfig(type, extra = {}) {

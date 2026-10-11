@@ -76,6 +76,10 @@ export function StepNode({ data, selected }) {
         </div>
       </div>
       <Outcomes handles={sourceHandles(component)} />
+      {component?.plugs && (
+        <Handle type="source" position={Position.Right} id="provides" className="fl-port"
+          title={`Plug into another agent's ${component.plugs} port to make this a sub-agent`} />
+      )}
     </div>
   );
 }

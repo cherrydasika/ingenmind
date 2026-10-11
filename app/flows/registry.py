@@ -95,6 +95,24 @@ class AgentConfig(BaseModel):
     answer_word_limit: int = Field(120, ge=40, le=400, description="The answer's hard word limit (in its prompt)")
 
 
+class CheckConfig(BaseModel):
+    """An evaluator plugged into an agent's checks (#66): it checks that agent's result."""
+    checks: Literal["answer", "evidence", "criteria"] = Field(
+        "answer", description="answer: correct, faithful, complete and cited against the evidence gathered at and "
+                              "below the agent; evidence: the evidence is enough for the task; criteria: your own")
+    criteria: str = Field("", max_length=2000, json_schema_extra=MULTILINE,
+                          description="What a good result must do (only for checks = criteria), e.g. "
+                                      "\"names the operator and the date\"")
+    max_attempts: int = Field(2, ge=1, le=3, description="Tries in all: after a failure the agent tries again with "
+                                                         "the evaluator's feedback")
+
+    @model_validator(mode="after")
+    def _criteria_given(self):
+        if self.checks == "criteria" and len(self.criteria.strip()) < 10:
+            raise ValueError("criteria: describe what a good result must do")
+        return self
+
+
 class SpecialistConfig(BaseModel):
     role: Literal["external_apis"] = Field("external_apis", description="Agent role in agent.py ROLES")
 
@@ -276,6 +294,7 @@ class Component:
     fan_out: bool = False                   # routes to "delegate:<agent>" targets in parallel (Send)
     inputs: tuple[str, ...] = ()            # resource ports it accepts
     provides: str | None = None             # resource: the port it plugs into
+    plugs: str | None = None                # a step that can also plug into this port (an Agent as a sub-agent)
     bounds_loops: bool = False              # a cycle through it is limited by its own counter
     accepts_subflow_payload: bool = False   # a Send to it carries {"task": …}
     runnable: bool = True                   # resource types the runtime cannot build yet are False
@@ -285,7 +304,8 @@ class Component:
     def describe(self) -> dict:
         return {"type": self.type, "title": self.title, "kind": self.kind, "category": self.category,
                 "description": self.description, "outcomes": list(self.outcomes), "fan_out": self.fan_out,
-                "inputs": list(self.inputs), "provides": self.provides, "bounds_loops": self.bounds_loops,
+                "inputs": list(self.inputs), "provides": self.provides, "plugs": self.plugs,
+                "bounds_loops": self.bounds_loops,
                 "runnable": self.runnable, "applied": list(self.applied),
                 "config_schema": self.config.model_json_schema()}
 
@@ -310,10 +330,13 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
               outcomes=("answer",), fan_out=True, inputs=("llm", "memory"), bounds_loops=True,
               applied=("brief", "search_country", "domain", "instructions", "max_rounds", "answer_word_limit")),
     Component("agent", "Agent", "flow", "agent",
-              "One agent that answers the question itself: it searches the knowledge base through a plugged-in "
-              "Retriever, calls any API tools plugged in, and cites what it used. A new domain starts with it.",
-              AgentConfig, impl="agent", inputs=("llm", "memory", "retriever", "tools"),
-              applied=("brief", "domain", "instructions", "answer_word_limit")),
+              "An agent. What it does comes from what you connect: tools (knowledge-base search, web search, a "
+              "scraper, API tools), sub-agents (other Agents plugged into its agents port, which it can hand "
+              "tasks to) and evaluators (plugged into its checks port). On the main path it answers the user; "
+              "plugged into another agent it answers that agent's task.",
+              AgentConfig, impl="agent",
+              inputs=("llm", "memory", "retriever", "web_search", "scraper", "tools", "agents", "checks"),
+              plugs="agents", applied=("brief", "domain", "instructions", "answer_word_limit")),
     Component("specialist_agent", "Specialist agent", "flow", "agent",
               "An agent with tools that works on one delegated task and reports back.", SpecialistConfig,
               impl="specialist", inputs=("llm", "memory", "tools"), applied=("role",)),
@@ -363,6 +386,10 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
     Component("task_finish", "Task finish", "flow", "step", "Closes the task and returns its finding.",
               impl="task_finish"),
     # resources
+    Component("check", "Evaluator", "resource", "evaluator",
+              "Checks the result of the agent it plugs into, before it goes up or out: the answer, the evidence, "
+              "or your own criteria. On a failure the agent tries again with its feedback. Any number, at any level.",
+              CheckConfig, provides="checks", applied=("checks", "criteria", "max_attempts")),
     Component("llm", "LLM", "resource", "model",
               "The model an agent reasons with. Temperature and max tokens apply to the agents it plugs into, on "
               "either agent runtime; the evaluators and the query rewriter keep temperature 0 for structured "

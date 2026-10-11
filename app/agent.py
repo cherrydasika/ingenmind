@@ -70,6 +70,7 @@ from langgraph.types import Send
 
 import agent_memory
 import agent_runtime
+import agent_tree
 import answer_eval
 import api_tools
 import evidence
@@ -296,7 +297,9 @@ def _system_prompt(role: str, settings: dict | None = None) -> list[dict]:
                                  settings.get("instructions", flows.registry.UK_RAIL_SUPERVISOR_INSTRUCTIONS))
               if role == "supervisor"
               else f"{AGENT_PROMPT}\n\n{settings.get('instructions') or flows.registry.GENERIC_AGENT_INSTRUCTIONS}"
-              if role == "agent" else ROLES[role]["prompt"])
+              if role == "agent"
+              else agent_tree.prompt(settings["tree"][role[6:]], settings["tree"])
+              if role.startswith("agent:") else ROLES[role]["prompt"])
     scope = (settings.get("guardrail") or {}).get("scope") or guardrails.UK_RAIL_SCOPE
     return [{"text": f"ASSISTANT BRIEF: {brief}\nRead every question and task in the brief's context: when one "
              "does not name a country, region or organisation, it means the brief's.\n\n"
@@ -524,6 +527,8 @@ class _Run:
 
     def _params(self, run: dict, messages: list[dict]) -> dict:
         role = run["role"]
+        if role.startswith("agent:"):
+            return self._generic_params(run, messages)
         params = {"harnessArn": HARNESS_ARN, "runtimeSessionId": _runtime_session_id(self.session_id, role),
                   "messages": messages, "systemPrompt": _system_prompt(role, self.settings),
                   "tools": ROLES[role]["tools"], "maxIterations": self.turn_limit(role)}
@@ -538,6 +543,30 @@ class _Run:
             params["runtimeUserId"] = self.user_id
         # AgentCore Memory is kept per actor: one actor per browser session,
         # so an agent never recalls facts from another conversation.
+        params["actorId"] = _actor_id(self.session_id)
+        return params
+
+    def _generic_params(self, run: dict, messages: list[dict]) -> dict:
+        """A generic agent (#66): its prompt and tools come from what is connected to it."""
+        role = run["role"]
+        tree = self.tree
+        agent = tree[role[6:]]
+        settings = {**self.settings, "tree": tree}
+        system = _system_prompt(role, settings)
+        offered = agent_tree.tools(agent, tree, ROLES)
+        if offered and offered[0]["name"] == "search_knowledge_base":   # the flow's retriever and label filters
+            _, search = _apply_settings("knowledge_base", self.settings, [], offered[:1])
+            offered = search + offered[1:]
+        params = {"harnessArn": HARNESS_ARN, "runtimeSessionId": _runtime_session_id(self.session_id, role),
+                  "messages": messages, "systemPrompt": system, "tools": offered,
+                  "maxIterations": self.turn_limit(role)}
+        defaults = flows.COMPONENTS["llm"].config()
+        if agent.llm and (agent.llm["temperature"], agent.llm["max_tokens"]) != (defaults.temperature, defaults.max_tokens):
+            params["model"] = {"bedrockModelConfig": {"modelId": flows.registry.HARNESS_MODEL,
+                                                      "maxTokens": agent.llm["max_tokens"],
+                                                      "temperature": agent.llm["temperature"]}}
+        if self.user_id:
+            params["runtimeUserId"] = self.user_id
         params["actorId"] = _actor_id(self.session_id)
         return params
 
@@ -624,7 +653,9 @@ class _Run:
 
     def specialist(self, role: str, task: str, n: int) -> dict:
         """Run a specialist on its task until it answers, running its tools."""
-        with self.role_locks[role]:
+        with self.lock:
+            lock = self.role_locks.setdefault(role, threading.Lock())
+        with lock:
             run = self.new_run(role, n)
             messages = [{"role": "user", "content": [{"text": task}]}]
             while True:
@@ -642,8 +673,9 @@ class _Run:
                         key = (self.session_id, role)   # still asking: abandon this session
                         _generations[key] = _generations.get(key, 0) + 1
                     break
-                tool = {"knowledge_base": self._search, "research": self._research_tool,
-                        "agent": self._agent_tool}.get(ROLE_ALIASES.get(role, role), self._call)
+                tool = (self._generic_tool if role.startswith("agent:") else
+                        {"knowledge_base": self._search, "research": self._research_tool,
+                         "agent": self._agent_tool}.get(ROLE_ALIASES.get(role, role), self._call))
                 if len(uses) > 1:
                     # Each call runs in a copy of this thread's context, so its
                     # trace observation stays inside this agent's trace.
@@ -726,6 +758,95 @@ class _Run:
             about = ", ".join(str(x) for x in (meta.get("organisation"), meta.get("effective_date")) if x)
             lines += [f"[{number}] {chunk['source_url']}" + (f" ({about})" if about else ""), chunk["text"].strip(), ""]
         return _result(use, "\n".join(lines).rstrip())
+
+    def _generic_tool(self, use: dict, delegation: int) -> dict:
+        """A generic agent's tool: a sub-agent, the knowledge-base search, web research, or an API."""
+        name = str(use.get("name") or "")
+        if name.startswith(agent_tree.SUBAGENT_TOOL):
+            child = name[len(agent_tree.SUBAGENT_TOOL):]
+            parent = next((r for r in self.agent_runs if r["n"] == delegation), None)
+            if child not in self.tree or self.tree[child].parent != (parent or {}).get("node"):
+                return _result(use, f"Unknown sub-agent {child!r}.", error=True)
+            task = str(_input(use).get("task") or "").strip()[:MAX_TEXT_CHARS]
+            if not task:
+                return _result(use, "The task is empty.", error=True)
+            done = self.run_agent(child, task, parent=delegation)
+            note = "" if done["passed"] else f"\n[This did not pass {done['failed_check']}: {done['feedback']}]"
+            return _result(use, (done["answer"] or "(no answer)") + note)
+        if name == "search_knowledge_base":
+            return self._search(use, delegation)
+        if name in ("web_search", "fetch_source"):
+            return self._research_tool(use, delegation)
+        return self._call(use, delegation)
+
+    def subtree(self, n: int) -> set[int]:
+        """An agent run's delegation number and every one below it."""
+        out, frontier = {n}, [n]
+        while frontier:
+            current = frontier.pop()
+            for r in self.agent_runs:
+                if r["parent"] == current and r["n"] not in out:
+                    out.add(r["n"])
+                    frontier.append(r["n"])
+        return out
+
+    def evidence_of(self, n: int) -> tuple[list[dict], list[dict], list[dict]]:
+        """(chunks, api results, searches) gathered at and below an agent run, for its checks."""
+        below = self.subtree(n)
+        searches = [s for s in self.searches if s and s["delegation"] in below]
+        chunks = [{"n": s["first"] + i, "source_url": c["source_url"], "text": c["text"]}
+                  for s in searches for i, c in enumerate(s["retrieval"]["chunks"])]
+        api_results = [{"tool": c["tool"], "input": c["input"], "summary": c["summary"]}
+                       for c in self.calls if c.get("ok") and c["delegation"] in below]
+        api_results += [{"tool": "web_search", "input": w["query"],
+                         "summary": json.dumps(w["results"][:5], ensure_ascii=False)[:2000]}
+                        for w in getattr(self, "web_searches", []) if w["delegation"] in below]
+        return chunks, api_results, searches
+
+    def run_agent(self, node: str, task: str, parent: int | None = None) -> dict:
+        """Run a generic agent on a task, then its checks; a failed check gets another try
+        with the evaluator's feedback, up to its max attempts."""
+        agent = self.tree[node]
+        with self.lock:
+            n = len(self.agent_runs) + 1
+            self.agent_runs.append({"n": n, "node": node, "parent": parent})
+        kind = "agent" if parent is None else "subagent"
+        self.emit({"type": "delegate", "state": "start", "agent": kind, "n": n, "task": task, "round": 1})
+        started = time.monotonic()
+        attempts = max([c["config"]["max_attempts"] for c in agent.checks] or [1])
+        prompt_task, out = task, {"answer": "", "passed": True, "failed_check": None, "feedback": "", "checks": []}
+        for attempt in range(1, attempts + 1):
+            try:
+                result = self.specialist(f"agent:{node}", prompt_task, n)
+                out["answer"], out["turns"] = _without_preamble(result["answer"] or ""), result["turns"]
+            except Exception as error:
+                out.update(answer="", passed=False, failed_check="its run", feedback=f"{type(error).__name__}: {error}")
+                break
+            out.update(passed=True, failed_check=None, feedback="")
+            chunks, api_results, searches = self.evidence_of(n)
+            for check in agent.checks:
+                if attempt > check["config"]["max_attempts"]:
+                    continue
+                self.emit({"type": "check", "state": "start", "n": n, "name": check["name"]})
+                try:
+                    passed, feedback, details = agent_tree.run_check(
+                        check, task, out["answer"], chunks, api_results, searches,
+                        answer_assessor=self.answer_assessor, evidence_assessor=self.assessor)
+                except Exception as error:   # a broken evaluator never blocks the answer
+                    passed, feedback, details = True, "", {"error": f"{type(error).__name__}: {error}"}
+                out["checks"].append({"name": check["name"], "attempt": attempt, "passed": passed, **details})
+                self.emit({"type": "check", "state": "done", "n": n, "passed": passed, "attempt": attempt})
+                if not passed:
+                    out.update(passed=False, failed_check=check["name"], feedback=feedback)
+                    break
+            if out["passed"]:
+                break
+            prompt_task = (f"{task}\n\n[Automatic check, not from the user] Your last result did not pass "
+                           f"{out['failed_check']}: {out['feedback']} Work on the task again and fix that.")
+        out["n"], out["seconds"] = n, round(time.monotonic() - started, 3)
+        self.emit({"type": "delegate", "state": "done", "agent": kind, "n": n, "seconds": out["seconds"],
+                   "turns": out.get("turns", 0), "error": None if out["passed"] else out["failed_check"]})
+        return out
 
     def _agent_tool(self, use: dict, delegation: int) -> dict:
         """The Agent's tools: the knowledge-base search, else an API tool."""
@@ -932,7 +1053,8 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
         settings.update(word_limit=config.answer_word_limit, max_rounds=config.max_rounds,
                         domain=config.domain, instructions=config.instructions,
                         brief=config.brief, search_country=config.search_country.strip().lower())
-    single = next((n for n in spec.nodes if n.type == "agent"), None)
+    plugged = {e.source for e in spec.edges if e.kind == "resource" and (spec.node(e.source) or {}) and spec.node(e.source).type == "agent"}
+    single = next((n for n in spec.nodes if n.type == "agent" and n.id not in plugged), None)
     if single and not supervisor:
         config = flows.COMPONENTS["agent"].config.model_validate(single.config)
         settings.update(word_limit=config.answer_word_limit, domain=config.domain,
@@ -1137,21 +1259,15 @@ def _agent_node(node_id: str):
     def node(state: State, config) -> dict:
         run: _Run = config["configurable"]["run"]
         with run.node(node_id, 0):
-            started = time.monotonic()
-            finding = {"n": 1, "agent": "agent", "task": state["question"], "round": 1,
-                       "answer": None, "error": None, "turns": 0}
-            run.emit({"type": "delegate", "state": "start", **{k: finding[k] for k in ("n", "agent", "task", "round")}})
-            try:
-                result = run.specialist("agent", state["question"], 1)
-                finding.update(answer=result["answer"], turns=result["turns"])
-            except Exception as error:
-                finding["error"] = f"{type(error).__name__}: {error}"
-            finding["search_ns"] = [s["n"] for s in run.searches if s and s["delegation"] == 1]
-            finding["seconds"] = round(time.monotonic() - started, 3)
-            run.emit({"type": "delegate", "state": "error" if finding["error"] else "done", "agent": "agent",
-                      "n": 1, "seconds": finding["seconds"], "turns": finding["turns"], "error": finding["error"]})
-        answer = _without_preamble(finding["answer"] or "") if not finding["error"] else ""
-        return {"answer": answer, "findings": [finding], "round": 1, "tasks": [], "pending_uses": []}
+            # The agent with everything connected to it (#66): its tools, sub-agents and checks.
+            done = run.run_agent(node_id, state["question"])
+            below = run.subtree(done["n"])
+            finding = {"n": done["n"], "agent": "agent", "task": state["question"], "round": 1,
+                       "answer": done["answer"], "turns": done.get("turns", 0), "seconds": done["seconds"],
+                       "error": None if done["answer"] else (done["feedback"] or "no answer"),
+                       "checks": done["checks"], "delegations": sorted(below),
+                       "search_ns": [s["n"] for s in run.searches if s and s["delegation"] in below]}
+        return {"answer": done["answer"], "findings": [finding], "round": 1, "tasks": [], "pending_uses": []}
     return node
 
 
@@ -1680,7 +1796,7 @@ def _answer_evaluator(state: State, config) -> dict:
     search_ns = {n for f in findings for n in f.get("search_ns") or []}
     chunks = [{"n": s["first"] + i, "source_url": c["source_url"], "text": c["text"]}
               for s in run.searches if s and s["n"] in search_ns for i, c in enumerate(s["retrieval"]["chunks"])]
-    api_tasks = {f["n"] for f in findings if f["agent"] in ("external_apis", "agent")}
+    api_tasks = {n for f in findings if f["agent"] in ("external_apis", "agent") for n in f.get("delegations") or [f["n"]]}
     api_results = [{"tool": c["tool"], "input": c["input"], "summary": c["summary"]}
                    for c in run.calls if c.get("ok") and c["delegation"] in api_tasks]
     draft = state.get("answer") or ""
@@ -2084,6 +2200,7 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
     except Exception as error:
         log.warning("no filter vocabulary: %s", error)
     run.settings = settings
+    run.tree, run.agent_runs = agent_tree.tree(spec), []
     run.trace_id = trace_id
     run_id = str(uuid.uuid4())
     config = {"configurable": {"run": run, "thread_id": run_id}, "recursion_limit": 60}
@@ -2121,8 +2238,10 @@ def _public_progress(event: dict) -> dict | None:
         node = {"agent": "research", "search": "r_search", "fetch": "r_extract", "validate": "r_validate",
                 "classify": "r_classify", "known": "r_known", "profile": "r_profile", "probe": "r_probe",
                 "judge": "r_judge"}.get(event.get("step"))
-    elif kind == "delegate" and event.get("agent") in ("knowledge_base", "external_apis", "agent"):
+    elif kind == "delegate" and event.get("agent") in ("knowledge_base", "external_apis", "agent", "subagent"):
         node = event["agent"]
+    elif kind == "check":
+        node = "check"
     elif kind in ("call", "ingest", "evaluation", "rewrite"):
         node = {"call": "call", "ingest": "r_ingest", "evaluation": "evaluator", "rewrite": "rewriter"}[kind]
     if node and event.get("state") in ("start", "done", "error"):

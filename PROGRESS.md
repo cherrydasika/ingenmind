@@ -74,7 +74,15 @@ way: a test (`test_demo`) had made `lakeshore_demo` live in the local
 database; restored to the built-in flow. Then the **Agent Builder's
 component list**: Agent, Evaluator and Guardrail are one item each; a drop
 asks for the kind and the name (kinds that cannot run where dropped are
-greyed out with the reason).
+greyed out with the reason). Then **#66, the generic Agent**: tools,
+sub-agents (another Agent plugged into `agents`) and evaluators (`check`,
+plugged into `checks`, any number at any level, retry with feedback) plug
+into one Agent; unique names enforced; classic components kept under
+"Classic"; existing flows unchanged. Local setup evaluation: generic
+multi-agent 12/16 at 47k tokens vs classic 11–12/16 at 320–410k; the
+one-agent starter (14/16) stays the default. Local test flows
+`starter_check` and `generic_check` are left in the local database (not
+live).
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is
