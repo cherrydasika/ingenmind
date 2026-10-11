@@ -10,7 +10,7 @@ import { fitGroups, GROUP_PAD, layoutFlow, makeEdge, nodeSize } from "./layout.j
 import { CATEGORY, nodeTypes } from "./nodes.jsx";
 import { eventTargets, traceEntry } from "./events.js";
 import { ConfigForm } from "./ConfigForm.jsx";
-import { connectionProblem, delegateOutcome, initialConfig, rawId, toSpec, uniqueId, withoutPositions } from "./spec.js";
+import { connectionProblem, delegateOutcome, initialConfig, nameKey, nodeName, rawId, toSpec, uniqueId, withoutPositions } from "./spec.js";
 import { flowsApi } from "./api.js";
 import { copySelection, pasteClip } from "./clipboard.js";
 
@@ -83,45 +83,58 @@ function issuesByNode(issues, nodes, root) {
 
 // ---------- side panels ----------
 
-// Agents, evaluators and guardrails are one item each: drop it, then choose
-// which kind and name it (KindPicker).
+// The component list (#66): build with one Agent, one Evaluator and the
+// guardrails, plug tools into them; everything else is under Classic.
 const GENERIC = {
-  agent: "Drop it, then choose: one agent, a supervisor, a specialist, a RAG retrieval agent, a research agent…",
-  evaluator: "Drop it, then choose: answer evaluator, evidence evaluator or source validator",
-  guardrail: "Drop it, then choose: input or output guardrail",
+  agent: ["agent", "An agent. Plug in tools, other agents (its sub-agents) and evaluators; on the main path it answers the user."],
+  evaluator: ["check", "Checks the result of the agent it plugs into: the answer, the evidence or your own criteria."],
+  guardrail: [null, "Input or output guardrail: the scope and safety checks around the answer."],
 };
+const TOOL_CATEGORIES = ["model", "memory", "data", "tool"];
+const PRIMARY = new Set(["agent", "check", "input_guardrail", "output_guardrail", "start", "end"]);
+
+function PaletteItem({ c, drag, label }) {
+  return (
+    <div className={`fl-palette-item fl-cat-${c.category}`} title={c.description} draggable
+      onDragStart={(e) => { e.dataTransfer.setData(DRAG_TYPE, drag || c.type); e.dataTransfer.effectAllowed = "move"; }}>
+      <span className="fl-icon">{CATEGORY[c.category]?.icon}</span>
+      <span>{label || c.title}</span>
+      {!c.runnable && <span className="fl-chip">soon</span>}
+    </div>
+  );
+}
 
 function Palette({ components }) {
-  const groups = CATEGORY_ORDER.map((cat) => [cat, components.filter((c) => c.category === cat)]).filter(([, l]) => l.length);
-  const generic = groups.filter(([cat]) => GENERIC[cat]);
-  const rest = groups.filter(([cat]) => !GENERIC[cat]);
+  const of = (cats) => components.filter((c) => cats.includes(c.category));
+  const classic = components.filter((c) => !PRIMARY.has(c.type) && !TOOL_CATEGORIES.includes(c.category));
   return (
     <aside className="fl-palette">
-      <div className="fl-panel-title" title={"Drag onto the canvas, or into a subflow box. Connect a bottom handle to a top "
-        + "handle for the order steps run in; a resource's right handle to a step's left port."}>Components</div>
+      <div className="fl-panel-title" title={"Drag onto the canvas. Connect a bottom handle to a top handle for the order "
+        + "steps run in; plug tools, sub-agents and evaluators into an agent's left port."}>Components</div>
       <div className="fl-palette-group">
         <div className="fl-palette-label">Build with</div>
-        {generic.map(([cat]) => (
-          <div key={cat} className={`fl-palette-item fl-cat-${cat} is-generic`} title={GENERIC[cat]} draggable
+        {Object.entries(GENERIC).map(([cat, [, hint]]) => (
+          <div key={cat} className={`fl-palette-item fl-cat-${cat} is-generic`} title={hint} draggable
             onDragStart={(e) => { e.dataTransfer.setData(DRAG_TYPE, `kind:${cat}`); e.dataTransfer.effectAllowed = "move"; }}>
             <span className="fl-icon">{CATEGORY[cat]?.icon}</span>
             <span>{CATEGORY[cat]?.label}</span>
           </div>
         ))}
       </div>
-      {rest.map(([cat, list]) => (
-        <div key={cat} className="fl-palette-group">
-          <div className="fl-palette-label">{CATEGORY[cat]?.label || cat}</div>
-          {list.map((c) => (
-            <div key={c.type} className={`fl-palette-item fl-cat-${c.category}`} title={c.description} draggable
-              onDragStart={(e) => { e.dataTransfer.setData(DRAG_TYPE, c.type); e.dataTransfer.effectAllowed = "move"; }}>
-              <span className="fl-icon">{CATEGORY[c.category]?.icon}</span>
-              <span>{c.title}</span>
-              {!c.runnable && <span className="fl-chip">soon</span>}
-            </div>
-          ))}
-        </div>
-      ))}
+      <div className="fl-palette-group">
+        <div className="fl-palette-label">Tools</div>
+        {of(TOOL_CATEGORIES).map((c) => <PaletteItem key={c.type} c={c} />)}
+      </div>
+      <div className="fl-palette-group">
+        <div className="fl-palette-label">Control</div>
+        {of(["control"]).map((c) => <PaletteItem key={c.type} c={c} />)}
+      </div>
+      {classic.length > 0 && (
+        <details className="fl-palette-group fl-classic">
+          <summary className="fl-palette-label" title="The fixed-role components earlier flows use">Classic</summary>
+          {classic.map((c) => <PaletteItem key={c.type} c={c} />)}
+        </details>
+      )}
     </aside>
   );
 }
@@ -377,42 +390,69 @@ function Playground({ record, flowId, dirty, session, onEvent, onStart, onDone }
   );
 }
 
-// After an Agent, Evaluator or Guardrail is dropped: which kind, and its name.
+// After an Agent, Evaluator or Guardrail is dropped: its name (unique), and for an
+// evaluator what it checks, for a guardrail which one.
 const RUNS_IN_TEXT = { main: "only in the main flow, not inside a subflow box",
   task: "only inside a delegated task: drop it into a subflow box, such as the knowledge base" };
+const CHECKS = [["answer", "The answer", "Correct, faithful, complete and cited against the evidence gathered at and below the agent"],
+  ["evidence", "The evidence", "Enough evidence was found for the task (when the agent searches the knowledge base)"],
+  ["criteria", "Your own criteria", "Whatever you write, judged by the model"]];
 
-function KindPicker({ category, components, where, onAdd, onCancel }) {
+function AddDialog({ category, components, where, taken, onAdd, onCancel }) {
+  const [fixedType] = GENERIC[category] || [null];
   const fits = (c) => c.runnable !== false && (!c.runs_in?.length || c.runs_in.includes(where));
-  const options = components.filter((c) => c.category === category);
-  const first = options.find(fits) || options[0];
+  const options = fixedType ? [] : components.filter((c) => c.category === category && PRIMARY.has(c.type));
+  const first = fixedType ? components.find((c) => c.type === fixedType) : (options.find(fits) || options[0]);
   const [type, setType] = useState(first?.type);
   const [name, setName] = useState(first?.title || "");
-  const [named, setNamed] = useState(false);       // typed by the user: keep it when the kind changes
+  const [named, setNamed] = useState(false);
+  const [checks, setChecks] = useState("answer");
+  const [criteria, setCriteria] = useState("");
   const choose = (c) => { setType(c.type); if (!named) setName(c.title); };
-  const chosen = options.find((c) => c.type === type);
-  const ok = chosen && fits(chosen) && name.trim();
+  const chosen = components.find((c) => c.type === type);
+  const clash = taken.has(nameKey(name));
+  const ok = chosen && fits(chosen) && name.trim() && !clash && (checks !== "criteria" || criteria.trim().length >= 10);
+  const add = () => onAdd(type, name.trim(), type === "check" ? { checks, ...(checks === "criteria" ? { criteria: criteria.trim() } : {}) } : undefined);
   return (
     <div className="fl-picker-backdrop" onClick={onCancel}>
-      <form className="fl-picker" onClick={(e) => e.stopPropagation()}
-        onSubmit={(e) => { e.preventDefault(); if (ok) onAdd(type, name.trim()); }}>
-        <div className="fl-panel-title">New {CATEGORY[category]?.label.toLowerCase()}: which kind?</div>
-        <div className="fl-picker-options">
-          {options.map((c) => (
-            <label key={c.type} className={`fl-picker-option ${c.type === type ? "is-chosen" : ""} ${fits(c) ? "" : "is-disabled"}`}>
-              <input type="radio" name="kind" checked={c.type === type} disabled={!fits(c)} onChange={() => choose(c)} />
-              <span><strong>{c.title}</strong>{c.runnable === false && <span className="fl-chip">soon</span>}
-                <span className="fl-field-help">{c.description}</span>
-                {c.runnable !== false && !fits(c) && (
-                  <span className="fl-field-help"><em>Runs {RUNS_IN_TEXT[c.runs_in[0]] || c.runs_in.join(", ")}.</em></span>)}</span>
-            </label>
-          ))}
-        </div>
+      <form className="fl-picker" onClick={(e) => e.stopPropagation()} onSubmit={(e) => { e.preventDefault(); if (ok) add(); }}>
+        <div className="fl-panel-title">New {CATEGORY[category]?.label.toLowerCase()}</div>
+        {options.length > 1 && (
+          <div className="fl-picker-options">
+            {options.map((c) => (
+              <label key={c.type} className={`fl-picker-option ${c.type === type ? "is-chosen" : ""} ${fits(c) ? "" : "is-disabled"}`}>
+                <input type="radio" name="kind" checked={c.type === type} disabled={!fits(c)} onChange={() => choose(c)} />
+                <span><strong>{c.title}</strong><span className="fl-field-help">{c.description}</span>
+                  {c.runnable !== false && !fits(c) && (
+                    <span className="fl-field-help"><em>Runs {RUNS_IN_TEXT[c.runs_in[0]] || c.runs_in.join(", ")}.</em></span>)}</span>
+              </label>
+            ))}
+          </div>
+        )}
         <label className="fl-field">
           <span className="fl-field-name">Name</span>
           <input value={name} autoFocus onChange={(e) => { setName(e.target.value); setNamed(true); }}
-            placeholder="What it is called on the canvas" />
+            placeholder="Unique: how other agents and the traces refer to it" />
+          {clash && <span className="fl-field-help fl-error-text">That name is taken: names are unique in a flow.</span>}
         </label>
-        <p className="fl-hint">Its settings open next; connect it like any step.</p>
+        {type === "check" && (
+          <div className="fl-picker-options">
+            <span className="fl-field-name">What it checks</span>
+            {CHECKS.map(([value, label, help]) => (
+              <label key={value} className={`fl-picker-option ${checks === value ? "is-chosen" : ""}`}>
+                <input type="radio" name="checks" checked={checks === value} onChange={() => setChecks(value)} />
+                <span><strong>{label}</strong><span className="fl-field-help">{help}</span></span>
+              </label>
+            ))}
+            {checks === "criteria" && (
+              <textarea className="fl-multiline" rows={4} value={criteria} onChange={(e) => setCriteria(e.target.value)}
+                placeholder="What a good result must do, e.g. names the operator and the date" />
+            )}
+          </div>
+        )}
+        <p className="fl-hint">{category === "agent" ? "Plug tools, sub-agents and evaluators into its left port; plug it into another agent's port to make it a sub-agent."
+          : category === "evaluator" ? "Plug it into the agent whose result it checks; on a failure that agent tries again with its feedback."
+            : "Its settings open next; connect it like any step."}</p>
         <div className="fl-picker-actions">
           <button type="submit" className="fl-btn fl-btn-primary" disabled={!ok}>Add</button>
           <button type="button" className="fl-btn" onClick={onCancel}>Cancel</button>
@@ -818,7 +858,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
     const source = ns.find((n) => n.id === conn.source), target = ns.find((n) => n.id === conn.target);
     const base = { source: rawId(source.id), target: rawId(target.id) };
     let edgeSpec;
-    if (conn.sourceHandle === "provides") edgeSpec = { ...base, kind: "resource" };
+    if (conn.sourceHandle === "provides") edgeSpec = { ...base, kind: "resource", ...(source.data.component?.plugs ? { port: source.data.component.plugs } : {}) };
     else if (conn.sourceHandle === "delegate") edgeSpec = { ...base, kind: "flow", outcome: delegateOutcome(target) };
     else if (conn.sourceHandle?.startsWith("out:")) edgeSpec = { ...base, kind: "flow", outcome: conn.sourceHandle.slice(4) };
     else edgeSpec = { ...base, kind: "flow" };
@@ -864,7 +904,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
   }, [meta, viewing, screenToFlowPosition]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   // Add a component at a canvas point (inside a subflow box when dropped in one), named `label`.
-  const addAt = useCallback((type, point, label) => {
+  const addAt = useCallback((type, point, label, preset) => {
     const component = catalogue[type];
     if (!component || !meta || viewing) return undefined;
     const ns = latest.current.nodes;
@@ -884,7 +924,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
     const canvasId = group ? `${group.id}/${id}` : id;
     const added = [];
     const addedEdges = [];
-    let config = initialConfig(type);
+    let config = preset || initialConfig(type);
     if (type === "subflow") {
       const taken = new Set(scope.filter((n) => n.type === "subflow").map((n) => n.data.node.config.subflow));
       const name = uniqueId(id, taken);
@@ -1223,9 +1263,10 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
       <Palette components={components} />
       <div className="fl-body">
         <div className="fl-canvas" ref={canvasRef} onDragOver={onDragOver} onDrop={onDrop}>
-          {picking && <KindPicker category={picking.category} components={components} where={picking.where}
+          {picking && <AddDialog category={picking.category} components={components} where={picking.where}
+            taken={new Set(nodes.filter((n) => ["agent", "check"].includes(n.data?.node?.type)).map((n) => nameKey(nodeName(n.data.node))))}
             onCancel={() => setPicking(null)}
-            onAdd={(type, label) => { addAt(type, picking.point, label); setPicking(null); }} />}
+            onAdd={(type, label, config) => { addAt(type, picking.point, label, config); setPicking(null); }} />}
           <ReactFlow
             nodes={shownNodes}
             edges={shownEdges}

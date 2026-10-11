@@ -142,6 +142,54 @@ class Validation(unittest.TestCase):
         self.assertEqual([i["level"] for i in issues], ["error"])                    # "soon": not publishable (#62)
         self.assertIn("remove it to publish", issues[0]["message"])
 
+    def generic(self):
+        """#66: a top agent with a knowledge-base sub-agent, each with an evaluator."""
+        return {"id": "generic", "name": "Generic", "version": 1, "state": "main", "subflows": {},
+                "nodes": [{"id": "start", "type": "start"}, {"id": "ig", "type": "input_guardrail"},
+                          {"id": "assistant", "type": "agent", "label": "Assistant"},
+                          {"id": "kb", "type": "agent", "label": "Knowledge base"},
+                          {"id": "retriever", "type": "retriever"}, {"id": "llm", "type": "llm"},
+                          {"id": "kb_check", "type": "check", "label": "Evidence check", "config": {"checks": "evidence"}},
+                          {"id": "final_check", "type": "check", "label": "Answer check"},
+                          {"id": "og", "type": "output_guardrail"}, {"id": "end", "type": "end"}],
+                "edges": [{"source": "start", "target": "ig"}, {"source": "ig", "target": "assistant", "outcome": "ALLOW"},
+                          {"source": "ig", "target": "end", "outcome": "BLOCK"}, {"source": "assistant", "target": "og"},
+                          {"source": "og", "target": "end", "outcome": "ALLOW"}, {"source": "og", "target": "end", "outcome": "BLOCK"},
+                          {"source": "kb", "target": "assistant", "kind": "resource", "port": "agents"},
+                          {"source": "retriever", "target": "kb", "kind": "resource"},
+                          {"source": "llm", "target": "assistant", "kind": "resource"},
+                          {"source": "llm", "target": "kb", "kind": "resource"},
+                          {"source": "kb_check", "target": "kb", "kind": "resource"},
+                          {"source": "final_check", "target": "assistant", "kind": "resource"}]}
+
+    def errors_of(self, spec):
+        return [i["message"] for i in flows.validate(flows.FlowSpec.model_validate(spec)) if i["level"] == "error"]
+
+    def test_tools_sub_agents_and_evaluators_plug_into_an_agent(self):
+        self.assertEqual(self.errors_of(self.generic()), [])
+        spec = flows.FlowSpec.model_validate(self.generic())
+        self.assertEqual(flows.compiler.runnable_issues(spec, agent._runtime()), [])
+        tree = agent.agent_tree.tree(spec)
+        self.assertEqual((tree["assistant"].subagents, tree["kb"].parent), (["kb"], "assistant"))
+        self.assertEqual([c["name"] for c in tree["kb"].checks], ["Evidence check"])
+        self.assertIn("retriever", tree["kb"].ports)
+
+    def test_names_are_unique_and_sub_agents_stay_in_the_tree(self):
+        spec = self.generic()
+        spec["nodes"][3]["label"] = "assistant "                                  # same name, other case and space
+        self.assertTrue(any("already used" in m for m in self.errors_of(spec)))
+        spec = self.generic()
+        spec["edges"].append({"source": "kb", "target": "og"})                 # a sub-agent on the flow path
+        self.assertTrue(any("has no flow edges" in m for m in self.errors_of(spec)))
+        spec = self.generic()
+        spec["nodes"].append({"id": "other", "type": "agent", "label": "Other"})
+        spec["edges"] += [{"source": "kb", "target": "other", "kind": "resource", "port": "agents"},
+                          {"source": "other", "target": "assistant", "kind": "resource", "port": "agents"}]
+        self.assertTrue(any("one agent only" in m for m in self.errors_of(spec)))
+        spec = self.generic()
+        spec["edges"].append({"source": "assistant", "target": "kb", "kind": "resource", "port": "agents"})
+        self.assertTrue(any("loop" in m for m in self.errors_of(spec)))
+
     def test_every_setting_the_builder_offers_is_applied_or_shown_fixed(self):
         # The supervisor's brief and search country reach the agents (_flow_settings): applied.
         self.assertTrue({"brief", "search_country"} <= set(flows.COMPONENTS["supervisor"].applied))

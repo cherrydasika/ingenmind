@@ -227,15 +227,23 @@ The admin then grows the flow for the rest of the organisation: drag in a
 supervisor with specialists, evidence checks and research, more tools, and
 publish, evaluate and promote it. On the local build's 16-question setup
 evaluation, the starter met 14 against the full multi-agent flow's 11–12,
-in less than half the time and a quarter of the tokens.
+in less than half the time and a quarter of the tokens; a generic
+multi-agent flow (an Assistant with Knowledge base and Live data
+sub-agents, an evidence check on the first) met 12 with 47k tokens against
+the classic one's 320–410k.
 
-- **Canvas** — drag components onto it. **Agent**, **Evaluator** and
-  **Guardrail** are one item each: drop one, choose which kind (one agent,
-  supervisor, specialist, RAG retrieval or research agent; answer or
-  evidence evaluator or source validator; input or output guardrail) and
-  name it, and its settings open. Kinds that cannot run where you dropped
-  it (the main flow, or a subflow's delegated task) are greyed out with the
-  reason. Steps are connected by flow edges; resources (LLM, retriever, memory, web
+- **Canvas** — build with an **Agent**, an **Evaluator** and the
+  **guardrails**, and plug things into an agent's left port: **tools**
+  (Retriever for the knowledge base, Web search, Scraper, API tools),
+  **sub-agents** (another Agent, plugged in by its right handle: its parent
+  hands it tasks with `ask_<name>`, at any depth) and **evaluators** (any
+  number, at any level: each checks that agent's result, the answer, the
+  evidence or your own criteria, and a failure gets another try with its
+  feedback). What an agent does comes from what is connected to it. Names
+  are unique across the flow (asked when you drop it, checked on publish);
+  a sub-agent has one parent and no loops are allowed. The fixed-role
+  components of earlier flows are under **Classic**. Steps are connected
+  by flow edges; resources (LLM, retriever, memory, web
   search, scraper, API tools) plugged into their inputs; nested subflows.
   Undo/redo, copy-paste and snap. A setting the runtime does not read from
   the flow yet is shown **fixed** (read-only); a component marked **soon**

@@ -328,3 +328,5 @@
 .fl-picker-option.is-disabled { opacity: 0.55; cursor: not-allowed; }
 .fl-picker-option .fl-field-help { display: block; margin-top: 2px; }
 .fl-picker-actions { display: flex; gap: 8px; }
+.fl-classic > summary { cursor: pointer; }
+.fl-error-text { color: var(--err); }
