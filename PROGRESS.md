@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-11
+Last updated: 2026-10-11 (end of day)
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -53,7 +53,7 @@ the epic, as their own issues: #39 (guided setup on EC2 for real) and #18
 (learning from live use, after the MVP). **Done 2026-10-11: #60, install with one command**, released as
 **v0.1.0** (PR #61; `curl -fsSL https://raw.githubusercontent.com/cherrydasika/ingenmind/main/install.sh | sh`;
 the image on GHCR, public, amd64 and arm64; demo first, your own domain
-from Admin → Knowledge system; the demo has its own flow, `lakeshore_demo`;
+from Profile → Knowledge system; the demo has its own flow, `lakeshore_demo`;
 plan: [docs/plans/install.md](docs/plans/install.md)). **#62, new domains
 start with one agent** (PR from `flows/starter`; plan:
 [docs/plans/starter-flow.md](docs/plans/starter-flow.md)): the Agent
@@ -62,6 +62,14 @@ what the admin grew; the builder shows unapplied settings as fixed, blocks
 publishing with "soon" components, and asks for an evaluation before a
 version goes live. On the local domain the starter met 14/16 vs the full
 flow's 11–12/16, ~2.3× faster, ~4× fewer tokens.
+
+**Where to pick up (no active work; the user chooses):** measure the
+architectures (#69) on real questions (only Supervisor–worker's shape is
+measured: 12/16 locally); run a generic flow on EC2 (AgentCore); #39
+(guided setup on EC2 for real) with #22 (backups) first; #18 (learning from
+live use, the gallery's "self-learning"); human-in-the-loop and blackboard
+need runtime support before their architectures can run. Local test flows
+`starter_check` and `generic_check` are in the local database (not live).
 
 **Done 2026-10-11: the sidebar reorganised** (Ask: Ask, Sessions · Build:
 Agent Builder · Evaluate: Evaluations · Data: Knowledge base (Sources and
@@ -122,15 +130,23 @@ kind: start from [AGENTS.md](AGENTS.md); the backlog is the open issues
 
 ## Current state
 
-- EC2 `<instance-id>` (eu-west-2) is **stopped** (2026-10-10, with
-  `session.sh stop`: the stack first, then EC2; no AgentCore endpoints were
-  on, and no other instance runs in any region). Start it with
-  `session.sh start`. Its active release is
-  `70d15d4` (PR #56, #15 knowledge metadata, deployed by GitHub Actions on
-  2026-10-10; #16, #17, #25, the two research fixes and the rebrand before
-  it; setup there is READY/existing with its 5 URLs and no confirmed
-  blueprint, so no page is labelled and the setup steps don't show until
-  #39; the live flow is unchanged).
+- **Everything is shut down (2026-10-11, end of day):** the SSM tunnels
+  closed; EC2 `<instance-id>` (eu-west-2) **stopped** with `session.sh stop`
+  (the stack first; no AgentCore endpoints on; no instance runs in any
+  region); locally every container stopped and Rancher Desktop quit
+  (`scripts/stop.sh --all`). Data kept everywhere. Start again: locally
+  `scripts/start.sh` (Rancher Desktop, `DOCKER_CONTEXT=rancher-desktop`,
+  Compose project `rag_systems_cloud`); EC2 `session.sh start`, then the
+  tunnels (app 28000, Langfuse 23000).
+- EC2's active release is `440366d` (PR #70, deployed by GitHub Actions on
+  2026-10-11; everything below is on it). Its agents run on the **AgentCore
+  harness** with Claude Haiku 4.5 through **Bedrock** and Bedrock
+  embeddings (checked in the running app 2026-10-11); locally they run in
+  the app with the **Anthropic API** and local embeddings. Setup there is
+  READY/existing with its 5 URLs and no confirmed blueprint, so no page is
+  labelled and the setup steps don't show until #39; its live flow is
+  unchanged (the classic built-in). Generic agents (#66) and the
+  architectures (#69) have not run on EC2 yet.
   Sign-in is Amazon Cognito (AUTH_MODE=oidc); the first account,
   `admin@example.com`, works, and sign-out ends the Cognito session too.
 - The live flow on EC2 is `travel_assistant` **v3** (UK trains and weather
