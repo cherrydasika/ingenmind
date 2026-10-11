@@ -569,6 +569,11 @@ def flow_templates(request: Request) -> Response:
     return _json(flows.templates(flows.load_flow()))
 
 
+def flow_architectures(request: Request) -> Response:
+    """The Agent Builder's gallery of ready-made architectures (#69)."""
+    return _json(flows.architectures.architectures())
+
+
 async def flow_diff(request: Request) -> Response:
     """What changed from `old` to `new` (two flow JSONs)."""
     raw = await request.body()
@@ -1410,6 +1415,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/flows", flow_create, methods=["POST"]),
     Route("/api/flows/validate", flow_validate, methods=["POST"]),
     Route("/api/flows/templates", flow_templates),
+    Route("/api/flows/architectures", flow_architectures),
     Route("/api/flows/diff", flow_diff, methods=["POST"]),
     Route("/api/flows/{flow_id}", flow_detail),
     Route("/api/flows/{flow_id}/draft", flow_save_draft, methods=["PUT"]),

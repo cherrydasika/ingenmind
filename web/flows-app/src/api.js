@@ -68,6 +68,7 @@ export const flowsApi = {
   setLive: (id, version, unevaluatedOk = false) =>
     call("POST", `${at(id)}/live`, { version, unevaluated_ok: unevaluatedOk }),
   templates: () => call("GET", "/api/flows/templates"),
+  architectures: () => call("GET", "/api/flows/architectures"),
   diff: (old, current) => call("POST", "/api/flows/diff", { old, new: current }),
   metrics: (id, days = 30) => call("GET", `${at(id)}/metrics?days=${days}`),
   run: (id, payload, onEvent) => stream(`${at(id)}/run`, payload, onEvent),

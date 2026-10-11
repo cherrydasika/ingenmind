@@ -82,7 +82,12 @@ into one Agent; unique names enforced; classic components kept under
 multi-agent 12/16 at 47k tokens vs classic 11–12/16 at 320–410k; the
 one-agent starter (14/16) stays the default. Local test flows
 `starter_check` and `generic_check` are left in the local database (not
-live).
+live). Then **#69**: an architecture gallery in the Agent Builder (13
+runnable architectures from the generic components, 3 coming soon; each
+validates and compiles in the tests; Apply keeps the flow's name, scope,
+brief and domain), sub-agent trees laid out beside their parent, and a
+collapsible sidebar. Sessions moved to Monitoring; Langfuse opens after a
+notice.
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is

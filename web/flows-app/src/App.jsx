@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyNodeChanges, Background, Controls, MiniMap, ReactFlow, useEdgesState, useNodesState, useReactFlow } from "@xyflow/react";
 import { fitGroups, GROUP_PAD, layoutFlow, makeEdge, nodeSize } from "./layout.js";
 import { CATEGORY, nodeTypes } from "./nodes.jsx";
+import { ArchitectureGallery, adapt } from "./architectures.jsx";
 import { eventTargets, traceEntry } from "./events.js";
 import { ConfigForm } from "./ConfigForm.jsx";
 import { connectionProblem, delegateOutcome, initialConfig, nameKey, nodeName, rawId, toSpec, uniqueId, withoutPositions } from "./spec.js";
@@ -598,7 +599,8 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
   const [traces, setTraces] = useState({});
   const [templates, setTemplates] = useState([]);
   const [duplicateOf, setDuplicateOf] = useState(null);
-  const [picking, setPicking] = useState(null);   // {category, point}: a dropped Agent, Evaluator or Guardrail
+  const [picking, setPicking] = useState(null);
+  const [gallery, setGallery] = useState(null);   // the architectures, while the gallery is open   // {category, point}: a dropped Agent, Evaluator or Guardrail
   const [diff, setDiff] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [snap, setSnap] = useState(readSnap);
@@ -1221,6 +1223,9 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
             title={errors.length ? "Fix the errors first" : "Freeze the draft as the next version"}
             onClick={() => setConfirm(confirm === "publish" ? null : "publish")}>Publish…</button>
           <span className="fl-sep" />
+          <button type="button" className="fl-btn" disabled={!!viewing}
+            title="Ready-made architectures: pick one and apply it to this flow"
+            onClick={() => guard(async () => setGallery(await flowsApi.architectures()))}>Architectures</button>
           <button type="button" className="fl-btn" disabled={!!viewing} onClick={() => show(spec, components, { auto: true })}>Auto-layout</button>
           <button type="button" className={`fl-btn ${snap ? "is-on" : ""}`} onClick={toggleSnap} aria-pressed={snap}
             title="Snap nodes to a 20px grid while dragging">Snap</button>
@@ -1263,6 +1268,13 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
       <Palette components={components} />
       <div className="fl-body">
         <div className="fl-canvas" ref={canvasRef} onDragOver={onDragOver} onDrop={onDrop}>
+          {gallery && <ArchitectureGallery architectures={gallery} canApply={!viewing && !!spec}
+            onClose={() => setGallery(null)}
+            onApply={(arch) => {
+              show(adapt(arch, spec), components, { auto: true });
+              setGallery(null);
+              say(`Applied ${arch.name}: rename agents or plug in more, then save the draft to keep it (undo brings yours back)`);
+            }} />}
           {picking && <AddDialog category={picking.category} components={components} where={picking.where}
             taken={new Set(nodes.filter((n) => ["agent", "check"].includes(n.data?.node?.type)).map((n) => nameKey(nodeName(n.data.node))))}
             onCancel={() => setPicking(null)}
