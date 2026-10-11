@@ -313,3 +313,4 @@
 }
 .fl-shortcuts .fl-btn { margin-top: 10px; }
 .fl-node .fl-chip, .fl-group .fl-chip { font-size: 11.5px; }
+.fl-field.is-reference .fl-fixed { display: block; padding: 4px 6px; border-radius: 4px; background: var(--fl-soft, rgba(127,127,127,0.08)); white-space: pre-wrap; word-break: break-word; }

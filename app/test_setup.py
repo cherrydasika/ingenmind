@@ -1566,11 +1566,13 @@ class Evaluation(Evaluated):
         view = evaluation.view()
         self.assertEqual((view["flow_id"], view["flow_version"]), ("setup_uk_train_information", 1))
         spec = flows.FlowSpec.model_validate(flows.store.get_version(view["flow_id"], 1, flows.load_flow()))
-        supervisor_ = next(n for n in spec.nodes if n.type == "supervisor").config
-        self.assertEqual((supervisor_["domain"], supervisor_["search_country"]),
-                         ("UK train information", "united kingdom"))
-        self.assertTrue(supervisor_["brief"].startswith("An assistant for passengers"))
-        self.assertTrue(supervisor_["instructions"].startswith("Send rail questions"))
+        # A new domain starts with one agent (#62), configured from the blueprint.
+        self.assertEqual({n.type for n in spec.nodes if flows.COMPONENTS[n.type].kind != "resource"},
+                         {"start", "input_guardrail", "agent", "output_guardrail", "answer_evaluator", "end"})
+        agent_ = next(n for n in spec.nodes if n.type == "agent").config
+        self.assertEqual(agent_["domain"], "UK train information")
+        self.assertTrue(agent_["brief"].startswith("An assistant for passengers"))
+        self.assertTrue(agent_["instructions"].startswith("The knowledge base holds pages about: "))
         scope = next(n for n in spec.nodes if n.type == "input_guardrail").config["scope"]
         self.assertIn("Out of scope: flights", scope)
         gate = next(n for n in spec.nodes if n.type == "input_guardrail").config
@@ -1580,10 +1582,22 @@ class Evaluation(Evaluated):
         self.prepare()                                                       # prepared again: a new version
         self.assertEqual(evaluation.view()["flow_version"], 2)
 
+    def test_the_candidate_keeps_what_the_admin_grew_in_the_builder(self):
+        self.prepare()
+        builtin = flows.load_flow()
+        grown = flows.store.get_version("setup_uk_train_information", 1, builtin)
+        grown["nodes"].append({"id": "api_tools", "type": "api_tools", "config": {"tools": ["get_weather"]}})
+        grown["edges"].append({"source": "api_tools", "target": "agent", "kind": "resource"})
+        flows.store.save_draft(flows.FlowSpec.model_validate(grown), builtin)
+        flows.store.publish("setup_uk_train_information", "added the weather", evaluation._check_flow)
+        self.prepare()                                                       # after a rebuild
+        spec = flows.store.get_version("setup_uk_train_information", 3, builtin)
+        self.assertIn("api_tools", {n["id"] for n in spec["nodes"]})        # kept
+
     def test_the_candidate_flow_compiles(self):
         bp = content._confirmed_blueprint()
-        spec = evaluation.apply_blueprint(flows.load_flow(), bp, "setup_uk_train_information")
-        evaluation._check_flow(spec)
+        for base in (flows.load_starter(), flows.load_flow()):            # the starter, and a grown flow
+            evaluation._check_flow(evaluation.apply_blueprint(base, bp, "setup_uk_train_information"))
 
     def test_the_grounding_check(self):
         page = [{"url": "https://a.example/x", "text": "Assisted travel:\nbook  it 2 hours ahead \u2013 or turn up."}]

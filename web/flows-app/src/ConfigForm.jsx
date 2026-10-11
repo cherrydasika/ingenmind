@@ -83,9 +83,9 @@ function Field({ name, prop, required, value, onChange, reference }) {
     ? ` (${prop.minimum ?? "…"}–${prop.maximum ?? "…"})` : "";
   return (
     <label className={`fl-field ${kind === "boolean" ? "is-inline" : ""} ${reference ? "is-reference" : ""}`}
-      title={reference ? "For reference: the runtime does not read this setting yet" : undefined}>
-      <span className="fl-field-name">{name}{required && " *"}{reference && <span className="fl-chip">reference</span>}</span>
-      {input}
+      title={reference ? "Fixed: the runtime does not read this setting from the flow yet" : undefined}>
+      <span className="fl-field-name">{name}{required && " *"}{reference && <span className="fl-chip">fixed</span>}</span>
+      {reference ? <code className="fl-fixed">{JSON.stringify(value)}</code> : input}
       {(prop.description || range) && <span className="fl-field-help">{prop.description}{range}</span>}
     </label>
   );
@@ -107,8 +107,8 @@ export function ConfigForm({ component, config, onChange, readOnly }) {
   return (
     <fieldset className="fl-form" disabled={readOnly}>
       {keys.some((k) => !applied.has(k)) && (
-        <p className="fl-hint">Settings marked <span className="fl-chip">reference</span> document what the component
-          uses; the runtime does not read them from the flow yet.</p>
+        <p className="fl-hint">Settings marked <span className="fl-chip">fixed</span> show what the component uses;
+          they cannot be changed in the flow yet.</p>
       )}
       {keys.map((key) => (
         <Field key={key} name={key} prop={props[key]} required={required.has(key)} reference={!applied.has(key)}

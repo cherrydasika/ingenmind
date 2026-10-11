@@ -2,6 +2,8 @@
 stay in step with it. Every template runs (test_flows checks it)."""
 
 import copy
+import json
+from pathlib import Path
 
 from .spec import FlowSpec
 
@@ -55,7 +57,13 @@ def templates(builtin: FlowSpec) -> list[dict]:
         _without_specialist(flow, "knowledge_base_agent", "delegate:knowledge_base")
         flow["subflows"] = {}
 
+    starter = json.loads(Path(__file__).with_name("starter_flow.json").read_text())
+    _strip_positions(starter)
     return [
+        {"id": "starter", "name": "Starter: one agent",
+         "description": "One agent with an LLM and the knowledge-base search, between the guardrails, every "
+                        "answer checked. A new domain starts here; grow it in the builder.",
+         "flow": {**starter, "version": 1}},
         make("multi_agent_travel", "Multi-agent travel",
              "The built-in flow: knowledge base with research plus live external APIs, guarded and evaluated."),
         make("rag_research", "RAG + research",

@@ -399,6 +399,16 @@ def list_runs(flow_id: str | None = None, limit: int = 50) -> list[dict]:
     return [_run_view(r) for r in rows]
 
 
+def latest_evaluation(flow_id: str, version: int) -> dict | None:
+    """The newest finished evaluation run of a flow version (its view), or None."""
+    ensure_schema()
+    with store._connect() as connection:
+        row = connection.execute("""
+            SELECT * FROM agent_eval_runs WHERE flow_id = %s AND version = %s AND status = 'done'
+            ORDER BY created_at DESC LIMIT 1""", (flow_id, str(version))).fetchone()
+    return _run_view(row) if row else None
+
+
 def get_run(run_id: str) -> dict | None:
     ensure_schema()
     with store._connect() as connection:

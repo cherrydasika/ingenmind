@@ -134,12 +134,20 @@ class Validation(unittest.TestCase):
         spec["edges"].append({"source": "answer_evaluator", "target": "llm"})
         self.assertTrue(errors(spec))
 
-    def test_unsupported_resource_is_a_warning(self):
+    def test_an_unsupported_resource_blocks_publishing(self):
         spec = copy.deepcopy(raw())
         spec["nodes"].append({"id": "mcp", "type": "mcp_tool"})
         spec["edges"].append({"source": "mcp", "target": "external_apis_agent", "kind": "resource"})
         issues = flows.validate(flows.FlowSpec.model_validate(spec))
-        self.assertEqual([i["level"] for i in issues], ["warning"])
+        self.assertEqual([i["level"] for i in issues], ["error"])                    # "soon": not publishable (#62)
+        self.assertIn("remove it to publish", issues[0]["message"])
+
+    def test_every_setting_the_builder_offers_is_applied_or_shown_fixed(self):
+        # The supervisor's brief and search country reach the agents (_flow_settings): applied.
+        self.assertTrue({"brief", "search_country"} <= set(flows.COMPONENTS["supervisor"].applied))
+        for key, component in flows.COMPONENTS.items():
+            if component.config is not None:
+                self.assertTrue(set(component.applied) <= set(component.config.model_fields), key)
 
     def test_compile_refuses_an_invalid_flow(self):
         spec = raw()
@@ -673,13 +681,25 @@ class FlowStore(unittest.TestCase):
         # a draft cannot go live; publish it first
         self.assertEqual(self.client.post(f"/api/flows/{flow_id}/live", json={"version": 1}).status_code, 404)
         self.client.post(f"/api/flows/{flow_id}/publish", json={})
-        self.assertEqual(self.client.post(f"/api/flows/{flow_id}/live", json={"version": 1}).status_code, 200)
+        # Not evaluated yet: refused, unless the admin says so (#62).
+        refused = self.client.post(f"/api/flows/{flow_id}/live", json={"version": 1})
+        self.assertEqual((refused.status_code, refused.json()["unevaluated"]), (409, True))
+        self.assertEqual(self.client.post(f"/api/flows/{flow_id}/live",
+                                          json={"version": 1, "unevaluated_ok": True}).status_code, 200)
         spec, version = agent.live_flow()
         self.assertEqual((spec.id, version), (flow_id, 1))
         listed = {f["id"]: f for f in self.client.get("/api/flows").json()}
         self.assertEqual(listed[flow_id]["live_version"], 1)
         self.assertEqual(self.client.post("/api/flows/travel_assistant/live", json={"version": 0}).status_code, 200)
         self.assertEqual(agent.live_flow(), (agent.FLOW, 0))
+
+    def test_an_evaluated_version_goes_live_without_the_override(self):
+        flow_id = f"flow_{uuid.uuid4().hex[:6]}"
+        self.client.post("/api/flows", json={"flow": blank(flow_id)})
+        self.client.post(f"/api/flows/{flow_id}/publish", json={})
+        with patch.object(flows.evals, "latest_evaluation", return_value={"id": "r1", "status": "done"}):
+            self.assertEqual(self.client.post(f"/api/flows/{flow_id}/live", json={"version": 1}).status_code, 200)
+        self.client.post("/api/flows/travel_assistant/live", json={"version": 0})
 
     def test_run_a_flow_version(self):
         flow_id = f"flow_{uuid.uuid4().hex[:6]}"
@@ -707,7 +727,8 @@ class FlowStore(unittest.TestCase):
 
     def test_templates_are_listed(self):
         listed = self.client.get("/api/flows/templates").json()
-        self.assertEqual([t["id"] for t in listed], ["multi_agent_travel", "rag_research", "rag_only", "live_data"])
+        self.assertEqual([t["id"] for t in listed], ["starter", "multi_agent_travel", "rag_research", "rag_only",
+                                                         "live_data"])
 
     def test_diff_endpoint(self):
         old = raw()
@@ -979,6 +1000,10 @@ class SupervisorAnswerText(unittest.TestCase):
             "Great! Now I have all the information. Dogs travel free [5].": "Dogs travel free [5].",
             "Based on the findings, here is what I found:\n- Bikes need a reservation [1].": "- Bikes need a reservation [1].",
             "The specialists found the following: Lifts are at every station [1].": "Lifts are at every station [1].",
+            # The Agent (#62) narrates its search the same way.
+            "I need to search for information about station facilities. Stations have toilets [1].":
+                "Stations have toilets [1].",
+            "Let me search the knowledge base. Bikes need a reservation [1].": "Bikes need a reservation [1].",
         }
         for given, want in cases.items():
             self.assertEqual(agent._without_preamble(given), want)

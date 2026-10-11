@@ -14,14 +14,20 @@ from .diff import diff
 from .templates import templates
 
 DEFAULT_FLOW_PATH = Path(__file__).with_name("default_flow.json")
+# A new domain's first flow (#62): one agent, grown in the builder.
+STARTER_FLOW_PATH = Path(__file__).with_name("starter_flow.json")
 
 
 def load_flow(path: Path = DEFAULT_FLOW_PATH) -> FlowSpec:
     return FlowSpec.model_validate(json.loads(path.read_text()))
 
 
+def load_starter() -> FlowSpec:
+    return load_flow(STARTER_FLOW_PATH)
+
+
 def components() -> list[dict]:
     return [c.describe() for c in COMPONENTS.values()]
 
 
-__all__ = ["diff", "templates", "COMPONENTS", "DEFAULT_FLOW_PATH", "compiler", "evals", "store", "FlowError", "FlowSpec", "Runtime", "compile_flow", "components", "load_flow", "validate"]
+__all__ = ["diff", "templates", "COMPONENTS", "DEFAULT_FLOW_PATH", "STARTER_FLOW_PATH", "compiler", "evals", "store", "FlowError", "FlowSpec", "Runtime", "compile_flow", "components", "load_flow", "load_starter", "validate"]

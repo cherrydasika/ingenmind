@@ -76,6 +76,25 @@ class SupervisorConfig(BaseModel):
     answer_word_limit: int = Field(120, ge=40, le=400, description="The summarizer's hard word limit (in its prompt)")
 
 
+GENERIC_AGENT_INSTRUCTIONS = (
+    "Answer from the knowledge base. When the question needs live data and you have a tool for it, use the "
+    "tool too. If neither covers the question, say plainly that this assistant cannot answer it.")
+
+
+class AgentConfig(BaseModel):
+    """One agent that answers on its own: a new domain's starting point (#62)."""
+    brief: str = Field(UK_RAIL_BRIEF, min_length=20, max_length=1000, json_schema_extra=MULTILINE,
+                       description="The main prompt: what the assistant is for, and the country or region every "
+                                   "question is about unless the user says otherwise. The guardrails follow it "
+                                   "when their scope is empty.")
+    domain: str = Field(DEFAULT_DOMAIN, min_length=1, max_length=60,
+                        description="What the assistant is for, in a word or two (used in the guardrails' messages)")
+    instructions: str = Field(GENERIC_AGENT_INSTRUCTIONS, max_length=2000, json_schema_extra=MULTILINE,
+                              description="What the knowledge base holds and how to answer. Searching, citing "
+                                          "and the word limit are fixed.")
+    answer_word_limit: int = Field(120, ge=40, le=400, description="The answer's hard word limit (in its prompt)")
+
+
 class SpecialistConfig(BaseModel):
     role: Literal["external_apis"] = Field("external_apis", description="Agent role in agent.py ROLES")
 
@@ -289,7 +308,12 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
               "Reads the question, assigns tasks to specialists in parallel, joins their findings and writes "
               "the brief answer (the summarizer).", SupervisorConfig, impl="supervisor",
               outcomes=("answer",), fan_out=True, inputs=("llm", "memory"), bounds_loops=True,
-              applied=("domain", "instructions", "max_rounds", "answer_word_limit")),
+              applied=("brief", "search_country", "domain", "instructions", "max_rounds", "answer_word_limit")),
+    Component("agent", "Agent", "flow", "agent",
+              "One agent that answers the question itself: it searches the knowledge base through a plugged-in "
+              "Retriever, calls any API tools plugged in, and cites what it used. A new domain starts with it.",
+              AgentConfig, impl="agent", inputs=("llm", "memory", "retriever", "tools"),
+              applied=("brief", "domain", "instructions", "answer_word_limit")),
     Component("specialist_agent", "Specialist agent", "flow", "agent",
               "An agent with tools that works on one delegated task and reports back.", SpecialistConfig,
               impl="specialist", inputs=("llm", "memory", "tools"), applied=("role",)),

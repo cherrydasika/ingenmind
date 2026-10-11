@@ -15,6 +15,7 @@ async function call(method, path, body) {
   if (!resp.ok) {
     const error = new Error(data?.error || `${path}: ${resp.status}`);
     error.issues = data?.issues || [];
+    error.data = data;
     throw error;
   }
   return data;
@@ -64,7 +65,8 @@ export const flowsApi = {
   discardDraft: (id) => call("DELETE", `${at(id)}/draft`),
   publish: (id, note) => call("POST", `${at(id)}/publish`, { note }),
   validate: (flow) => call("POST", "/api/flows/validate", { flow }),
-  setLive: (id, version) => call("POST", `${at(id)}/live`, { version }),
+  setLive: (id, version, unevaluatedOk = false) =>
+    call("POST", `${at(id)}/live`, { version, unevaluated_ok: unevaluatedOk }),
   templates: () => call("GET", "/api/flows/templates"),
   diff: (old, current) => call("POST", "/api/flows/diff", { old, new: current }),
   metrics: (id, days = 30) => call("GET", `${at(id)}/metrics?days=${days}`),

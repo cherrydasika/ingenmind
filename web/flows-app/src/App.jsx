@@ -252,6 +252,7 @@ function FlowDetails({ meta, setMeta, record, onLoadVersion, onViewVersion, conf
         {record.versions.map((v) => {
           const live = record.live.flow_id === flowId && record.live.version === v.version;
           const asking = confirm === `live:${v.version}`;
+          const anyway = confirm === `live-anyway:${v.version}`;
           return (
             <li key={v.version}>
               <span className="fl-chip">v{v.version}</span>
@@ -264,8 +265,9 @@ function FlowDetails({ meta, setMeta, record, onLoadVersion, onViewVersion, conf
               <button type="button" className="fl-link" onClick={() => onDiff(v.version)} title="Compare with what the editor shows">diff</button>
               <button type="button" className="fl-link" onClick={() => onDuplicate(v.version)} title="Start a new flow from this version">duplicate</button>
               {!live && (
-                <button type="button" className={`fl-link ${asking ? "is-confirm" : ""}`} onClick={() => onMakeLive(v.version)}
-                  title="Users on the Retrieval page get this version">{asking ? "confirm: users get this" : "make live"}</button>
+                <button type="button" className={`fl-link ${asking || anyway ? "is-confirm" : ""}`} onClick={() => onMakeLive(v.version)}
+                  title="Users on the Retrieval page get this version">
+                  {anyway ? "make live without an evaluation" : asking ? "confirm: users get this" : "make live"}</button>
               )}
             </li>
           );
@@ -896,17 +898,26 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
     setNewFlow(true);
   };
 
+  // Make live: confirm, then the server checks the version was evaluated; if not, a
+  // third click makes it live anyway (#62).
   const makeLive = (version) => {
-    if (confirm !== `live:${version}`) {
+    const anyway = confirm === `live-anyway:${version}`;
+    if (confirm !== `live:${version}` && !anyway) {
       setConfirm(`live:${version}`);
       return;
     }
     guard(async () => {
-      const { live } = await flowsApi.setLive(spec.id, version);
-      setRecord((r) => ({ ...r, live }));
-      setConfirm(null);
-      refreshList();
-      say(`Users now get ${live.flow_id} v${live.version}`);
+      try {
+        const { live } = await flowsApi.setLive(spec.id, version, anyway);
+        setRecord((r) => ({ ...r, live }));
+        setConfirm(null);
+        refreshList();
+        say(`Users now get ${live.flow_id} v${live.version}`);
+      } catch (err) {
+        if (!err.data?.unevaluated) throw err;
+        setConfirm(`live-anyway:${version}`);
+        say(err.message, "error");
+      }
     });
   };
 

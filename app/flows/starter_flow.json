@@ -1,0 +1,29 @@
+{
+  "id": "starter",
+  "name": "Starter: one agent",
+  "version": 1,
+  "state": "main",
+  "description": "A new domain's starting point: one agent with an LLM and the knowledge-base search, between the input and output guardrails, with every answer checked against its evidence. Grow it in the flow builder.",
+  "nodes": [
+    {"id": "start", "type": "start"},
+    {"id": "input_guardrail", "type": "input_guardrail", "config": {"stage": "input"}},
+    {"id": "agent", "type": "agent"},
+    {"id": "output_guardrail", "type": "output_guardrail", "config": {"stage": "output"}},
+    {"id": "answer_evaluator", "type": "answer_evaluator"},
+    {"id": "end", "type": "end"},
+    {"id": "llm", "type": "llm"},
+    {"id": "retriever", "type": "retriever"}
+  ],
+  "edges": [
+    {"source": "start", "target": "input_guardrail"},
+    {"source": "input_guardrail", "target": "agent", "outcome": "ALLOW"},
+    {"source": "input_guardrail", "target": "end", "outcome": "BLOCK"},
+    {"source": "agent", "target": "output_guardrail"},
+    {"source": "output_guardrail", "target": "answer_evaluator", "outcome": "ALLOW"},
+    {"source": "output_guardrail", "target": "end", "outcome": "BLOCK"},
+    {"source": "answer_evaluator", "target": "end"},
+    {"source": "llm", "target": "agent", "kind": "resource"},
+    {"source": "retriever", "target": "agent", "kind": "resource"}
+  ],
+  "subflows": {}
+}

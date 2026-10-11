@@ -2,10 +2,12 @@
 each session's conversation in PostgreSQL (like test_pg_store, it needs one).
 Run: PYTHONPATH=app:dags python -m unittest app/test_agent_runtime.py"""
 
+import json
 import threading
 import time
 import unittest
 import uuid
+from pathlib import Path
 from unittest.mock import patch
 
 import psycopg
@@ -13,6 +15,8 @@ from psycopg import sql
 
 import agent
 import agent_runtime
+import answer_eval
+import guardrails
 import llm
 from common import config
 
@@ -105,6 +109,66 @@ class LocalHarnessTest(unittest.TestCase):
         run.invoke(record, [{"role": "user", "content": [{"text": "hi again"}]}])
         self.assertEqual((chat.calls[1]["max_tokens"], chat.calls[1]["temperature"]),
                          (agent_runtime.DEFAULT_MAX_TOKENS, agent_runtime.DEFAULT_TEMPERATURE))
+
+
+class AgentComponentTest(LocalHarnessTest):
+    """A flow of one agent (#62) answers end to end on the local runtime."""
+
+    def starter(self, tools=None):
+        spec = json.loads((Path(agent.flows.__file__).parent / "starter_flow.json").read_text())
+        if tools is not None:
+            spec["nodes"].append({"id": "api_tools", "type": "api_tools", "config": {"tools": tools}})
+            spec["edges"].append({"source": "api_tools", "target": "agent", "kind": "resource"})
+        return agent.flows.FlowSpec.model_validate(spec)
+
+    def ask(self, spec, chat, evaluation_passes=True):
+        found = {"rankings": {"fused": [{"source_url": "https://rail.example/access", "chunk_index": 0, "meta": {},
+                                         "text": "Every station has step-free access to all platforms."}],
+                              "dense": [], "sparse": []}}
+        allow = guardrails.Verdict(decision="ALLOW", reason="in scope", stage="input")
+        seen = {}
+        def evaluate(question, draft, chunks, api_results, **kwargs):
+            seen.update(chunks=chunks, api_results=api_results)
+            checks = answer_eval.AnswerChecks(cited=[1], invalid_citations=[], evidence_chunks=len(chunks),
+                                              api_results=len(api_results), kb_evidence_uncited=False)
+            return answer_eval.AnswerEvaluation(passed=evaluation_passes, overall=0.9, scores={}, checks=checks,
+                                                failed_on=[] if evaluation_passes else ["faithfulness"])
+        with patch.object(agent, "_local_harness", agent_runtime.LocalHarness(chat)), \
+                patch.object(guardrails, "check", return_value=allow), \
+                patch.object(agent, "hybrid_search", return_value=found), \
+                patch.object(agent.answer_eval, "evaluate", side_effect=evaluate), \
+                patch.object(agent.labels, "vocabulary", return_value=None), \
+                patch.object(agent, "_record_run"), patch.object(agent_runtime, "RUNTIME", "local"):
+            result = agent.answer("Is there step-free access?", f"s-{uuid.uuid4()}", None, None, lambda e: None,
+                                  lambda search: {"chunks": search["rankings"]["fused"], "sources": []},
+                                  flow=(spec, 1))
+        return result, seen
+
+    def test_the_starter_flow_is_valid_and_runnable(self):
+        spec = self.starter()
+        self.assertEqual([i for i in agent.flows.validate(spec) if i["level"] == "error"], [])
+        self.assertEqual(agent.flows.compiler.runnable_issues(spec, agent._runtime()), [])
+
+    def test_one_agent_answers_with_citations_checked_against_its_evidence(self):
+        chat = ScriptedChat(uses_turn("search_knowledge_base"), answer_turn("Yes, every station is step-free [1]."))
+        result, seen = self.ask(self.starter(), chat)
+        self.assertEqual(result["answer"], "Yes, every station is step-free [1].")
+        self.assertEqual(result["sources"], [{"url": "https://rail.example/access", "cited": [1]}])
+        self.assertEqual([c["source_url"] for c in seen["chunks"]], ["https://rail.example/access"])   # its evidence
+        first = chat.calls[0]
+        self.assertIn("you answer the user yourself", first["system"])
+        self.assertIn(agent.flows.registry.GENERIC_AGENT_INSTRUCTIONS, first["system"])
+        self.assertEqual([t["name"] for t in first["tools"]], ["search_knowledge_base"])   # no API tools plugged in
+
+    def test_api_tools_plugged_into_the_agent_are_offered_and_count_as_evidence(self):
+        chat = ScriptedChat(answer_turn("No tools needed."))
+        self.ask(self.starter(tools=["get_weather"]), chat)
+        self.assertEqual([t["name"] for t in chat.calls[0]["tools"]], ["search_knowledge_base", "get_weather"])
+
+    def test_a_failing_answer_check_replaces_the_answer(self):
+        chat = ScriptedChat(answer_turn("Made up [1]."))
+        result, _ = self.ask(self.starter(), chat, evaluation_passes=False)
+        self.assertNotEqual(result["answer"], "Made up [1].")
 
 
 class HistoryTest(unittest.TestCase):
