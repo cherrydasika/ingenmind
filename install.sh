@@ -23,7 +23,12 @@ PORT=${INGENMIND_PORT:-18000}
 
 say() { printf '%s\n' "$*"; }
 fail() { printf 'x %s\n' "$*" >&2; exit 1; }
-compose() { docker compose --project-directory "$DIR" -f "$DIR/compose.yml" "$@"; }
+# .env is the source of truth: Compose would prefer these from the shell (and
+# INGENMIND_VERSION there is the release tag, v0.1.0, not the image tag 0.1.0).
+compose() {
+  env -u INGENMIND_VERSION -u INGENMIND_IMAGE -u INGENMIND_PORT \
+    docker compose --project-directory "$DIR" -f "$DIR/compose.yml" "$@"
+}
 
 uninstall() {
   [ -f "$DIR/compose.yml" ] || fail "IngenMind is not installed in $DIR"
