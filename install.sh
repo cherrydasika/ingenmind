@@ -101,7 +101,7 @@ else
   fi
   TAVILY=${TAVILY_API_KEY:-}
   if [ -z "$TAVILY" ] && has_tty && [ -z "${INGENMIND_NO_PROMPT:-}" ]; then
-    say "IngenMind starts with a demo. To set it up for your own domain later (Admin -> Knowledge"
+    say "IngenMind starts with a demo. To set it up for your own domain later (Profile -> Knowledge"
     say "system), it researches the web with Tavily (free tier at tavily.com)."
     printf 'Tavily API key (press Enter to skip; you can add it to .env later): ' >/dev/tty
     stty -echo </dev/tty 2>/dev/null || true
@@ -144,7 +144,7 @@ say ""
 say "IngenMind is running: http://localhost:$PORT"
 say "  Sign in with your name and email (the first person becomes the admin), then ask"
 say "  the demo a question, e.g. \"Is there step-free access at Kestrel Bay station?\""
-say "  To use your own domain instead: Admin -> Knowledge system -> Set up my own domain."
+say "  To use your own domain instead: Profile -> Knowledge system -> Set up my own domain."
 say ""
 say "  Stop:     docker compose -f $DIR/compose.yml stop"
 say "  Start:    docker compose -f $DIR/compose.yml start"

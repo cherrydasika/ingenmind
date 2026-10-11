@@ -63,6 +63,16 @@ publishing with "soon" components, and asks for an evaluation before a
 version goes live. On the local domain the starter met 14/16 vs the full
 flow's 11–12/16, ~2.3× faster, ~4× fewer tokens.
 
+**Done 2026-10-11: the sidebar reorganised** (Ask: Ask, Sessions · Build:
+Agent Builder · Evaluate: Evaluations · Data: Knowledge base (Sources and
+Ingestion as tabs), Ad-hoc documents · Monitoring: Overview (replaces
+Home), Agent memory, Langfuse · Admin: Setup, Users · Account: Profile).
+Pipeline docs and the Knowledge system page are gone (its controls are on
+Profile, with an admin-only **master reset**: flows and sessions too, users
+kept). The Ask page's workflow chart draws the live flow. Fixed on the
+way: a test (`test_demo`) had made `lakeshore_demo` live in the local
+database; restored to the built-in flow.
+
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is
   not judged on citations), and the supervisor no longer adds referrals

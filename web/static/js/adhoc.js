@@ -192,7 +192,7 @@ export class AdhocPage {
     let content;
     if (r.status === "cancelled") content = box("info", "Cancelled — nothing was added.");
     else if (r.status === "added" || r.status === "replaced") {
-      content = [box("ok", `${r.status === "added" ? "Added" : "Replaced"} \`${r.source_id}\` — ${r.chunks} chunks embedded in ${r.embed_seconds.toFixed(1)}s (${r.seconds.toFixed(1)}s total). It's searchable on the Retrieval page now.`),
+      content = [box("ok", `${r.status === "added" ? "Added" : "Replaced"} \`${r.source_id}\` — ${r.chunks} chunks embedded in ${r.embed_seconds.toFixed(1)}s (${r.seconds.toFixed(1)}s total). It's searchable from the Ask page now.`),
         this.dedupNote(r.dedup)];
     } else if (r.status === "unchanged_ttl_refreshed") {
       content = box("ok", `\`${r.source_id}\` already stored with identical content — lifetime renewed, nothing re-embedded.`);

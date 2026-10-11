@@ -257,6 +257,19 @@ EMPTIED = (
     ("app_setup_evaluations", "Setup's evaluation preparations"),
     ("kb_labelling_runs", "Runs labelling the pages"),
 )
+# A master reset (admins only) also empties these: back to a fresh install, people's
+# accounts kept so someone can still sign in and set it up again.
+MASTER_EMPTIED = (
+    ("app_session_turns", "People's questions and answers (sessions)"),
+    ("app_sessions", "Sessions"),
+    ("agent_flow_runs", "Flow run metrics"),
+    ("agent_live_flow", "The live flow (the built-in flow again)"),
+    ("agent_flow_versions", "Published flow versions"),
+    ("agent_flows", "Flows and their drafts"),
+)
+MASTER_CONFIRMATION = "RESET EVERYTHING"
+MASTER_KEPT = ("Users and permissions", "The embedding model setting", "Built-in evaluation sets", "Langfuse traces")
+
 KEPT = ("Users and permissions", "People's sessions and their history", "Flow versions and the live flow",
         "The embedding model setting", "Built-in evaluation sets", "Langfuse traces")
 
@@ -277,12 +290,14 @@ def counts() -> dict[str, int]:
                         if _exists(connection, table) else 0) for table, _ in EMPTIED}
 
 
-def reset(confirmation: str, user_id: str | None) -> dict[str, int]:
-    """Empty every store in EMPTIED and set the state to NEW; returns the rows
-    deleted per store. ValueError without the typed confirmation; Busy while
-    an ingestion job or an evaluation run is queued or running."""
-    if confirmation != RESET_CONFIRMATION:
-        raise ValueError(f"type {RESET_CONFIRMATION} to confirm")
+def reset(confirmation: str, user_id: str | None, everything: bool = False) -> dict[str, int]:
+    """Empty every store in EMPTIED (and MASTER_EMPTIED with everything) and set
+    the state to NEW; returns the rows deleted per store. ValueError without the
+    typed confirmation; Busy while an ingestion job or an evaluation run is
+    queued or running."""
+    expected = MASTER_CONFIRMATION if everything else RESET_CONFIRMATION
+    if confirmation != expected:
+        raise ValueError(f"type {expected} to confirm")
     ensure_schema()
     with _connect() as connection:
         connection.execute("SELECT pg_advisory_xact_lock(72616702)")
@@ -292,10 +307,10 @@ def reset(confirmation: str, user_id: str | None) -> dict[str, int]:
             ).fetchone()["busy"]:
                 raise Busy(f"{what} is queued or running: wait for it or cancel it first")
         deleted = {}
-        for table, _ in EMPTIED:   # results before runs before sets: their order in EMPTIED
+        for table, _ in EMPTIED + (MASTER_EMPTIED if everything else ()):   # children before parents
             deleted[table] = connection.execute(f"DELETE FROM {table}").rowcount if _exists(connection, table) else 0
         # urls_imported_at stays: data/urls.json is not imported again after a reset.
         connection.execute("UPDATE app_knowledge_system SET state = %s, origin = NULL, blueprint_version = NULL, "
                            "set_up_at = NULL, set_up_by = NULL, updated_at = now()", (NEW,))
-        _event(connection, "reset", user_id, {"deleted": deleted})
+        _event(connection, "reset", user_id, {"deleted": deleted, **({"everything": True} if everything else {})})
     return deleted

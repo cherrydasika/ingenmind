@@ -1758,6 +1758,33 @@ def live_flow() -> tuple[flows.FlowSpec, int]:
         return FLOW, 0
 
 
+def live_shape(spec: flows.FlowSpec | None = None, version: int | None = None) -> dict:
+    """What the live flow is made of, for the Ask page's workflow chart: its name,
+    version and which parts it has (component types and plugs only, nothing
+    from their settings)."""
+    if spec is None:
+        spec, version = live_flow()
+    parts = set()
+    def walk(flow: flows.FlowSpec) -> None:
+        for node in flow.nodes:
+            if node.type == "specialist_agent":
+                parts.add(node.config.get("role") or "external_apis")
+            elif node.type == "subflow":
+                parts.add(node.config.get("subflow") or "subflow")
+            else:
+                parts.add(node.type)
+        for edge in flow.edges:
+            source, target = flow.node(edge.source), flow.node(edge.target)
+            if edge.kind == "resource" and source and target and target.type == "agent":
+                parts.add(f"agent:{source.type}")
+        for sub in flow.subflows.values():
+            walk(sub)
+    walk(spec)
+    return {"flow_id": spec.id, "name": spec.name, "version": version,
+            "kind": "supervisor" if "supervisor" in parts else "agent" if "agent" in parts else "other",
+            "parts": sorted(parts)}
+
+
 def _graph_shape() -> dict:
     def shape(compiled) -> dict:
         g = compiled.get_graph()
@@ -2094,7 +2121,7 @@ def _public_progress(event: dict) -> dict | None:
         node = {"agent": "research", "search": "r_search", "fetch": "r_extract", "validate": "r_validate",
                 "classify": "r_classify", "known": "r_known", "profile": "r_profile", "probe": "r_probe",
                 "judge": "r_judge"}.get(event.get("step"))
-    elif kind == "delegate" and event.get("agent") in ("knowledge_base", "external_apis"):
+    elif kind == "delegate" and event.get("agent") in ("knowledge_base", "external_apis", "agent"):
         node = event["agent"]
     elif kind in ("call", "ingest", "evaluation", "rewrite"):
         node = {"call": "call", "ingest": "r_ingest", "evaluation": "evaluator", "rewrite": "rewriter"}[kind]

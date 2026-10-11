@@ -9,7 +9,7 @@ evaluate it, and keep it honest. They answer questions as a team, and go
 looking when the knowledge base falls short. You approve every step that
 matters. Self-hosted, open source (Apache-2.0), and it runs on any model.
 
-![A question on the Retrieval page: the live workflow, from guardrails through the evaluators to a cited answer](docs/images/multi-agent-answer.png)
+![A question on the Ask page: the live workflow, from guardrails through the evaluators to a cited answer](docs/images/multi-agent-answer.png)
 
 ## Why IngenMind
 
@@ -128,7 +128,7 @@ which you can skip), puts a compose file and its settings (`.env`) in
 `~/.ingenmind`, pulls the published image, starts everything on this
 machine and prints the address. Open http://localhost:18000 and sign in:
 the development sign-in asks for your name and email on the first visit and
-makes you the admin; no password. Then ask the Retrieval page something
+makes you the admin; no password. Then ask the Ask page something
 like *"Is there step-free access at Kestrel Bay station?"* or *"Can I bring
 my dog on Lakeshore Rail trains?"*. The first start downloads a 130 MB
 embedding model.
@@ -187,7 +187,7 @@ for your own domain, let the agents set it up with you:
    skips it), or add `TAVILY_API_KEY=…` to `~/.ingenmind/.env` (or `.env` in
    a clone) and restart (`docker compose -f ~/.ingenmind/compose.yml up -d`).
    The agents research the web with it.
-2. **Admin → Knowledge system → Set up my own domain** replaces the demo and
+2. **Profile → Knowledge system → Set up my own domain** replaces the demo and
    opens setup. (Or install with `INGENMIND_DEMO=0` to start without the
    demo; a reset on the same page works too.) Once you leave the demo it
    never comes back on a restart.
@@ -245,7 +245,7 @@ in less than half the time and a quarter of the tokens.
   blocks) against one or more versions; per question you get the answer
   users would see, the answer evaluator's verdict and scores, guardrail
   blocks, time and tokens.
-- **Live version** — the Retrieval page runs the one version you promote,
+- **Live version** — the Ask page runs the one version you promote,
   else the built-in flow. A version goes live only after an evaluation run
   on it has finished, or when you choose "make live without an evaluation".
   Per-flow metrics record every run.
@@ -430,11 +430,7 @@ The initial build pulls the app dependencies. Once up:
 - PostgreSQL: internal Docker service `pgvector` (no public database port)
 - Web app: http://localhost:18000 — sidebar dashboard with every page (see
   [Web app](#web-app))
-  — **Home** (every local service with live up/down status), **Retrieval**
-  (the agents answering from the knowledge base, with retrieval steps),
-  **Ad-hoc documents** (paste a document), **Ingestion**
-  (PostgreSQL stats, manual job status/trigger, run reports), **Sources** (every ingested
-  URL), and **Pipeline docs** (the Scrape/Chunk/Embed/Store flow explained)
+  — see [Web app](#web-app) for its pages
 
 If you edit Python files under `app/` (or `dags/common/`), run
 `docker compose restart webapp worker` to load them — the server doesn't
@@ -473,7 +469,7 @@ Expired chunks are pruned only when you trigger the maintenance job.
 
 ### Bedrock generation and embeddings
 
-The Retrieval page defaults to Claude Haiku 4.5 through Amazon Bedrock in
+The Ask page defaults to Claude Haiku 4.5 through Amazon Bedrock in
 `eu-west-2`. For local Docker use, put your AWS access key ID and secret access
 key in the gitignored `.env.aws` file (include a session token only for
 temporary credentials), then start Compose with both env files:
@@ -892,10 +888,22 @@ in the app image) on `localhost:18000`, as the `webapp` compose service. It call
 the pipeline modules directly (`pipeline.answer_question`, `embedding_viz`,
 `index_info`, …).
 
-- **Layout** — left sidebar with the pages grouped (Overview: Home ·
-  Workspace: Retrieval, Ad-hoc documents · Data: Ingestion, Sources ·
-  Reference: Pipeline docs) and live service status refreshed every 30s; top
-  bar (breadcrumb, session, user, New session); content as cards.
+- **Layout** — left sidebar with the pages grouped, showing only those you
+  may use, and live service status refreshed every 30s; top bar (breadcrumb,
+  user menu); content as cards:
+
+  | Group | Pages |
+  |---|---|
+  | Ask | **Ask** (put a question to the live flow; its workflow chart is the live flow's own shape), **Sessions** |
+  | Build | **Agent Builder** (the flow builder) |
+  | Evaluate | **Evaluations** |
+  | Data | **Knowledge base** (tabs: Sources, every page with its labels; Ingestion, jobs, pages research added and data-source reports), **Ad-hoc documents** |
+  | Monitoring | **Overview** (setup state, the live flow, the knowledge base, the last 7 days' questions and pass rate, services), **Agent memory**, **Langfuse** (a link, while it runs) |
+  | Admin | **Setup**, **Users** |
+  | Account | **Profile**; for admins the knowledge system (use your own domain, reset) and the **master reset** |
+
+  Old addresses (`#/home`, `#/ingestion`, `#/sources`, `#/knowledge`,
+  `#/docs`) redirect to their new places.
 - **Pages** — content that isn't pipeline logic lives in plain Python modules
   the API serves: `services.py` (Home), `ingestion_info.py` (manual job
   descriptions), `qdrant_overview.py` (PostgreSQL source overview, cached via
@@ -953,14 +961,14 @@ changed in v4 and isn't reliable for this).
 ### Knowledge system: setup and reset
 
 An installation has **one knowledge system** (`app/knowledge_system.py`),
-set up once. Its state is on **Admin → Knowledge system**
+set up once. Its state is on **Profile → Knowledge system**
 (`manage_settings`): `READY` or not set up, how it became ready (`existing`
 for installs from before guided setup, `demo` for the demo seed, `setup`
 for guided setup), the URL count, and a history of events.
 
 - **A fresh install** with no knowledge starts not set up: an admin lands
   on **Set up your knowledge system**, everyone sees a notice, and
-  questions on the Retrieval page answer "This knowledge system is being
+  questions on the Ask page answer "This knowledge system is being
   set up" (the flow playground and evaluations still run). The demo seed
   marks its install ready.
 - **Guided setup** (`app/initialization/`, epic #19) is a conversation
@@ -1101,7 +1109,13 @@ for guided setup), the URL count, and a history of events.
   A live check for two domains (UK trains, flights; Tavily, the chat model
   and real pages; stores nothing): `RUN_LIVE=1 python -m unittest -v
   test_blueprint_live`.
-- **Reset** empties the knowledge base and everything learnt from it so
+- **Master reset** (Profile, **admins only**: the role, not just the
+  permission): back to a fresh install. Everything the reset below empties,
+  and also every flow, its versions and drafts, the live flow (the built-in
+  one again), flow run metrics and everyone's sessions. Users are kept, so
+  an admin can sign in and set it up again. It needs the typed words
+  `RESET EVERYTHING`, and otherwise works like the reset.
+- **Reset** (Profile → Knowledge system) empties the knowledge base and everything learnt from it so
   the knowledge system can be set up again: both chunk tables, ingestion
   jobs, the URL list, data-source profiles and reports, saved evaluation
   sets and all evaluation runs, setup's evaluation preparations, agent
@@ -1152,9 +1166,9 @@ never from anyone's words; the **Agent memory** page shows it.
 
 **Appearance**: Light, Dark or System, on the Profile page.
 
-### Retrieval page layout
+### Ask page layout
 
-The Retrieval page is **multi-agent RAG**: a LangGraph state machine
+The Ask page runs the **live flow**, by default the built-in multi-agent RAG: a LangGraph state machine
 (`app/agent.py`, `/api/agent/stream`) whose three agents all run on one
 harness — the local runtime or a Bedrock AgentCore Harness (`agentcore-kb/`),
 see [Agent runtime](#agent-runtime) — each invoked with its own system
@@ -1294,7 +1308,7 @@ simple: it is where people ask questions.
   lists what happened. Hover a box for details.
 
 To test a flow and follow each step (per-node timings, decisions and
-scores), use the playground on the Agent flow page; full traces, prompts
+scores), use the playground in the Agent Builder; full traces, prompts
 included, are in Langfuse. The vector quantisation demo is on the Pipeline
 docs page.
 

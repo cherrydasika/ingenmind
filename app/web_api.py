@@ -324,7 +324,11 @@ def agent_info(request: Request) -> Response:
     if request.query_params.get("fresh"):
         agent.describe.clear()
     info = agent.describe()
-    return _json({**info, "roles": {key: {**role, "prompt": "Restricted to administrator tooling."}
+    try:
+        live = agent.live_shape()
+    except Exception:          # the chart then draws the built-in flow
+        live = None
+    return _json({**info, "live": live, "roles": {key: {**role, "prompt": "Restricted to administrator tooling."}
                                   for key, role in info.get("roles", {}).items()}})
 
 
@@ -829,6 +833,9 @@ def knowledge_system_status(request: Request) -> Response:
         out.update(status, counts=counts, events=knowledge_system.events(),
                    emptied=[{"table": t, "label": label, "rows": counts[t]} for t, label in knowledge_system.EMPTIED],
                    kept=list(knowledge_system.KEPT), confirmation=knowledge_system.RESET_CONFIRMATION,
+                   master={"emptied": [label for _, label in knowledge_system.MASTER_EMPTIED],
+                           "kept": list(knowledge_system.MASTER_KEPT),
+                           "confirmation": knowledge_system.MASTER_CONFIRMATION},
                    web_search=research.web_search_configured())
     return _json({**out, "can_manage": can_manage})
 
@@ -848,6 +855,29 @@ async def knowledge_system_reset(request: Request) -> Response:
     finally:
         fetch_qdrant_overview.clear()
         fetch_research_overview.clear()
+    return _json({"ok": True, "deleted": deleted})
+
+
+async def knowledge_system_master_reset(request: Request) -> Response:
+    """Back to a fresh install: the knowledge reset plus sessions and every flow.
+    Admins only (the role, not just the permission); people's accounts stay."""
+    user = auth.current_user(request) or {}
+    if user.get("role") != "admin":
+        return _json({"error": "only an admin can reset everything"}, 403)
+    body = await request.json()
+    try:
+        deleted = await run_in_threadpool(knowledge_system.reset, str(body.get("confirm") or ""),
+                                          user.get("user_id"), True)
+    except ValueError as exc:
+        return _json({"error": str(exc)}, 400)
+    except knowledge_system.Busy as exc:
+        return _json({"error": str(exc)}, 409)
+    except Exception as exc:
+        return _json({"error": f"Reset failed, nothing was deleted: {exc}"}, 502)
+    finally:
+        fetch_qdrant_overview.clear()
+        fetch_research_overview.clear()
+        agent.describe.clear()
     return _json({"ok": True, "deleted": deleted})
 
 
@@ -1399,6 +1429,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/home", home),
     Route("/api/knowledge-system", knowledge_system_status),
     Route("/api/knowledge-system/reset", knowledge_system_reset, methods=["POST"]),
+    Route("/api/knowledge-system/master-reset", knowledge_system_master_reset, methods=["POST"]),
     Route("/api/setup", setup_view),
     Route("/api/setup/message", setup_message, methods=["POST"]),
     Route("/api/setup/confirm", setup_confirm, methods=["POST"]),

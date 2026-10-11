@@ -1,6 +1,7 @@
-// Knowledge system (Admin): whether it is set up, what it holds, its recent
-// history, and the reset that empties it so setup can start again
-// (app/knowledge_system.py). Setup itself is setup.js.
+// Knowledge system, shown on the Profile page for people who manage settings:
+// whether it is set up, what it holds, its recent history, using your own
+// domain instead of the demo, and the reset that empties it so setup can start
+// again (app/knowledge_system.py). Setup itself is setup.js.
 
 import { api } from "./api.js";
 import { badge, card, errorBox, fmtInt, fmtTimestamp, h, loading, note } from "./ui.js";
@@ -109,21 +110,23 @@ export class KnowledgeSystemPage {
         sub: "Empties the knowledge base and everything learnt from it, so the knowledge system can be set up "
           + "again, for example for another domain. People keep their accounts and history. This cannot be undone.",
         children: [
-          h("div", { class: "grid-auto", style: "align-items:start" },
-            h("div", {}, h("strong", {}, "Deleted"),
-              h("ul", {}, d.emptied.map((e) => h("li", {}, `${e.label}: `, h("strong", {}, fmtInt(e.rows))))) ),
-            h("div", {}, h("strong", {}, "Kept"), h("ul", {}, d.kept.map((k) => h("li", {}, k))))),
+          h("details", {}, h("summary", {}, `What it deletes (${fmtInt(d.emptied.reduce((n, e) => n + e.rows, 0))} rows) and keeps`),
+            h("div", { class: "grid-auto details-body", style: "align-items:start" },
+              h("div", {}, h("strong", {}, "Deleted"),
+                h("ul", {}, d.emptied.filter((e) => e.rows).map((e) => h("li", {}, `${e.label}: `, h("strong", {}, fmtInt(e.rows)))))),
+              h("div", {}, h("strong", {}, "Kept"), h("ul", {}, d.kept.map((k) => h("li", {}, k)))))),
           h("div", { class: "toolbar", style: "justify-content:flex-start;gap:12px" }, confirmation, button),
           note("Wait for running ingestion jobs and evaluation runs to finish first; the reset refuses while they run."),
         ],
       }),
       card({
         title: "History",
-        children: d.events.length ? h("div", { class: "table-wrap" }, h("table", {},
+        children: d.events.length ? h("details", {}, h("summary", {}, `The last ${Math.min(d.events.length, 10)} events`),
+          h("div", { class: "table-wrap details-body" }, h("table", {},
           h("thead", {}, h("tr", {}, h("th", {}, "When"), h("th", {}, "Event"), h("th", {}, "By"), h("th", {}, "Details"))),
-          h("tbody", {}, d.events.map((e) => h("tr", {},
+          h("tbody", {}, d.events.slice(0, 10).map((e) => h("tr", {},
             h("td", {}, fmtTimestamp(e.at)), h("td", {}, e.event), h("td", {}, e.user_id || "—"),
-            h("td", { class: "wrap note" }, describe(e))))))) : note("Nothing has happened yet."),
+            h("td", { class: "wrap note" }, describe(e)))))))) : note("Nothing has happened yet."),
       }),
     ));
     this.flash = null;

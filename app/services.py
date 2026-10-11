@@ -20,7 +20,7 @@ SERVICES = [
         "url": _WEB_PUBLIC_URL,
         "health": "http://webapp:8000/api/config",
         "description": (
-            "The HTML/JS UI: Retrieval, Ad-hoc documents, manual Ingestion, Sources and Pipeline docs."
+            "The web app: Ask, the Agent Builder, Evaluations, the Knowledge base and Monitoring."
         ),
     },
     {

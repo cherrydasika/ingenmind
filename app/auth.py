@@ -93,7 +93,7 @@ ANY = None   # any signed-in user
 RULES = [
     ({"GET"}, r"/api/me", ANY),
     ({"GET"}, r"/api/(config|models|status|home|docs|docs/sample|knowledge-system)", ANY),
-    ({"POST"}, r"/api/knowledge-system/reset", "manage_settings"),
+    ({"POST"}, r"/api/knowledge-system/(reset|master-reset)", "manage_settings"),   # master: admins (web_api)
     ({"GET", "POST"}, r"/api/setup(/message|/confirm|/back|/blueprint(/revise|/confirm)?"
                       r"|/sources/(discover|add|continue|\d+)|/content/(analyse|\d+|\d+/urls|\d+/ttl)|/back-to-sources"
                       r"|/plan|/plan/approve|/build/(start|retry)|/back-to-content|/evaluation(/prepare|/run)?|/readiness|/go-live|/relabel)?",
