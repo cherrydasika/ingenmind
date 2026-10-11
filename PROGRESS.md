@@ -60,8 +60,11 @@ on GHCR is public, amd64 and arm64. Then, at the user's request, **demo
 first and your own domain from the app**: the installer also asks for a
 Tavily key (skippable), Admin → Knowledge system has **Set up my own
 domain**, admins get a dismissible notice after sign-in, and the seed never
-reloads the demo once it is left (412 pass; checked in the browser). Next:
-`v0.1.0-rc.3`, install it as a new user, then merge and `v0.1.0`.
+reloads the demo once it is left (412 pass; checked in the browser). `rc.3` installed as a new user
+found the demo blocked by the UK rail scope: the demo now gets its own flow
+(`lakeshore_demo`), 7 of 7 on its evaluation set. Next: `rc.4`, install it,
+then the user merges PR #61 and `v0.1.0`. In parallel, #62 (the starter
+flow) on branch `flows/starter`.
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is

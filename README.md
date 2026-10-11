@@ -160,9 +160,12 @@ in [data/demo/](data/demo/); the Ingestion page can add the Wikivoyage pages
 in [data/urls.example.json](data/urls.example.json), or your own list in
 `data/urls.json`.
 
-- **The guardrails allow only UK trains and the weather**: any question about
-  UK rail, read broadly, and weather anywhere. Other questions are blocked.
-  See [Adapting it to your domain](#adapting-it-to-your-domain).
+- **The demo's guardrails allow Lakeshore Rail, trains in general and the
+  weather**: loading the demo also makes its own flow live (`lakeshore_demo`,
+  the built-in flow scoped to the fictional operator), unless another flow
+  is already live. Other questions are blocked. The built-in flow itself is
+  scoped to UK trains and the weather; see
+  [Adapting it to your domain](#adapting-it-to-your-domain).
 - **OpenAI** works the same way: `LLM_PROVIDER=openai`, `LLM_MODEL`,
   `OPENAI_API_KEY`. See [Chat model](#chat-model) and [Embeddings](#embeddings).
 - **Fully offline with Ollama** is possible, but small models are poor

@@ -128,6 +128,18 @@ image build, no account anywhere but the model provider's.
   - Found and fixed on the way: `v0.1.0-rc.1`'s installer failed with a
     fixed version (Compose preferred the shell's `INGENMIND_VERSION`);
     `v0.1.0-rc.2` built; `rc.3` will carry this step.
+- [x] **3c. The demo's own scope** (2026-10-11). Installing `v0.1.0-rc.3` as
+  a new user: the README's example "Can I bring my dog on Lakeshore Rail
+  trains?" was blocked every time by the output guardrail ("Lakeshore Rail
+  is not a UK train operator"): the demo ran the built-in flow, scoped to UK
+  rail. Now the seed also publishes `lakeshore_demo` (the built-in flow
+  through `evaluation.apply_blueprint` with the demo's brief, routing and
+  scope) and makes it live, only while the built-in flow is live. Test: the
+  flow is live with the demo's scope, and is not installed over a chosen
+  flow. 413 pass. The local image, installed: the demo's evaluation set
+  (`lakeshore_demo`, 7 questions with both README examples) met 7 of 7, pass
+  rate 100%, none blocked by the output guardrail; the off-topic poem still
+  blocked.
 - [ ] **5. Docs, PR, the first release (`v0.1.0`).**
   - README written: "Get started" is the install command (with a fixed
     version, unattended settings, stop, upgrade, remove), cloning is "From
