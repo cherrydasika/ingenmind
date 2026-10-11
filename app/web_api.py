@@ -385,7 +385,11 @@ def _live() -> dict:
 
 def _flow_view(record: dict) -> dict:
     spec = flows.FlowSpec.model_validate(record["flow"])
-    return {**record, "flow": spec.model_dump(mode="json"), "components": flows.components(),
+    runtime = agent._runtime()
+    # Where each kind can run ("main", "task"), so the builder can say so before it is dropped.
+    components = [{**c, "runs_in": sorted(runtime.impl_states.get(flows.COMPONENTS[c["type"]].impl or "", ()))}
+                  for c in flows.components()]
+    return {**record, "flow": spec.model_dump(mode="json"), "components": components,
             "issues": flows.validate(spec) + flows.compiler.runtime_issues(spec, agent._runtime()),
             "live": _live()}
 

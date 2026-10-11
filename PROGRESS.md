@@ -71,7 +71,10 @@ Pipeline docs and the Knowledge system page are gone (its controls are on
 Profile, with an admin-only **master reset**: flows and sessions too, users
 kept). The Ask page's workflow chart draws the live flow. Fixed on the
 way: a test (`test_demo`) had made `lakeshore_demo` live in the local
-database; restored to the built-in flow.
+database; restored to the built-in flow. Then the **Agent Builder's
+component list**: Agent, Evaluator and Guardrail are one item each; a drop
+asks for the kind and the name (kinds that cannot run where dropped are
+greyed out with the reason).
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is

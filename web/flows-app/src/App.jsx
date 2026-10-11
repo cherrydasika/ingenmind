@@ -83,13 +83,33 @@ function issuesByNode(issues, nodes, root) {
 
 // ---------- side panels ----------
 
+// Agents, evaluators and guardrails are one item each: drop it, then choose
+// which kind and name it (KindPicker).
+const GENERIC = {
+  agent: "Drop it, then choose: one agent, a supervisor, a specialist, a RAG retrieval agent, a research agent…",
+  evaluator: "Drop it, then choose: answer evaluator, evidence evaluator or source validator",
+  guardrail: "Drop it, then choose: input or output guardrail",
+};
+
 function Palette({ components }) {
   const groups = CATEGORY_ORDER.map((cat) => [cat, components.filter((c) => c.category === cat)]).filter(([, l]) => l.length);
+  const generic = groups.filter(([cat]) => GENERIC[cat]);
+  const rest = groups.filter(([cat]) => !GENERIC[cat]);
   return (
     <aside className="fl-palette">
       <div className="fl-panel-title" title={"Drag onto the canvas, or into a subflow box. Connect a bottom handle to a top "
         + "handle for the order steps run in; a resource's right handle to a step's left port."}>Components</div>
-      {groups.map(([cat, list]) => (
+      <div className="fl-palette-group">
+        <div className="fl-palette-label">Build with</div>
+        {generic.map(([cat]) => (
+          <div key={cat} className={`fl-palette-item fl-cat-${cat} is-generic`} title={GENERIC[cat]} draggable
+            onDragStart={(e) => { e.dataTransfer.setData(DRAG_TYPE, `kind:${cat}`); e.dataTransfer.effectAllowed = "move"; }}>
+            <span className="fl-icon">{CATEGORY[cat]?.icon}</span>
+            <span>{CATEGORY[cat]?.label}</span>
+          </div>
+        ))}
+      </div>
+      {rest.map(([cat, list]) => (
         <div key={cat} className="fl-palette-group">
           <div className="fl-palette-label">{CATEGORY[cat]?.label || cat}</div>
           {list.map((c) => (
@@ -357,6 +377,51 @@ function Playground({ record, flowId, dirty, session, onEvent, onStart, onDone }
   );
 }
 
+// After an Agent, Evaluator or Guardrail is dropped: which kind, and its name.
+const RUNS_IN_TEXT = { main: "only in the main flow, not inside a subflow box",
+  task: "only inside a delegated task: drop it into a subflow box, such as the knowledge base" };
+
+function KindPicker({ category, components, where, onAdd, onCancel }) {
+  const fits = (c) => c.runnable !== false && (!c.runs_in?.length || c.runs_in.includes(where));
+  const options = components.filter((c) => c.category === category);
+  const first = options.find(fits) || options[0];
+  const [type, setType] = useState(first?.type);
+  const [name, setName] = useState(first?.title || "");
+  const [named, setNamed] = useState(false);       // typed by the user: keep it when the kind changes
+  const choose = (c) => { setType(c.type); if (!named) setName(c.title); };
+  const chosen = options.find((c) => c.type === type);
+  const ok = chosen && fits(chosen) && name.trim();
+  return (
+    <div className="fl-picker-backdrop" onClick={onCancel}>
+      <form className="fl-picker" onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => { e.preventDefault(); if (ok) onAdd(type, name.trim()); }}>
+        <div className="fl-panel-title">New {CATEGORY[category]?.label.toLowerCase()}: which kind?</div>
+        <div className="fl-picker-options">
+          {options.map((c) => (
+            <label key={c.type} className={`fl-picker-option ${c.type === type ? "is-chosen" : ""} ${fits(c) ? "" : "is-disabled"}`}>
+              <input type="radio" name="kind" checked={c.type === type} disabled={!fits(c)} onChange={() => choose(c)} />
+              <span><strong>{c.title}</strong>{c.runnable === false && <span className="fl-chip">soon</span>}
+                <span className="fl-field-help">{c.description}</span>
+                {c.runnable !== false && !fits(c) && (
+                  <span className="fl-field-help"><em>Runs {RUNS_IN_TEXT[c.runs_in[0]] || c.runs_in.join(", ")}.</em></span>)}</span>
+            </label>
+          ))}
+        </div>
+        <label className="fl-field">
+          <span className="fl-field-name">Name</span>
+          <input value={name} autoFocus onChange={(e) => { setName(e.target.value); setNamed(true); }}
+            placeholder="What it is called on the canvas" />
+        </label>
+        <p className="fl-hint">Its settings open next; connect it like any step.</p>
+        <div className="fl-picker-actions">
+          <button type="submit" className="fl-btn fl-btn-primary" disabled={!ok}>Add</button>
+          <button type="button" className="fl-btn" onClick={onCancel}>Cancel</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function NewFlow({ templates, initialFrom, versionLabel, onCreate, onCancel }) {
   const [id, setId] = useState("");
   const [name, setName] = useState("");
@@ -493,6 +558,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
   const [traces, setTraces] = useState({});
   const [templates, setTemplates] = useState([]);
   const [duplicateOf, setDuplicateOf] = useState(null);
+  const [picking, setPicking] = useState(null);   // {category, point}: a dropped Agent, Evaluator or Guardrail
   const [diff, setDiff] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [snap, setSnap] = useState(readSnap);
@@ -781,9 +847,26 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
   const onDrop = useCallback((event) => {
     event.preventDefault();
     const type = event.dataTransfer.getData(DRAG_TYPE);
-    const component = catalogue[type];
-    if (!component || !meta || viewing) return;
+    if (!meta || viewing) return;
     const point = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    if (!type.startsWith("kind:")) return addAt(type, point);
+    // Which flow it lands in decides which kinds can run there (main, or a subflow's task).
+    const ns = latest.current.nodes;
+    const byId = new Map(ns.map((n) => [n.id, n]));
+    const abs = (n) => (n.parentId ? { x: abs(byId.get(n.parentId)).x + n.position.x, y: abs(byId.get(n.parentId)).y + n.position.y } : n.position);
+    const box = ns.filter((n) => n.type === "subflow").find((g) => {
+      const p = abs(g);
+      return point.x >= p.x && point.y >= p.y && point.x <= p.x + (g.style?.width || 0) && point.y <= p.y + (g.style?.height || 0);
+    });
+    const path = box ? `${box.data.path}/${box.data.node.config.subflow}` : meta.root;
+    setPicking({ category: type.slice(5), point, where: meta.flows[path]?.state || "main" });
+    return undefined;
+  }, [meta, viewing, screenToFlowPosition]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Add a component at a canvas point (inside a subflow box when dropped in one), named `label`.
+  const addAt = useCallback((type, point, label) => {
+    const component = catalogue[type];
+    if (!component || !meta || viewing) return undefined;
     const ns = latest.current.nodes;
     const byId = new Map(ns.map((n) => [n.id, n]));
     const abs = (n) => (n.parentId ? { x: abs(byId.get(n.parentId)).x + n.position.x, y: abs(byId.get(n.parentId)).y + n.position.y } : n.position);
@@ -794,7 +877,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
     const group = inside.sort((a, b) => b.id.split("/").length - a.id.split("/").length)[0];
     if (group && type === "subflow") return say("Subflows cannot be nested in the editor: drop it outside the box.", "error");
     const scope = ns.filter((n) => (n.parentId || null) === (group?.id || null));
-    const id = uniqueId(type, new Set(scope.map((n) => rawId(n.id))));
+    const id = uniqueId(label || type, new Set(scope.map((n) => rawId(n.id))));
     const [width, height] = nodeSize(component);
     const origin = group ? abs(group) : { x: 0, y: 0 };
     const path = group ? `${group.data.path}/${group.data.node.config.subflow}` : meta.root;
@@ -818,7 +901,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
     const node = {
       id: canvasId, type: rfType(component),
       position: { x: point.x - origin.x - width / 2, y: point.y - origin.y - height / 2 },
-      data: { node: { id, type, config }, component, status: null, issues: [], path },
+      data: { node: { id, type, config, ...(label ? { label } : {}) }, component, status: null, issues: [], path },
       style: type === "subflow" ? { width: 320, height: 200 } : { width, height },
       ...(type === "subflow" ? { dragHandle: ".fl-group-head" } : {}),
       ...(group ? { parentId: group.id } : {}),
@@ -827,7 +910,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
     setEdges((list) => [...list, ...addedEdges]);
     setSelection({ kind: "node", id: canvasId });
     return undefined;
-  }, [catalogue, meta, viewing, screenToFlowPosition, setNodes, setEdges, say]);
+  }, [catalogue, meta, viewing, setNodes, setEdges, say]);
 
   // ---------- saving ----------
 
@@ -1140,6 +1223,9 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
       <Palette components={components} />
       <div className="fl-body">
         <div className="fl-canvas" ref={canvasRef} onDragOver={onDragOver} onDrop={onDrop}>
+          {picking && <KindPicker category={picking.category} components={components} where={picking.where}
+            onCancel={() => setPicking(null)}
+            onAdd={(type, label) => { addAt(type, picking.point, label); setPicking(null); }} />}
           <ReactFlow
             nodes={shownNodes}
             edges={shownEdges}

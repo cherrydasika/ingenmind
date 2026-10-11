@@ -229,8 +229,13 @@ publish, evaluate and promote it. On the local build's 16-question setup
 evaluation, the starter met 14 against the full multi-agent flow's 11–12,
 in less than half the time and a quarter of the tokens.
 
-- **Canvas** — drag components onto it: agents, evaluators, guardrails and
-  steps connected by flow edges; resources (LLM, retriever, memory, web
+- **Canvas** — drag components onto it. **Agent**, **Evaluator** and
+  **Guardrail** are one item each: drop one, choose which kind (one agent,
+  supervisor, specialist, RAG retrieval or research agent; answer or
+  evidence evaluator or source validator; input or output guardrail) and
+  name it, and its settings open. Kinds that cannot run where you dropped
+  it (the main flow, or a subflow's delegated task) are greyed out with the
+  reason. Steps are connected by flow edges; resources (LLM, retriever, memory, web
   search, scraper, API tools) plugged into their inputs; nested subflows.
   Undo/redo, copy-paste and snap. A setting the runtime does not read from
   the flow yet is shown **fixed** (read-only); a component marked **soon**
