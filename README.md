@@ -907,11 +907,11 @@ the pipeline modules directly (`pipeline.answer_question`, `embedding_viz`,
 
   | Group | Pages |
   |---|---|
-  | Ask | **Ask** (put a question to the live flow; its workflow chart is the live flow's own shape), **Sessions** |
+  | Ask | **Ask** (put a question to the live flow; its workflow chart is the live flow's own shape) |
   | Build | **Agent Builder** (the flow builder) |
   | Evaluate | **Evaluations** |
   | Data | **Knowledge base** (tabs: Sources, every page with its labels; Ingestion, jobs, pages research added and data-source reports), **Ad-hoc documents** |
-  | Monitoring | **Overview** (setup state, the live flow, the knowledge base, the last 7 days' questions and pass rate, services), **Agent memory**, **Langfuse** (a link, while it runs) |
+  | Monitoring | **Overview** (setup state, the live flow, the knowledge base, the last 7 days' questions and pass rate, services), **Sessions**, **Agent memory**, **Langfuse** (opens in a new tab, after a notice you can turn off) |
   | Admin | **Setup**, **Users** |
   | Account | **Profile**; for admins the knowledge system (use your own domain, reset) and the **master reset** |
 

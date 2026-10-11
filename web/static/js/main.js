@@ -45,7 +45,7 @@ export const session = {
 // route → [page class, sidebar group (for the breadcrumb), permission needed (null: any signed-in user)]
 const pages = {
   retrieval: [RetrievalPage, "Ask", "query_rag"],
-  sessions: [SessionsPage, "Ask", null],
+  sessions: [SessionsPage, "Monitoring", null],
   flows: [FlowsPage, "Build", "manage_agents"],
   evaluations: [EvaluationsPage, "Evaluate", "run_evaluations"],
   "knowledge-base": [KnowledgeBasePage, "Data", "view_knowledge"],
@@ -207,6 +207,43 @@ async function refreshSetup() {
   }
   drawSetupBanner();
 }
+
+// Langfuse is another app: say so before leaving, unless the user said not to ask again (this browser).
+const EXTERNAL_KEY = "ingenmind.external-ok";
+function externalOk() {
+  try { return localStorage.getItem(EXTERNAL_KEY) === "1"; } catch { return false; }
+}
+
+function confirmExternal(url, name) {
+  const dialog = document.getElementById("external-dialog");
+  const remember = h("input", { type: "checkbox", id: "external-remember" });
+  const close = () => { dialog.hidden = true; dialog.replaceChildren(); };
+  const open = h("a", { class: "btn btn-primary", href: url, target: "_blank", rel: "noopener", onclick: () => {
+    if (remember.checked) { try { localStorage.setItem(EXTERNAL_KEY, "1"); } catch { /* asks again */ } }
+    close();
+  } }, `Open ${name}`);
+  dialog.replaceChildren(h("div", { class: "modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "external-title" },
+    h("h2", { id: "external-title" }, `${name} opens in a new tab`),
+    h("p", {}, `${name} is a separate application at `, h("code", {}, url),
+      ". It shows the traces of every question: each agent's steps, prompts, timings and costs."),
+    h("label", { class: "modal-check" }, remember, " Don't ask me again"),
+    h("div", { class: "modal-actions" },
+      h("button", { class: "btn btn-ghost", type: "button", onclick: close }, "Cancel"), open)));
+  dialog.hidden = false;
+  open.focus();
+  dialog.onclick = (event) => { if (event.target === dialog) close(); };
+}
+
+document.getElementById("nav").addEventListener("click", (event) => {
+  const link = event.target.closest('a[data-link="langfuse"]');
+  if (!link || externalOk()) return;
+  event.preventDefault();
+  confirmExternal(link.href, "Langfuse");
+});
+document.addEventListener("keydown", (event) => {
+  const dialog = document.getElementById("external-dialog");
+  if (event.key === "Escape" && dialog && !dialog.hidden) { dialog.hidden = true; dialog.replaceChildren(); }
+});
 
 // While the demo is live, an admin is offered their own domain once; "Not now" hides it in this browser.
 const DEMO_PROMPT_KEY = "ingenmind.demo-prompt-dismissed";
