@@ -158,6 +158,15 @@ class Conversation(SetupDatabase):
         self.assertEqual((deleted["app_setup_turns"], deleted["app_setup"]), (1, 1))
         self.assertEqual((conversation.turns(), conversation.requirements()["requirements"]), ([], {}))
 
+    def test_the_demo_is_wanted_only_until_someone_leaves_it(self):
+        self.assertTrue(knowledge_system.demo_wanted())                # a new install
+        knowledge_system.mark_ready("demo")
+        self.assertTrue(knowledge_system.demo_wanted())                # the demo is live: refresh it
+        knowledge_system.reset("RESET", "admin-1")
+        self.assertFalse(knowledge_system.demo_wanted())               # left for their own domain
+        knowledge_system.mark_ready("setup")
+        self.assertFalse(knowledge_system.demo_wanted())
+
 
 
 def scripted(*turns):

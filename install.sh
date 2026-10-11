@@ -12,6 +12,8 @@
 #   INGENMIND_DIR      where the compose file and settings go (default: ~/.ingenmind)
 #   INGENMIND_PORT     the port on localhost (default: 18000)
 #   ANTHROPIC_API_KEY  the model key; asked for when not set
+#   TAVILY_API_KEY     web search, needed to set up your own domain; asked for
+#                      (Enter skips it) when not set
 #   LLM_PROVIDER       anthropic (default, tested), openai (also set OPENAI_API_KEY
 #                      and LLM_MODEL) or ollama
 #   INGENMIND_DEMO     0 to start without the fictional demo documents
@@ -22,6 +24,7 @@ DIR=${INGENMIND_DIR:-$HOME/.ingenmind}
 PORT=${INGENMIND_PORT:-18000}
 
 say() { printf '%s\n' "$*"; }
+has_tty() { (exec </dev/tty) 2>/dev/null; }     # a terminal to ask on (not in CI or a pipe without one)
 fail() { printf 'x %s\n' "$*" >&2; exit 1; }
 # .env is the source of truth: Compose would prefer these from the shell (and
 # INGENMIND_VERSION there is the release tag, v0.1.0, not the image tag 0.1.0).
@@ -88,13 +91,23 @@ else
   PROVIDER=${LLM_PROVIDER:-anthropic}
   KEY=${ANTHROPIC_API_KEY:-}
   if [ "$PROVIDER" = anthropic ] && [ -z "$KEY" ]; then
-    [ -r /dev/tty ] || fail "Set ANTHROPIC_API_KEY to install without a terminal."
+    has_tty || fail "Set ANTHROPIC_API_KEY to install without a terminal."
     printf 'Anthropic API key (from console.anthropic.com): ' >/dev/tty
     stty -echo </dev/tty 2>/dev/null || true
     read -r KEY </dev/tty
     stty echo </dev/tty 2>/dev/null || true
     printf '\n' >/dev/tty
     [ -n "$KEY" ] || fail "An Anthropic API key is needed (or set LLM_PROVIDER)."
+  fi
+  TAVILY=${TAVILY_API_KEY:-}
+  if [ -z "$TAVILY" ] && has_tty && [ -z "${INGENMIND_NO_PROMPT:-}" ]; then
+    say "IngenMind starts with a demo. To set it up for your own domain later (Admin -> Knowledge"
+    say "system), it researches the web with Tavily (free tier at tavily.com)."
+    printf 'Tavily API key (press Enter to skip; you can add it to .env later): ' >/dev/tty
+    stty -echo </dev/tty 2>/dev/null || true
+    read -r TAVILY </dev/tty || TAVILY=
+    stty echo </dev/tty 2>/dev/null || true
+    printf '\n' >/dev/tty
   fi
   secret() { od -An -N"$1" -tx1 /dev/urandom | tr -d ' \n'; }
   umask 077
@@ -111,7 +124,7 @@ else
     say "ANTHROPIC_API_KEY=$KEY"
     say "OPENAI_API_KEY=${OPENAI_API_KEY:-}"
     say "LLM_MODEL=${LLM_MODEL:-}"
-    say "TAVILY_API_KEY=${TAVILY_API_KEY:-}"
+    say "TAVILY_API_KEY=$TAVILY"
   } > "$DIR/.env"
   umask 022
 fi
@@ -131,6 +144,7 @@ say ""
 say "IngenMind is running: http://localhost:$PORT"
 say "  Sign in with your name and email (the first person becomes the admin), then ask"
 say "  the demo a question, e.g. \"Is there step-free access at Kestrel Bay station?\""
+say "  To use your own domain instead: Admin -> Knowledge system -> Set up my own domain."
 say ""
 say "  Stop:     docker compose -f $DIR/compose.yml stop"
 say "  Start:    docker compose -f $DIR/compose.yml start"

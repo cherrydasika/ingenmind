@@ -105,6 +105,29 @@ image build, no account anywhere but the model provider's.
     `latest` for full releases, then `gh release create` with
     `compose.yml`, `install.sh`, `SHA256SUMS`; a tag with `-` is a
     pre-release).
+- [x] **3b. Demo first, your own domain from the app** (the user, 2026-10-11:
+  install the demo by default, then offer the switch as a prompt and in the
+  settings).
+  - The installer also asks for a Tavily key (Enter skips it; needed only
+    for setup's web research). `knowledge_system.demo_wanted()`: the seed
+    loads the demo only on a new install or while the demo is live, never
+    after a reset or with setup under way (it used to reload the demo on
+    every start, even mid-setup). The knowledge-system API says whether web
+    search is configured (`web_search`).
+  - Admin → Knowledge system: **Use your own domain** (while the demo is
+    live): what setup does, the Tavily instructions when the key is
+    missing (button disabled), and two clicks (no typing) that reset and
+    open setup. After sign-in, admins see a notice linking there, with
+    **Not now** (remembered in that browser).
+  - Tests: `demo_wanted` (new install, demo live, after a reset, set up);
+    the seed skips once the demo is left. Full suite: 412 pass. Browser,
+    with the local image: the notice after sign-in, the card without a
+    Tavily key (button disabled), with one: two clicks land on setup's first
+    question; a restart afterwards does not bring the demo back (0 chunks,
+    state NEW).
+  - Found and fixed on the way: `v0.1.0-rc.1`'s installer failed with a
+    fixed version (Compose preferred the shell's `INGENMIND_VERSION`);
+    `v0.1.0-rc.2` built; `rc.3` will carry this step.
 - [ ] **5. Docs, PR, the first release (`v0.1.0`).**
   - README written: "Get started" is the install command (with a fixed
     version, unattended settings, stop, upgrade, remove), cloning is "From

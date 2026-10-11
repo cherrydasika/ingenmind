@@ -33,6 +33,10 @@ def documents(directory: Path = DEMO_DIR) -> list[tuple[str, str]]:
 
 
 def main() -> int:
+    import knowledge_system
+    if not knowledge_system.demo_wanted():
+        print("The knowledge system is not the demo (it was reset or set up for a domain): demo not loaded.")
+        return 0
     import adhoc_ingest   # here, so documents() needs no ingestion stack (evaluator_probe uses it)
     docs = documents()
     if not docs:
@@ -41,7 +45,6 @@ def main() -> int:
     for title, text in docs:
         result = adhoc_ingest.ingest(title, text, TTL_DAYS)
         print(f"{result['status']:>24}  {title} ({result['chunks']} chunks)")
-    import knowledge_system
     if not knowledge_system.is_ready():
         knowledge_system.mark_ready("demo")   # the demo brings its own knowledge: no setup needed
     return 0

@@ -53,10 +53,15 @@ the epic, as their own issues: #39 (guided setup on EC2 for real) and #18
 (learning from live use, after the MVP). **Active work (2026-10-11): #60, install with one command** (prebuilt
 images on GHCR, a release compose file, `install.sh`; plan:
 [docs/plans/install.md](docs/plans/install.md)), on branch
-`release/install`: the image (with the code), the release compose file,
-`install.sh` (install, upgrade, uninstall), the release workflow and the
-README are written and tested locally (410 pass), not committed; next:
-commit, PR, and a test release `v0.1.0-rc.1`.
+`release/install`: PR #61 (the image with the code, the release compose file, `install.sh`,
+the release workflow, the README). Test releases `v0.1.0-rc.1` (found an
+installer bug with a fixed version, fixed) and `rc.2` published; the image
+on GHCR is public, amd64 and arm64. Then, at the user's request, **demo
+first and your own domain from the app**: the installer also asks for a
+Tavily key (skippable), Admin → Knowledge system has **Set up my own
+domain**, admins get a dismissible notice after sign-in, and the seed never
+reloads the demo once it is left (412 pass; checked in the browser). Next:
+`v0.1.0-rc.3`, install it as a new user, then merge and `v0.1.0`.
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is

@@ -123,7 +123,8 @@ Needs Docker (Docker Desktop, Rancher Desktop or Docker Engine) and an
 curl -fsSL https://raw.githubusercontent.com/cherrydasika/ingenmind/main/install.sh | sh
 ```
 
-It asks for the key, puts a compose file and its settings (`.env`) in
+It asks for the key (and a Tavily key for setting up your own domain later,
+which you can skip), puts a compose file and its settings (`.env`) in
 `~/.ingenmind`, pulls the published image, starts everything on this
 machine and prints the address. Open http://localhost:18000 and sign in:
 the development sign-in asks for your name and email on the first visit and
@@ -135,7 +136,7 @@ embedding model.
 | | |
 |---|---|
 | A fixed version | `curl -fsSL https://github.com/cherrydasika/ingenmind/releases/download/v0.1.0/install.sh \| INGENMIND_VERSION=v0.1.0 sh` (each release has the files and their `SHA256SUMS`) |
-| Without a prompt | set `ANTHROPIC_API_KEY` first; `INGENMIND_PORT`, `INGENMIND_DIR`, `TAVILY_API_KEY` and `INGENMIND_DEMO=0` (no demo documents) are optional |
+| Without a prompt | set `ANTHROPIC_API_KEY` first (and `TAVILY_API_KEY`, or `INGENMIND_NO_PROMPT=1` to skip it); `INGENMIND_PORT`, `INGENMIND_DIR` and `INGENMIND_DEMO=0` (no demo documents) are optional |
 | Stop, start | `docker compose -f ~/.ingenmind/compose.yml stop` (or `start`) |
 | Upgrade | run the install command again: settings and data are kept |
 | Remove | `curl -fsSL https://raw.githubusercontent.com/cherrydasika/ingenmind/main/install.sh \| sh -s -- --uninstall` keeps the data; add `--purge` to delete it and `~/.ingenmind` |
@@ -175,18 +176,21 @@ in [data/urls.example.json](data/urls.example.json), or your own list in
 
 ### Set up your own knowledge system
 
-The demo shows the answering side. To build an assistant for your own
-domain, let the agents set it up with you:
+IngenMind starts with the demo; while it runs, an admin is offered their own
+domain after signing in (a notice they can dismiss). To build an assistant
+for your own domain, let the agents set it up with you:
 
-1. Add a Tavily key (`TAVILY_API_KEY` in `~/.ingenmind/.env`, or `.env` in
-   a clone; the agents research the web with it).
-2. Start without the demo (leave `COMPOSE_PROFILES` empty in that file, or
-   install with `INGENMIND_DEMO=0`), or reset a demo install on
-   **Admin → Knowledge system**; then restart (`stop`, `start`).
-3. Sign in: an admin lands on **Set up your knowledge system**. Answer the
-   setup agent's questions, then confirm the blueprint, choose sources and
-   content, approve the build, run the evaluation, read the readiness report
-   and **Go live**.
+1. Have a Tavily key in the settings: the installer asks for it (Enter
+   skips it), or add `TAVILY_API_KEY=…` to `~/.ingenmind/.env` (or `.env` in
+   a clone) and restart (`docker compose -f ~/.ingenmind/compose.yml up -d`).
+   The agents research the web with it.
+2. **Admin → Knowledge system → Set up my own domain** replaces the demo and
+   opens setup. (Or install with `INGENMIND_DEMO=0` to start without the
+   demo; a reset on the same page works too.) Once you leave the demo it
+   never comes back on a restart.
+3. Answer the setup agent's questions, then confirm the blueprint, choose
+   sources and content, approve the build, run the evaluation, read the
+   readiness report and **Go live**.
 
 Each step waits for you, and setup can be left and resumed at any point.
 Details: [Knowledge system: setup and reset](#knowledge-system-setup-and-reset).

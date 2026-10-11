@@ -36,6 +36,7 @@ import agent_memory as memory_store   # web_api.agent_memory is a route handler
 import auth
 import identity
 import knowledge_system
+import research
 from initialization import (blueprint_run, build as setup_build, content as setup_content,
                             evaluation as setup_evaluation, labels as setup_labels, plan as setup_plan, readiness as setup_readiness, sources_run,
                             state as setup_state, supervisor)
@@ -817,7 +818,8 @@ def knowledge_system_status(request: Request) -> Response:
         counts = knowledge_system.counts()
         out.update(status, counts=counts, events=knowledge_system.events(),
                    emptied=[{"table": t, "label": label, "rows": counts[t]} for t, label in knowledge_system.EMPTIED],
-                   kept=list(knowledge_system.KEPT), confirmation=knowledge_system.RESET_CONFIRMATION)
+                   kept=list(knowledge_system.KEPT), confirmation=knowledge_system.RESET_CONFIRMATION,
+                   web_search=research.web_search_configured())
     return _json({**out, "can_manage": can_manage})
 
 
