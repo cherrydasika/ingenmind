@@ -216,11 +216,25 @@ For builders: how the parts work, and how to change them.
 
 The agent graph is data: a flow JSON of components and edges that the
 builder edits and [app/flows/compiler.py](app/flows/compiler.py) compiles
-to a LangGraph state machine.
+to a LangGraph state machine. What the builder shows is what runs: there is
+no code to edit.
 
-- **Canvas** — agents, evaluators, guardrails and steps connected by flow
-  edges; resources (LLM, retriever, memory, web search, scraper, API tools)
-  plugged into their inputs; nested subflows. Undo/redo, copy-paste and snap.
+**Start small, grow it.** A new domain starts with the **starter flow**:
+Start → Input guardrail → **Agent** [LLM, Retriever] → Output guardrail →
+Answer evaluator → End. The Agent answers on its own, searching the
+knowledge base and calling any API tools plugged into it, with citations.
+The admin then grows the flow for the rest of the organisation: drag in a
+supervisor with specialists, evidence checks and research, more tools, and
+publish, evaluate and promote it. On the local build's 16-question setup
+evaluation, the starter met 14 against the full multi-agent flow's 11–12,
+in less than half the time and a quarter of the tokens.
+
+- **Canvas** — drag components onto it: agents, evaluators, guardrails and
+  steps connected by flow edges; resources (LLM, retriever, memory, web
+  search, scraper, API tools) plugged into their inputs; nested subflows.
+  Undo/redo, copy-paste and snap. A setting the runtime does not read from
+  the flow yet is shown **fixed** (read-only); a component marked **soon**
+  stops a flow being published.
 - **Versions** — one working draft per flow and immutable published
   versions, with a diff between any two, duplication, and templates to start
   from. Older versions open read-only.
@@ -232,7 +246,9 @@ to a LangGraph state machine.
   users would see, the answer evaluator's verdict and scores, guardrail
   blocks, time and tokens.
 - **Live version** — the Retrieval page runs the one version you promote,
-  else the built-in flow. Per-flow metrics record every run.
+  else the built-in flow. A version goes live only after an evaluation run
+  on it has finished, or when you choose "make live without an evaluation".
+  Per-flow metrics record every run.
 
 ![An evaluation run on the Evaluations page: the summary (expectations met, answer check, scores, blocks, time, tokens) and the results per knowledge area](docs/images/flow-evaluation.png)
 
@@ -1028,9 +1044,10 @@ for guided setup), the URL count, and a history of events.
   and has **Relabel**.
 - **Evaluate** (`initialization/evaluation.py`): once the build finishes,
   setup prepares the evaluation by itself. It publishes a **candidate
-  flow**, a copy of the live flow with the blueprint's brief, domain,
-  scope, supervisor instructions and search country, which is **not made
-  live**. It also writes an evaluation set, `setup_evaluation`:
+  flow**, `setup_<domain>`, with the blueprint's brief, domain and scope,
+  which is **not made live**: its first version is the starter flow (one
+  agent, told what the knowledge base holds), and later ones build on its
+  latest published version, so what you grew in the builder is kept. It also writes an evaluation set, `setup_evaluation`:
   - **answer:** up to 3 questions per knowledge area with pages, each
     with its expected answer, page and supporting quote. A question is
     kept only if the quote's words are in that page.

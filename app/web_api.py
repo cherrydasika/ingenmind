@@ -431,6 +431,16 @@ async def flow_set_live(request: Request) -> Response:
     if not isinstance(version, int) or version < 0:
         return _json({"error": "version must be a published version number"}, 400)
     flow_id = request.path_params["flow_id"]
+    # Measure before users get it (#62): a version with no finished evaluation goes live
+    # only when the admin says so. The built-in flow (version 0) is exempt.
+    try:                                 # an unknown version is a 404 before anything else
+        await run_in_threadpool(flows.store.get_version, flow_id, version, flows.load_flow())
+    except flows.store.FlowNotFound:
+        return _json({"error": "unknown version"}, 404)
+    if version and not body.get("unevaluated_ok") and \
+            not await run_in_threadpool(flows.evals.latest_evaluation, flow_id, version):
+        return _json({"error": f"v{version} has not been evaluated: run a question set on it (Evaluations) "
+                               "to see how it answers, or make it live anyway.", "unevaluated": True}, 409)
     try:
         flows.store.set_live(flow_id, version, flows.load_flow(), _run_check)
     except flows.store.FlowNotFound:

@@ -50,21 +50,18 @@ side: 10/12 met after vs 8/12 before, none worse); the Sources, research and
 citation views show the labels; **Relabel** on the setup Build card labels
 the plan's pages and research's (local build: 22 of 22). Still open from
 the epic, as their own issues: #39 (guided setup on EC2 for real) and #18
-(learning from live use, after the MVP). **Active work (2026-10-11): #60, install with one command** (prebuilt
-images on GHCR, a release compose file, `install.sh`; plan:
-[docs/plans/install.md](docs/plans/install.md)), on branch
-`release/install`: PR #61 (the image with the code, the release compose file, `install.sh`,
-the release workflow, the README). Test releases `v0.1.0-rc.1` (found an
-installer bug with a fixed version, fixed) and `rc.2` published; the image
-on GHCR is public, amd64 and arm64. Then, at the user's request, **demo
-first and your own domain from the app**: the installer also asks for a
-Tavily key (skippable), Admin → Knowledge system has **Set up my own
-domain**, admins get a dismissible notice after sign-in, and the seed never
-reloads the demo once it is left (412 pass; checked in the browser). `rc.3` installed as a new user
-found the demo blocked by the UK rail scope: the demo now gets its own flow
-(`lakeshore_demo`), 7 of 7 on its evaluation set. Next: `rc.4`, install it,
-then the user merges PR #61 and `v0.1.0`. In parallel, #62 (the starter
-flow) on branch `flows/starter`.
+(learning from live use, after the MVP). **Done 2026-10-11: #60, install with one command**, released as
+**v0.1.0** (PR #61; `curl -fsSL https://raw.githubusercontent.com/cherrydasika/ingenmind/main/install.sh | sh`;
+the image on GHCR, public, amd64 and arm64; demo first, your own domain
+from Admin → Knowledge system; the demo has its own flow, `lakeshore_demo`;
+plan: [docs/plans/install.md](docs/plans/install.md)). **#62, new domains
+start with one agent** (PR from `flows/starter`; plan:
+[docs/plans/starter-flow.md](docs/plans/starter-flow.md)): the Agent
+component and the starter flow; setup's candidate starts from it and keeps
+what the admin grew; the builder shows unapplied settings as fixed, blocks
+publishing with "soon" components, and asks for an evaluation before a
+version goes live. On the local domain the starter met 14/16 vs the full
+flow's 11–12/16, ~2.3× faster, ~4× fewer tokens.
 
 **Fixes on 2026-10-09** (deployed):
 - PR #48: an honest "not available" answer passes the answer check (it is

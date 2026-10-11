@@ -10,10 +10,11 @@ and the pages the build stored.
                 question by its kind and sums the results up per knowledge area
     view()      the latest preparation, its set and flow, and its latest run
 
-The candidate flow: a copy of the live flow (else the built-in) with the
-blueprint's brief, domain, supervisor instructions, search country and scope,
-published as a new version of `setup_<domain>` but not made live (#17's Go
-live promotes it).
+The candidate flow: the domain's own flow, `setup_<domain>`, with the
+blueprint's brief, domain, instructions, search country and scope, published
+as a new version but not made live (#17's Go live promotes it). Its first
+version starts from the starter flow, one agent (#62); later ones build on
+its latest published version, so what an admin grew in the builder is kept.
 
 The set (`setup_evaluation`, editable on the Evaluations page like any set):
 
@@ -87,7 +88,17 @@ def apply_blueprint(spec: flows.FlowSpec, bp: dict, flow_id: str) -> flows.FlowS
     nodes = []
     for node in spec.nodes:
         config_ = dict(node.config)
-        if node.type == "supervisor":
+        if node.type == "agent":
+            # One agent answers everything, so it gets what the knowledge base holds, not the
+            # supervisor's routing between specialists.
+            for key, value in (("brief", settings.get("brief")), ("domain", settings.get("domain")),
+                               ("instructions", agent_instructions(bp))):
+                value = (value or "").strip()
+                if value:
+                    config_[key] = value
+            if len(config_.get("brief") or "") < 20:
+                config_.pop("brief", None)
+        elif node.type == "supervisor":
             for key, value in (("brief", settings.get("brief")), ("domain", settings.get("domain")),
                                ("instructions", settings.get("supervisor_instructions")),
                                ("search_country", settings.get("search_country"))):
@@ -110,6 +121,26 @@ def apply_blueprint(spec: flows.FlowSpec, bp: dict, flow_id: str) -> flows.FlowS
         "nodes": [n.model_dump(mode="json") for n in nodes]})
 
 
+def agent_instructions(bp: dict) -> str:
+    """The Agent's instructions for a domain: what its knowledge base holds."""
+    areas = [a.get("name") for a in bp.get("knowledge_areas") or [] if a.get("name")]
+    holds = f"The knowledge base holds pages about: {', '.join(areas)}. " if areas else ""
+    return (holds + flows.registry.GENERIC_AGENT_INSTRUCTIONS)[:2000]
+
+
+def base_flow(flow_id: str) -> flows.FlowSpec:
+    """What a domain's candidate builds on: its own latest published version, so what the
+    admin grew in the builder is kept; else the starter, one agent (#62)."""
+    builtin = flows.load_flow()
+    try:
+        published = flows.store.get_flow(flow_id, builtin)["published_version"]
+    except flows.store.FlowNotFound:
+        published = 0
+    if published:
+        return flows.FlowSpec.model_validate(flows.store.get_version(flow_id, published, builtin))
+    return flows.load_starter()
+
+
 def _check_flow(spec: flows.FlowSpec) -> None:
     """It must compile here, as anything published must (web_api._run_check)."""
     import agent
@@ -119,8 +150,8 @@ def _check_flow(spec: flows.FlowSpec) -> None:
 def candidate_flow(bp: dict, note: str, check: Callable | None = None) -> tuple[str, int]:
     """(flow id, version) of the newly published candidate; the live flow is unchanged."""
     builtin = flows.load_flow()
-    base = flows.FlowSpec.model_validate(flows.store.live(builtin)["flow"])
-    spec = apply_blueprint(base, bp, flow_id_for(bp["flow"].get("domain") or bp["name"]))
+    flow_id = flow_id_for(bp["flow"].get("domain") or bp["name"])
+    spec = apply_blueprint(base_flow(flow_id), bp, flow_id)
     issues = [i for i in flows.validate(spec) if i["level"] == "error"]
     if issues:
         raise flows.FlowError(issues)

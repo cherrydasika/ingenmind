@@ -196,6 +196,21 @@ ROLES = {
         "tools": [t.spec() for t in api_tools.TOOLS.values()],
     },
 }
+# One agent that answers on its own (the Agent component, #62): the knowledge-base
+# search plus whichever API tools the flow plugs into it.
+AGENT_PROMPT = (
+    "You are the assistant, and you answer the user yourself. Search the knowledge base with "
+    "search_knowledge_base first, rephrasing and searching again if the results don't cover the question; "
+    "call your live-data tools when the question needs live data. Answer only from what your tools return, "
+    "citing knowledge-base chunks by their [n] numbers right after the facts they support; never invent "
+    "facts, numbers or links. If the results don't answer the question, say so plainly in one or two "
+    "sentences. Write a short, direct answer with a hard limit of 120 words, with no sentence about how you "
+    "found it.")
+ROLES["agent"] = {
+    "name": "Agent",
+    "prompt": AGENT_PROMPT,
+    "tools": ROLES["knowledge_base"]["tools"] + ROLES["external_apis"]["tools"],
+}
 ROLES["research"] = {
     "name": "Research agent",
     "prompt": (
@@ -279,7 +294,9 @@ def _system_prompt(role: str, settings: dict | None = None) -> list[dict]:
     now = datetime.now(timezone.utc)
     prompt = (_supervisor_prompt(settings.get("domain") or flows.registry.DEFAULT_DOMAIN,
                                  settings.get("instructions", flows.registry.UK_RAIL_SUPERVISOR_INSTRUCTIONS))
-              if role == "supervisor" else ROLES[role]["prompt"])
+              if role == "supervisor"
+              else f"{AGENT_PROMPT}\n\n{settings.get('instructions') or flows.registry.GENERIC_AGENT_INSTRUCTIONS}"
+              if role == "agent" else ROLES[role]["prompt"])
     scope = (settings.get("guardrail") or {}).get("scope") or guardrails.UK_RAIL_SCOPE
     return [{"text": f"ASSISTANT BRIEF: {brief}\nRead every question and task in the brief's context: when one "
              "does not name a country, region or organisation, it means the brief's.\n\n"
@@ -625,8 +642,8 @@ class _Run:
                         key = (self.session_id, role)   # still asking: abandon this session
                         _generations[key] = _generations.get(key, 0) + 1
                     break
-                tool = {"knowledge_base": self._search, "research": self._research_tool}.get(
-                    ROLE_ALIASES.get(role, role), self._call)
+                tool = {"knowledge_base": self._search, "research": self._research_tool,
+                        "agent": self._agent_tool}.get(ROLE_ALIASES.get(role, role), self._call)
                 if len(uses) > 1:
                     # Each call runs in a copy of this thread's context, so its
                     # trace observation stays inside this agent's trace.
@@ -709,6 +726,10 @@ class _Run:
             about = ", ".join(str(x) for x in (meta.get("organisation"), meta.get("effective_date")) if x)
             lines += [f"[{number}] {chunk['source_url']}" + (f" ({about})" if about else ""), chunk["text"].strip(), ""]
         return _result(use, "\n".join(lines).rstrip())
+
+    def _agent_tool(self, use: dict, delegation: int) -> dict:
+        """The Agent's tools: the knowledge-base search, else an API tool."""
+        return (self._search if use.get("name") == "search_knowledge_base" else self._call)(use, delegation)
 
     def _over_budget(self, delegation: int, kind: str) -> bool:
         """A data-source search counts its searches and fetches; True once
@@ -856,8 +877,7 @@ def _filter_properties(vocabulary: dict) -> dict:
 def _apply_settings(role: str, settings: dict, system: list[dict], tools: list[dict]) -> tuple[list[dict], list[dict]]:
     """A flow's settings in a role's prompt and tools: the supervisor's word
     limit and rounds, the search tool's chunk count, the API tools offered."""
-    if not settings:
-        return system, tools
+    settings = settings or {}
     if role == "supervisor":
         text = system[0]["text"]
         if settings.get("word_limit"):
@@ -865,6 +885,13 @@ def _apply_settings(role: str, settings: dict, system: list[dict], tools: list[d
         if settings.get("max_rounds"):
             text = text.replace(ROUNDS_TEXT, f"(at most {settings['max_rounds']} rounds in all)")
         system = [{**system[0], "text": text}, *system[1:]]
+    elif role == "agent":
+        if settings.get("word_limit"):
+            system = [{**system[0], "text": system[0]["text"].replace(
+                WORD_LIMIT_TEXT, f"a hard limit of {settings['word_limit']} words")}, *system[1:]]
+        # The search tool as the knowledge-base agent has it; only the API tools plugged into the agent.
+        _, search = _apply_settings("knowledge_base", settings, [], tools[:1])
+        tools = search + [t for t in tools[1:] if t["name"] in settings.get("agent_api_tools", set())]
     elif role == "knowledge_base" and ((settings.get("retrieval") or {}).get("top_k") or settings.get("filters")):
         tools = json.loads(json.dumps(tools))
         spec = tools[0]["config"]["inlineFunction"]
@@ -905,6 +932,11 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
         settings.update(word_limit=config.answer_word_limit, max_rounds=config.max_rounds,
                         domain=config.domain, instructions=config.instructions,
                         brief=config.brief, search_country=config.search_country.strip().lower())
+    single = next((n for n in spec.nodes if n.type == "agent"), None)
+    if single and not supervisor:
+        config = flows.COMPONENTS["agent"].config.model_validate(single.config)
+        settings.update(word_limit=config.answer_word_limit, domain=config.domain,
+                        instructions=config.instructions, brief=config.brief)
     gate = next((n for n in spec.nodes if n.type == "input_guardrail"), None)
     if gate:
         config = flows.COMPONENTS["input_guardrail"].config.model_validate(gate.config)
@@ -914,7 +946,7 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
         guardrail = {k: v if v.strip() else generic.get(k, "") for k, v in guardrail.items()}
         guardrail["scope"] = guardrail["scope"] or settings.get("brief") or flows.registry.UK_RAIL_BRIEF
         settings["guardrail"] = guardrail
-    retriever = _plugged(spec, "retrieval_agent", "retriever")
+    retriever = _plugged(spec, "retrieval_agent", "retriever") or _plugged(spec, "agent", "retriever")
     if retriever:
         settings["retrieval"] = {k: retriever[k] for k in ("top_k", "prefetch", "rrf_k", "dense", "full_text")}
     web = _plugged(spec, "research_agent", "web_search")
@@ -923,6 +955,10 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
     tools = _plugged(spec, "specialist_agent", "api_tools")
     if tools is not None:
         settings["api_tools"] = set(tools["tools"])
+    agent_tools = _plugged(spec, "agent", "api_tools")
+    if agent_tools is not None:
+        settings["agent_api_tools"] = set(agent_tools["tools"])
+        settings["api_tools"] = settings.get("api_tools", set()) | settings["agent_api_tools"]
     models = _agent_models(spec)
     if models:
         settings["models"] = models
@@ -930,7 +966,8 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
 
 
 # The agent role behind each agent component (specialists: their role setting).
-AGENT_ROLES = {"supervisor": "supervisor", "retrieval_agent": "knowledge_base", "research_agent": "research"}
+AGENT_ROLES = {"supervisor": "supervisor", "retrieval_agent": "knowledge_base", "research_agent": "research",
+               "agent": "agent"}
 
 
 def _agent_models(flow: flows.FlowSpec, out: dict | None = None) -> dict:
@@ -1035,6 +1072,7 @@ PREAMBLE = re.compile(
     r"^(?:now,? (?:i|we|let's)\b|ok(?:ay)?\b|great\b|perfect\b|alright\b|excellent\b|"
     r"based on (?:the|these|those|all|my) (?:findings|results|information|specialists?)\b|"
     r"i (?:now )?have (?:all|enough|everything|the (?:information|findings|results|details))\b|"
+    r"i(?:'ll| will| need to)? (?:search|look|check)\b|let me (?:search|look|check|find)\b|"
     r"let me (?:put|combine|summari[sz]e|answer|pull)\b|"
     r"here(?:'s| is) (?:the|my|your) (?:final )?answer\b|the specialists? (?:found|reported|returned)\b)",
     re.IGNORECASE)
@@ -1089,6 +1127,31 @@ def _specialist_node(agent: str, node_id: str | None = None):
                       "n": task["n"], "seconds": finding["seconds"], "turns": finding["turns"],
                       "error": finding["error"]})
         return {"findings": [finding]}
+    return node
+
+
+def _agent_node(node_id: str):
+    """The Agent component (#62): answers the question itself, with the same
+    draft and findings the supervisor leaves, so the guardrails, the answer
+    evaluator and the result work unchanged."""
+    def node(state: State, config) -> dict:
+        run: _Run = config["configurable"]["run"]
+        with run.node(node_id, 0):
+            started = time.monotonic()
+            finding = {"n": 1, "agent": "agent", "task": state["question"], "round": 1,
+                       "answer": None, "error": None, "turns": 0}
+            run.emit({"type": "delegate", "state": "start", **{k: finding[k] for k in ("n", "agent", "task", "round")}})
+            try:
+                result = run.specialist("agent", state["question"], 1)
+                finding.update(answer=result["answer"], turns=result["turns"])
+            except Exception as error:
+                finding["error"] = f"{type(error).__name__}: {error}"
+            finding["search_ns"] = [s["n"] for s in run.searches if s and s["delegation"] == 1]
+            finding["seconds"] = round(time.monotonic() - started, 3)
+            run.emit({"type": "delegate", "state": "error" if finding["error"] else "done", "agent": "agent",
+                      "n": 1, "seconds": finding["seconds"], "turns": finding["turns"], "error": finding["error"]})
+        answer = _without_preamble(finding["answer"] or "") if not finding["error"] else ""
+        return {"answer": answer, "findings": [finding], "round": 1, "tasks": [], "pending_uses": []}
     return node
 
 
@@ -1563,6 +1626,7 @@ def _runtime() -> flows.Runtime:
         factories={
             "supervisor": lambda node: _with_settings(_supervisor, node.config),
             "specialist": lambda node: _specialist_node(node.config["role"], node.id),
+            "agent": lambda node: _agent_node(node.id),
             "output_guardrail": lambda node: _output_guardrail,
             "answer_evaluator": lambda node: _with_settings(_answer_evaluator, node.config),
             "task_start": lambda node: _start_task,
@@ -1588,7 +1652,8 @@ def _runtime() -> flows.Runtime:
         },
         fan_out={"supervisor": _supervisor_fan_out},
         delegates=set(SPECIALISTS),
-        impl_states={**{impl: {"main"} for impl in ("supervisor", "specialist", "output_guardrail", "answer_evaluator")},
+        impl_states={**{impl: {"main"} for impl in ("supervisor", "specialist", "agent", "output_guardrail",
+                                                   "answer_evaluator")},
                      **{impl: {"task"} for impl in ("task_start", "retrieval_agent", "evidence_evaluator", "query_rewriter",
                                                     "research_agent", "source_validator", "ingest", "handoff", "report",
                                                     "placeholder", "task_finish")}},
@@ -1615,7 +1680,7 @@ def _answer_evaluator(state: State, config) -> dict:
     search_ns = {n for f in findings for n in f.get("search_ns") or []}
     chunks = [{"n": s["first"] + i, "source_url": c["source_url"], "text": c["text"]}
               for s in run.searches if s and s["n"] in search_ns for i, c in enumerate(s["retrieval"]["chunks"])]
-    api_tasks = {f["n"] for f in findings if f["agent"] == "external_apis"}
+    api_tasks = {f["n"] for f in findings if f["agent"] in ("external_apis", "agent")}
     api_results = [{"tool": c["tool"], "input": c["input"], "summary": c["summary"]}
                    for c in run.calls if c.get("ok") and c["delegation"] in api_tasks]
     draft = state.get("answer") or ""

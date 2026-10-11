@@ -62,7 +62,8 @@ def validate(spec: FlowSpec, path: str = "") -> list[dict]:
             if name not in spec.subflows:
                 issues.append(_issue("error", f"{where}.{node.id}", f"unknown subflow {name!r}"))
         if component.kind == "resource" and not component.runnable:
-            issues.append(_issue("warning", f"{where}.{node.id}", f"{component.title} is not supported by the runtime yet"))
+            issues.append(_issue("error", f"{where}.{node.id}",
+                                 f"{component.title} is not supported by the runtime yet: remove it to publish"))
     starts = [n for n in spec.nodes if n.type == "start"]
     ends = [n for n in spec.nodes if n.type == "end"]
     if len(starts) != 1:
