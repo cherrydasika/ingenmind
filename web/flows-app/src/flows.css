@@ -23,9 +23,41 @@
 .fl-cat-tool { --cat: var(--c-tool); }
 .fl-cat-control { --cat: var(--c-control); }
 
-.fl-toolbar {
-  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;
+/* Header: which flow, its state, and what to do with it. Canvas tools float on the canvas. */
+.fl-header {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px 16px; flex-wrap: wrap;
+  padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
 }
+.fl-header-flow, .fl-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.fl-header-flow { flex: 1 1 auto; }
+.fl-header-actions { flex: 0 0 auto; }
+.fl-flow-select { font-size: 14px; font-weight: 600; padding: 6px 10px; width: auto; max-width: 320px; }
+.fl-pill {
+  font-size: 12px; line-height: 1.6; padding: 1px 9px; border-radius: 999px; white-space: nowrap;
+  color: var(--muted); background: var(--surface-2); border: 1px solid var(--border-strong);
+}
+.fl-pill.is-live { color: var(--ok); background: var(--ok-soft); border-color: rgba(34, 197, 94, 0.35); }
+.fl-pill.is-dirty { color: var(--warn); background: var(--warn-soft); border-color: rgba(245, 158, 11, 0.35); }
+.fl-btn-quiet { background: none; border-color: transparent; color: var(--primary); }
+.fl-eyebrow {
+  align-self: center; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint);
+}
+.fl-menu { position: relative; }
+.fl-menu-list {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; min-width: 200px; display: grid; padding: 4px;
+  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); box-shadow: var(--shadow);
+}
+.fl-menu-list button {
+  font: inherit; font-size: 13px; text-align: left; color: var(--text); background: none; border: 0;
+  border-radius: var(--radius-sm); padding: 7px 10px; cursor: pointer;
+}
+.fl-menu-list button:hover:not(:disabled) { background: var(--primary-soft); }
+.fl-menu-list button:disabled { opacity: 0.45; cursor: default; }
+.fl-canvas-tools {
+  flex: none; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 8px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.fl-canvas > .react-flow { flex: 1 1 auto; min-height: 0; height: auto !important; }
 .fl-flow-name { font-weight: 600; font-size: 15px; display: flex; align-items: center; gap: 8px; }
 .fl-hint { color: var(--muted); font-size: 12.5px; margin: 4px 0 0; }
 .fl-faint { color: var(--faint); }
@@ -95,6 +127,7 @@
 .fl-icon { color: var(--cat, var(--muted)); width: 14px; text-align: center; flex: none; }
 
 .fl-canvas {
+  position: relative; display: flex; flex-direction: column;
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
   height: calc(100vh - 290px); min-height: 520px;
 }
@@ -181,7 +214,6 @@
 }
 
 /* ---------- editor ---------- */
-.fl-toolbar-left, .fl-toolbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .fl-select, .fl-newflow input, .fl-newflow select, .fl-form input, .fl-form select, .fl-form textarea,
 .fl-details input, .fl-details textarea {
   font: inherit; font-size: 12.5px; color: var(--text); background: var(--surface-2);
@@ -198,8 +230,6 @@
 .fl-btn-danger { margin-top: 16px; color: var(--err); border-color: rgba(239, 68, 68, 0.4); background: var(--err-soft); }
 .fl-link { font: inherit; font-size: 12px; background: none; border: 0; color: var(--link, #7aa2ff); cursor: pointer; padding: 0; margin-left: auto; }
 .fl-sep { width: 1px; height: 22px; background: var(--border-strong); }
-.fl-status { font-size: 12.5px; color: var(--muted); }
-.fl-status strong { color: var(--warn); font-weight: 600; }
 .fl-newflow {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px;
@@ -253,7 +283,7 @@
 
 /* ---------- playground and trace ---------- */
 .fl-run form { align-items: stretch; }
-.fl-run .fl-select { flex: 0 0 auto; max-width: 260px; }
+.fl-run .fl-select { flex: 0 0 auto; max-width: 220px; }
 .fl-chat { display: grid; gap: 10px; max-height: 260px; overflow: auto; margin-bottom: 8px; }
 .fl-turn { display: grid; gap: 4px; }
 .fl-q { justify-self: end; max-width: 80%; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--primary-soft); font-size: 13px; }
