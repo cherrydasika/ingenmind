@@ -110,8 +110,8 @@ function Palette({ components }) {
   const classic = components.filter((c) => !PRIMARY.has(c.type) && !TOOL_CATEGORIES.includes(c.category));
   return (
     <aside className="fl-palette">
-      <div className="fl-panel-title" title={"Drag onto the canvas. Connect a bottom handle to a top handle for the order "
-        + "steps run in; plug tools, sub-agents and evaluators into an agent's left port."}>Components</div>
+      <div className="fl-panel-title">Components</div>
+      <p className="fl-hint">Drag onto the canvas. Plug tools, sub-agents and evaluators into an agent's left port.</p>
       <div className="fl-palette-group">
         <div className="fl-palette-label">Build with</div>
         {Object.entries(GENERIC).map(([cat, [, hint]]) => (
@@ -193,10 +193,15 @@ function Trace({ entries }) {
   );
 }
 
-function NodeDetails({ node, edges, trace, onSpec, onDelete, readOnly }) {
+function NodeDetails({ node, nodes, edges, trace, onSpec, onDelete, readOnly }) {
   const { node: spec, component, issues } = node.data;
   const outgoing = edges.filter((e) => e.source === node.id && !e.data.resource);
   const plugged = edges.filter((e) => e.target === node.id && e.data.resource);
+  // The port an edge plugs into: named on the edge, else what its source provides.
+  const portOf = (e) => {
+    const c = nodes.find((n) => n.id === e.source)?.data.component;
+    return e.data.spec.port || c?.provides || c?.plugs;
+  };
   const configComponent = spec.type === "subflow"
     ? { ...component, config_schema: { ...component.config_schema, properties: {} } } : component;
   return (
@@ -225,7 +230,7 @@ function NodeDetails({ node, edges, trace, onSpec, onDelete, readOnly }) {
           <div className="fl-section">Ports</div>
           <ul className="fl-list">
             {component.inputs.map((port) => {
-              const names = plugged.filter((e) => (e.data.spec.port || port) === port).map((e) => rawId(e.source));
+              const names = plugged.filter((e) => portOf(e) === port).map((e) => rawId(e.source));
               return <li key={port}><span className="fl-chip">{port}</span> {names.length ? names.join(", ") : <span className="fl-faint">not connected</span>}</li>;
             })}
           </ul>
@@ -329,7 +334,30 @@ function Verdict({ issues, general }) {
   );
 }
 
-function Playground({ record, flowId, dirty, session, onEvent, onStart, onDone }) {
+function MoreMenu({ items }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => { if (!box.current?.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  return (
+    <div className="fl-menu" ref={box}>
+      <button type="button" className="fl-btn fl-icon-btn" aria-haspopup="menu" aria-expanded={open}
+        aria-label="More" title="More" onClick={() => setOpen(!open)}>⋯</button>
+      {open && <div className="fl-menu-list" role="menu">
+        {items.map((item) => <button key={item.label} type="button" role="menuitem" disabled={item.disabled}
+          onClick={() => { item.onClick(); if (!item.keepOpen) setOpen(false); }}>{item.label}</button>)}
+      </div>}
+    </div>
+  );
+}
+
+function Playground({ open, onClose, record, flowId, dirty, session, onEvent, onStart, onDone }) {
   const [question, setQuestion] = useState("");
   const [target, setTarget] = useState("");
   const [busy, setBusy] = useState(false);
@@ -363,7 +391,18 @@ function Playground({ record, flowId, dirty, session, onEvent, onStart, onDone }
     }
   };
   return (
-    <div className="fl-run">
+    <aside className="fl-run" hidden={!open} aria-label="Test this flow">
+      <div className="fl-run-head">
+        <div className="fl-panel-title">Test this flow</div>
+        <button type="button" className="fl-close" onClick={onClose} title="Close" aria-label="Close">×</button>
+      </div>
+      <label className="fl-field">
+        <span className="fl-field-help">Version to run</span>
+        <select className="fl-select" value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy}>
+          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+      </label>
+      {turns.length === 0 && <p className="fl-hint">Ask a question. Each step lights up on the canvas as it runs; click a step to see what it did.</p>}
       {turns.length > 0 && (
         <div className="fl-chat">
           {turns.map((t) => (
@@ -378,16 +417,12 @@ function Playground({ record, flowId, dirty, session, onEvent, onStart, onDone }
         </div>
       )}
       <form onSubmit={submit}>
-        <select className="fl-select" value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy}
-          title="Which version of this flow to run">
-          {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
         <input value={question} onChange={(e) => setQuestion(e.target.value)} disabled={busy}
-          placeholder="Playground: ask a travel question and watch this flow run…" />
+          placeholder="Ask a question…" />
         <button type="submit" disabled={busy || !question.trim() || blocked}>{busy ? "Running…" : "Run"}</button>
       </form>
       {blocked && <div className="fl-field-help">Save the draft to run your changes, or pick a published version.</div>}
-    </div>
+    </aside>
   );
 }
 
@@ -605,6 +640,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
   const [metrics, setMetrics] = useState(null);
   const [snap, setSnap] = useState(readSnap);
   const [showKeys, setShowKeys] = useState(false);
+  const [testOpen, setTestOpen] = useState(false);   // the test panel on the right
   const [flowPanel, setFlowPanel] = useState(false);   // the flow's own details, opened from the toolbar
   const [viewing, setViewing] = useState(null);     // a version shown read-only: {label, nodes, edges}
   const [, setHistTick] = useState(0);
@@ -633,10 +669,12 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
 
   /** Fit the flow to the canvas, but never below a readable zoom: a flow too
    *  big for that is shown from its top (centred if it fits across). */
-  const frame = useCallback(() => {
-    const el = canvasRef.current;
+  const frame = useCallback((tries = 0) => {
+    const el = canvasRef.current?.querySelector(".react-flow") || canvasRef.current;
     const ns = getNodes();
     if (!el || !ns.length) return;
+    // Bounds need the nodes' measured sizes; until React Flow has them, wait.
+    if (ns.some((n) => !n.measured?.width) && tries < 40) { setTimeout(() => frame(tries + 1), 50); return; }
     const { width: w, height: h } = el.getBoundingClientRect();
     const b = getNodesBounds(ns);
     const zoom = Math.max(READABLE_ZOOM, Math.min(1, (w - 2 * FRAME_PAD) / b.width, (h - 2 * FRAME_PAD) / b.height));
@@ -659,7 +697,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
       hist.current = { past: [], future: [], stable: null };   // a different flow: nothing to undo
       setHistTick((t) => t + 1);
     }
-    setTimeout(frame, 30);
+    setTimeout(() => frame(), 30);
   }, [setNodes, setEdges, frame]);
 
   const applyRecord = useCallback((rec) => {
@@ -1120,7 +1158,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
     const laid = layoutFlow(flow, components);
     setSelection(null);
     setViewing({ version: v, label: `${spec.id} v${v}`, nodes: fitGroups(laid.nodes), edges: laid.edges });
-    setTimeout(frame, 30);
+    setTimeout(() => frame(), 30);
   });
   // A version on view takes only measurements and selection, never edits.
   const onViewChange = (changes) => setViewing((v) => v && ({
@@ -1129,7 +1167,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
   const leaveView = () => {
     setViewing(null);
     setSelection(null);
-    setTimeout(frame, 30);
+    setTimeout(() => frame(), 30);
   };
   const toggleSnap = () => setSnap((on) => {
     try { localStorage.setItem(SNAP_KEY, on ? "0" : "1"); } catch { /* per-browser nicety */ }
@@ -1193,52 +1231,48 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
   };
   const canUndo = hist.current.past.length > 0 || (hist.current.stable && hist.current.stable.key !== fullKey);
   const canRedo = hist.current.future.length > 0;
-  const status = record.source === "draft" ? `Draft · published v${record.published_version}`
-    : record.source === "published" ? `Published v${record.published_version}` : "Built-in flow (version 0)";
+  const state = record.source === "draft" ? `Draft (published v${record.published_version})`
+    : record.source === "published" ? `Published v${record.published_version}` : "Built-in v0";
+  const liveVersion = flowList.find((f) => f.id === spec.id)?.live_version ?? null;
 
   return (
     <div className="fl-app">
-      <div className="fl-toolbar">
-        <div className="fl-toolbar-left">
-          <select className="fl-select" value={spec.id} onChange={(e) => switchFlow(e.target.value)} disabled={busy}>
-            {flowList.map((f) => <option key={f.id} value={f.id}>{f.name} ({f.id}){f.has_draft ? " · draft" : ""}{f.live_version !== null && f.live_version !== undefined ? ` · live v${f.live_version}` : ""}</option>)}
+      <div className="fl-header">
+        <div className="fl-header-flow">
+          <select className="fl-select fl-flow-select" value={spec.id} onChange={(e) => switchFlow(e.target.value)} disabled={busy}
+            aria-label="Flow" title={`Flow id: ${spec.id}`}>
+            {flowList.map((f) => <option key={f.id} value={f.id}>{f.name}{f.live_version !== null && f.live_version !== undefined ? " · live" : ""}</option>)}
             {!flowList.some((f) => f.id === spec.id) && <option value={spec.id}>{spec.name}</option>}
           </select>
-          <button type="button" className="fl-btn" onClick={() => { setDuplicateOf(null); setNewFlow(!newFlow); }}>New flow</button>
-          <span className="fl-status">{status}{dirty && <strong> · unsaved changes</strong>}</span>
+          {liveVersion !== null && <span className="fl-pill is-live" title="The version users get on the Ask page">Live v{liveVersion}</span>}
+          {(record.source === "draft" || record.published_version !== liveVersion) &&
+            <span className="fl-pill" title="What the editor holds">{state}</span>}
+          {dirty && <span className="fl-pill is-dirty">Unsaved changes</span>}
+          <button type="button" className="fl-btn fl-btn-quiet" onClick={() => { setDuplicateOf(null); setNewFlow(!newFlow); }}>+ New flow</button>
         </div>
-        <div className="fl-toolbar-right">
-          <button type="button" className="fl-btn fl-icon-btn" disabled={!canUndo || !!viewing} onClick={undo}
-            title={`Undo (${MOD}Z)`} aria-label="Undo">↶</button>
-          <button type="button" className="fl-btn fl-icon-btn" disabled={!canRedo || !!viewing} onClick={redo}
-            title={`Redo (${MOD}⇧Z)`} aria-label="Redo">↷</button>
-          <span className="fl-sep" />
-          <button type="button" className="fl-btn fl-btn-primary" disabled={!dirty || busy || !!viewing} onClick={saveDraft}
-            title={`${MOD}S`}>Save draft</button>
-          <button type="button" className="fl-btn" disabled={busy || (!dirty && record.source !== "draft")}
-            onClick={() => (confirm === "discard" ? discard() : setConfirm("discard"))}>
-            {confirm === "discard" ? "Click again to discard" : record.source === "draft" && !dirty ? "Discard draft" : "Revert"}
-          </button>
-          <button type="button" className="fl-btn" disabled={busy || errors.length > 0 || (!dirty && record.source !== "draft")}
-            title={errors.length ? "Fix the errors first" : "Freeze the draft as the next version"}
-            onClick={() => setConfirm(confirm === "publish" ? null : "publish")}>Publish…</button>
-          <span className="fl-sep" />
-          <button type="button" className="fl-btn" disabled={!!viewing}
-            title="Ready-made architectures: pick one and apply it to this flow"
-            onClick={() => guard(async () => setGallery(await flowsApi.architectures()))}>Architectures</button>
-          <button type="button" className="fl-btn" disabled={!!viewing} onClick={() => show(spec, components, { auto: true })}>Auto-layout</button>
-          <button type="button" className={`fl-btn ${snap ? "is-on" : ""}`} onClick={toggleSnap} aria-pressed={snap}
-            title="Snap nodes to a 20px grid while dragging">Snap</button>
-          <button type="button" className="fl-btn" onClick={exportJson}>Export</button>
-          <button type="button" className="fl-btn" onClick={() => fileInput.current?.click()}>Import</button>
-          <input ref={fileInput} type="file" accept="application/json,.json" hidden
-            onChange={(e) => { if (e.target.files[0]) importJson(e.target.files[0]); e.target.value = ""; }} />
-          <button type="button" className="fl-btn fl-icon-btn" onClick={() => setShowKeys((v) => !v)}
-            title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
+        <div className="fl-header-actions">
+          <Verdict issues={issues} general={general} />
+          {session && <button type="button" className={`fl-btn ${testOpen ? "is-on" : ""}`} aria-pressed={testOpen}
+            onClick={() => setTestOpen((v) => !v)} title="Ask questions and watch this flow run">▶ Test</button>}
           <button type="button" className={`fl-btn ${flowPanel ? "is-on" : ""}`} aria-pressed={flowPanel}
             onClick={toggleFlowPanel}
-            title="Name, description, versions, history and metrics">Flow details</button>
-          <Verdict issues={issues} general={general} />
+            title="Name, description, versions, history and metrics; make a version live">Versions &amp; live</button>
+          <MoreMenu items={[
+            { label: confirm === "discard" ? "Click again to discard" : record.source === "draft" && !dirty ? "Discard draft" : "Revert changes",
+              disabled: busy || (!dirty && record.source !== "draft"), keepOpen: confirm !== "discard",
+              onClick: () => (confirm === "discard" ? discard() : setConfirm("discard")) },
+            { label: "Export as JSON", onClick: exportJson },
+            { label: "Import JSON…", onClick: () => fileInput.current?.click() },
+            { label: "Keyboard shortcuts", onClick: () => setShowKeys((v) => !v) },
+          ]} />
+          <input ref={fileInput} type="file" accept="application/json,.json" hidden
+            onChange={(e) => { if (e.target.files[0]) importJson(e.target.files[0]); e.target.value = ""; }} />
+          <span className="fl-sep" />
+          <button type="button" className="fl-btn" disabled={busy || errors.length > 0 || (!dirty && record.source !== "draft")}
+            title={errors.length ? "Fix the errors first" : "Freeze the saved draft as the next version (users get it once you make it live)"}
+            onClick={() => setConfirm(confirm === "publish" ? null : "publish")}>Publish…</button>
+          <button type="button" className="fl-btn fl-btn-primary" disabled={!dirty || busy || !!viewing} onClick={saveDraft}
+            title={`Keep your changes as a draft (${MOD}S)`}>Save draft</button>
         </div>
       </div>
       {showKeys && <Shortcuts onClose={() => setShowKeys(false)} />}
@@ -1262,12 +1296,24 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
           <span className="fl-field-help">Publishing does not change what users get: make a version live from the History list.</span>
         </form>
       )}
-      {session && <Playground record={record} flowId={spec.id} dirty={dirty} session={session} onEvent={onEvent}
-        onStart={onReset} onDone={refreshMetrics} />}
       {toast && <div className={`fl-toast is-${toast.kind}`}>{toast.text}</div>}
-      <Palette components={components} />
-      <div className="fl-body">
+      <div className={`fl-body${testOpen && session ? " has-test" : ""}`}>
+        <Palette components={components} />
         <div className="fl-canvas" ref={canvasRef} onDragOver={onDragOver} onDrop={onDrop}>
+          <div className="fl-canvas-tools" role="toolbar" aria-label="Canvas">
+            <button type="button" className="fl-btn fl-icon-btn" disabled={!canUndo || !!viewing} onClick={undo}
+              title={`Undo (${MOD}Z)`} aria-label="Undo">↶</button>
+            <button type="button" className="fl-btn fl-icon-btn" disabled={!canRedo || !!viewing} onClick={redo}
+              title={`Redo (${MOD}⇧Z)`} aria-label="Redo">↷</button>
+            <span className="fl-sep" />
+            <button type="button" className="fl-btn" disabled={!!viewing}
+              title="Ready-made architectures: pick one and apply it to this flow"
+              onClick={() => guard(async () => setGallery(await flowsApi.architectures()))}>Architectures</button>
+            <button type="button" className="fl-btn" disabled={!!viewing} onClick={() => show(spec, components, { auto: true })}
+              title="Tidy the layout">Tidy up</button>
+            <button type="button" className={`fl-btn ${snap ? "is-on" : ""}`} onClick={toggleSnap} aria-pressed={snap}
+              title="Snap nodes to a 20px grid while dragging">Snap to grid</button>
+          </div>
           {gallery && <ArchitectureGallery architectures={gallery} canApply={!viewing && !!spec}
             onClose={() => setGallery(null)}
             onApply={(arch) => {
@@ -1309,7 +1355,6 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
             <MiniMap pannable zoomable nodeStrokeWidth={2} />
             <Controls showInteractive={false} />
           </ReactFlow>
-        </div>
         {panelOpen && <aside className="fl-details" aria-label="Details">
           <button type="button" className="fl-close" onClick={closePanel} title="Close (Esc)" aria-label="Close">×</button>
           {viewing && !selectedNode && !selectedEdge ? (
@@ -1323,7 +1368,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
               if (id) setSelection({ kind: "node", id });
             }} />
           ) : selectedNode ? (
-            <NodeDetails node={selectedNode} edges={shownEdges} trace={viewing ? null : traces[selectedNode.id]}
+            <NodeDetails node={selectedNode} nodes={shownNodes} edges={shownEdges} trace={viewing ? null : traces[selectedNode.id]}
               readOnly={!!viewing} onSpec={(fn) => updateSpec(selectedNode.id, fn)}
               onDelete={() => removeNodes([selectedNode.id])} />
           ) : selectedEdge ? (
@@ -1334,6 +1379,9 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
               confirm={confirm} onMakeLive={makeLive} onDiff={showDiff} onDuplicate={duplicate} metrics={metrics} />
           )}
         </aside>}
+        </div>
+        {session && <Playground open={testOpen} onClose={() => setTestOpen(false)} record={record} flowId={spec.id}
+          dirty={dirty} session={session} onEvent={onEvent} onStart={onReset} onDone={refreshMetrics} />}
       </div>
     </div>
   );
