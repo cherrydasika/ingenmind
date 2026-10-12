@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-11 (end of day)
+Last updated: 2026-10-12 (end of day)
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -142,9 +142,9 @@ kind: start from [AGENTS.md](AGENTS.md); the backlog is the open issues
 
 ## Current state
 
-- **Everything is shut down (2026-10-11, end of day):** the SSM tunnels
+- **Everything is shut down (2026-10-12, end of day):** the SSM tunnels
   closed; EC2 `<instance-id>` (eu-west-2) **stopped** with `session.sh stop`
-  (the stack first; no AgentCore endpoints on; no instance runs in any
+  (the stack first; AgentCore endpoints turned off; no instance runs in any
   region); locally every container stopped and Rancher Desktop quit
   (`scripts/stop.sh --all`). Data kept everywhere. Start again: locally
   `scripts/start.sh` (Rancher Desktop, `DOCKER_CONTEXT=rancher-desktop`,
