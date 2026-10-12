@@ -70,7 +70,7 @@ Save draft), components down the left, the canvas with its own tools
 Fixed on the way: a new flow was framed before its nodes were measured
 (off-centre), and an agent's Ports listed every resource against every
 port. A narrated walkthrough video was recorded with Playwright (local
-only); it left three unpublished-to-live "Demo assistant" flows in the
+only); it left three "Demo assistant" flows (not live) in the
 local database. Starting locally, other projects' containers
 (`rag_systems-*` Langfuse, MWAA runner) restarted with Rancher Desktop and
 held port 5432; stopping them let local Langfuse start.
