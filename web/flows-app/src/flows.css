@@ -83,29 +83,35 @@
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 8px 10px;
 }
 .fl-run input:focus { outline: 2px solid var(--primary-soft); border-color: var(--primary); }
-.fl-run button {
+.fl-run form button {
   font: inherit; font-weight: 600; color: #fff; background: var(--primary); border: 0;
   border-radius: var(--radius-sm); padding: 0 16px; cursor: pointer;
 }
-.fl-run button:disabled { opacity: 0.55; cursor: default; }
+.fl-run form button:disabled { opacity: 0.55; cursor: default; }
 .fl-answer {
   margin-top: 8px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-sm); white-space: pre-wrap; font-size: 13px;
 }
 
-/* The builder uses the page's full width: components in a strip above the
-   canvas; details slide over the canvas's right edge when something is selected. */
+/* The builder uses the page's full width: components on the left, the canvas,
+   and the test panel on the right when open. Details slide over the canvas's
+   right edge when something is selected. */
 .content:has(> .flows-host) { max-width: none; }
-.fl-body { position: relative; }
+.fl-body {
+  display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 12px;
+  height: calc(100vh - 230px); min-height: 520px;
+}
+.fl-body.has-test { grid-template-columns: 200px minmax(0, 1fr) 360px; }
 .fl-palette, .fl-details {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 12px; font-size: 13px;
 }
 .fl-panel-title { font-weight: 600; font-size: 14px; }
-.fl-palette { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 8px 12px; }
-.fl-palette > .fl-panel-title { cursor: help; }
-.fl-palette-group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.fl-palette-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); margin-right: 2px; }
+.fl-palette { display: flex; flex-direction: column; gap: 14px; overflow: auto; min-height: 0; }
+.fl-palette .fl-hint { margin: -8px 0 0; }
+.fl-palette-group { display: flex; flex-direction: column; gap: 4px; }
+.fl-palette-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); margin-bottom: 2px; }
+.fl-classic summary { cursor: pointer; }
 .fl-palette-item {
   display: flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: var(--radius-sm);
   background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--cat); font-size: 12.5px;
@@ -129,7 +135,7 @@
 .fl-canvas {
   position: relative; display: flex; flex-direction: column;
   background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
-  height: calc(100vh - 290px); min-height: 520px;
+  min-height: 0;
 }
 .fl-canvas .react-flow { --xy-background-color: var(--bg); --xy-minimap-background-color: var(--surface); }
 .fl-canvas .react-flow__edge-textbg { fill: var(--surface-2); }
@@ -210,6 +216,7 @@
 
 @media (max-width: 1100px) {
   .fl-palette { display: none; }
+  .fl-body, .fl-body.has-test { grid-template-columns: minmax(0, 1fr); height: auto; }
   .fl-canvas { height: 70vh; }
 }
 
@@ -282,9 +289,19 @@
 .fl-verdict li { margin-bottom: 4px; }
 
 /* ---------- playground and trace ---------- */
-.fl-run form { align-items: stretch; }
-.fl-run .fl-select { flex: 0 0 auto; max-width: 220px; }
-.fl-chat { display: grid; gap: 10px; max-height: 260px; overflow: auto; margin-bottom: 8px; }
+.fl-run {
+  display: flex; flex-direction: column; gap: 10px; min-height: 0; padding: 12px 14px; font-size: 13px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.fl-run[hidden] { display: none; }
+.fl-run-head { display: flex; align-items: center; justify-content: space-between; }
+.fl-run-head .fl-close { position: static; float: none; margin: 0; }
+.fl-run .fl-field { margin-top: 0; }
+.fl-run .fl-select { max-width: none; }
+.fl-run .fl-hint { flex: 1 1 auto; }
+.fl-run form { align-items: stretch; margin-top: auto; }
+.fl-run form button { padding: 8px 16px; }
+.fl-chat { display: grid; align-content: start; gap: 10px; flex: 1 1 auto; min-height: 0; overflow: auto; }
 .fl-turn { display: grid; gap: 4px; }
 .fl-q { justify-self: end; max-width: 80%; padding: 6px 10px; border-radius: var(--radius-sm); background: var(--primary-soft); font-size: 13px; }
 .fl-turn .fl-answer { margin-top: 0; }
