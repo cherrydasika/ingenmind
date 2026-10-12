@@ -193,10 +193,15 @@ function Trace({ entries }) {
   );
 }
 
-function NodeDetails({ node, edges, trace, onSpec, onDelete, readOnly }) {
+function NodeDetails({ node, nodes, edges, trace, onSpec, onDelete, readOnly }) {
   const { node: spec, component, issues } = node.data;
   const outgoing = edges.filter((e) => e.source === node.id && !e.data.resource);
   const plugged = edges.filter((e) => e.target === node.id && e.data.resource);
+  // The port an edge plugs into: named on the edge, else what its source provides.
+  const portOf = (e) => {
+    const c = nodes.find((n) => n.id === e.source)?.data.component;
+    return e.data.spec.port || c?.provides || c?.plugs;
+  };
   const configComponent = spec.type === "subflow"
     ? { ...component, config_schema: { ...component.config_schema, properties: {} } } : component;
   return (
@@ -225,7 +230,7 @@ function NodeDetails({ node, edges, trace, onSpec, onDelete, readOnly }) {
           <div className="fl-section">Ports</div>
           <ul className="fl-list">
             {component.inputs.map((port) => {
-              const names = plugged.filter((e) => (e.data.spec.port || port) === port).map((e) => rawId(e.source));
+              const names = plugged.filter((e) => portOf(e) === port).map((e) => rawId(e.source));
               return <li key={port}><span className="fl-chip">{port}</span> {names.length ? names.join(", ") : <span className="fl-faint">not connected</span>}</li>;
             })}
           </ul>
@@ -664,10 +669,12 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
 
   /** Fit the flow to the canvas, but never below a readable zoom: a flow too
    *  big for that is shown from its top (centred if it fits across). */
-  const frame = useCallback(() => {
-    const el = canvasRef.current;
+  const frame = useCallback((tries = 0) => {
+    const el = canvasRef.current?.querySelector(".react-flow") || canvasRef.current;
     const ns = getNodes();
     if (!el || !ns.length) return;
+    // Bounds need the nodes' measured sizes; until React Flow has them, wait.
+    if (ns.some((n) => !n.measured?.width) && tries < 40) { setTimeout(() => frame(tries + 1), 50); return; }
     const { width: w, height: h } = el.getBoundingClientRect();
     const b = getNodesBounds(ns);
     const zoom = Math.max(READABLE_ZOOM, Math.min(1, (w - 2 * FRAME_PAD) / b.width, (h - 2 * FRAME_PAD) / b.height));
@@ -690,7 +697,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
       hist.current = { past: [], future: [], stable: null };   // a different flow: nothing to undo
       setHistTick((t) => t + 1);
     }
-    setTimeout(frame, 30);
+    setTimeout(() => frame(), 30);
   }, [setNodes, setEdges, frame]);
 
   const applyRecord = useCallback((rec) => {
@@ -1151,7 +1158,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
     const laid = layoutFlow(flow, components);
     setSelection(null);
     setViewing({ version: v, label: `${spec.id} v${v}`, nodes: fitGroups(laid.nodes), edges: laid.edges });
-    setTimeout(frame, 30);
+    setTimeout(() => frame(), 30);
   });
   // A version on view takes only measurements and selection, never edits.
   const onViewChange = (changes) => setViewing((v) => v && ({
@@ -1160,7 +1167,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
   const leaveView = () => {
     setViewing(null);
     setSelection(null);
-    setTimeout(frame, 30);
+    setTimeout(() => frame(), 30);
   };
   const toggleSnap = () => setSnap((on) => {
     try { localStorage.setItem(SNAP_KEY, on ? "0" : "1"); } catch { /* per-browser nicety */ }
@@ -1361,7 +1368,7 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
               if (id) setSelection({ kind: "node", id });
             }} />
           ) : selectedNode ? (
-            <NodeDetails node={selectedNode} edges={shownEdges} trace={viewing ? null : traces[selectedNode.id]}
+            <NodeDetails node={selectedNode} nodes={shownNodes} edges={shownEdges} trace={viewing ? null : traces[selectedNode.id]}
               readOnly={!!viewing} onSpec={(fn) => updateSpec(selectedNode.id, fn)}
               onDelete={() => removeNodes([selectedNode.id])} />
           ) : selectedEdge ? (
