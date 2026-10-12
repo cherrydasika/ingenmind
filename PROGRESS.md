@@ -63,6 +63,18 @@ publishing with "soon" components, and asks for an evaluation before a
 version goes live. On the local domain the starter met 14/16 vs the full
 flow's 11–12/16, ~2.3× faster, ~4× fewer tokens.
 
+**Done 2026-10-12: a simpler Agent Builder layout** (PR #72, deployed):
+one top bar (flow, Live pill, Test, Versions & live, ⋯ menu, Publish,
+Save draft), components down the left, the canvas with its own tools
+(undo, Architectures, Tidy up, Snap), and Test as a panel on the right.
+Fixed on the way: a new flow was framed before its nodes were measured
+(off-centre), and an agent's Ports listed every resource against every
+port. A narrated walkthrough video was recorded with Playwright (local
+only); it left three "Demo assistant" flows (not live) in the
+local database. Starting locally, other projects' containers
+(`rag_systems-*` Langfuse, MWAA runner) restarted with Rancher Desktop and
+held port 5432; stopping them let local Langfuse start.
+
 **Where to pick up (no active work; the user chooses):** measure the
 architectures (#69) on real questions (only Supervisor–worker's shape is
 measured: 12/16 locally); run a generic flow on EC2 (AgentCore); #39
@@ -138,8 +150,8 @@ kind: start from [AGENTS.md](AGENTS.md); the backlog is the open issues
   `scripts/start.sh` (Rancher Desktop, `DOCKER_CONTEXT=rancher-desktop`,
   Compose project `rag_systems_cloud`); EC2 `session.sh start`, then the
   tunnels (app 28000, Langfuse 23000).
-- EC2's active release is `440366d` (PR #70, deployed by GitHub Actions on
-  2026-10-11; everything below is on it). Its agents run on the **AgentCore
+- EC2's active release is `2821acf` (PR #72, deployed by GitHub Actions on
+  2026-10-12; everything below is on it). Its agents run on the **AgentCore
   harness** with Claude Haiku 4.5 through **Bedrock** and Bedrock
   embeddings (checked in the running app 2026-10-11); locally they run in
   the app with the **Anthropic API** and local embeddings. Setup there is
