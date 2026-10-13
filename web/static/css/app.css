@@ -159,6 +159,14 @@ code {
 .modal p { color: var(--muted); margin: 0 0 14px; }
 .modal-check { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 16px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.modal-wide { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow: auto; }
+.modal ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+.choices { display: grid; gap: 8px; margin-bottom: 12px; }
+.choice { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); cursor: pointer; }
+.choice.is-chosen { border-color: var(--primary); background: var(--primary-soft); }
+.choice input { margin-top: 3px; }
+.choice > span { display: grid; gap: 2px; }
 .nav a {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px; border-radius: var(--radius-sm);

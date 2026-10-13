@@ -2,6 +2,7 @@ import asyncio
 import json
 import sys
 import tempfile
+import time
 import unittest
 import uuid
 from pathlib import Path
@@ -25,7 +26,7 @@ from common import config, embedding, ingest, storage
 from ingestion_worker import process_job
 from retrieval import _fuse, hybrid_search
 from qdrant_overview import fetch_research_overview
-from web_api import (_answer, agent_stream, ask_stream, knowledge_system_reset, knowledge_system_status, remove_sources,
+from web_api import (_answer, agent_stream, ask_stream, knowledge_system_status, setup_start_over, remove_sources,
                      source_reports, source_reports_remove, trigger)
 
 
@@ -522,12 +523,16 @@ class PgStoreTest(unittest.TestCase):
         viewer = json.loads(knowledge_system_status(Request(["query_rag"])).body)
         self.assertEqual(set(viewer), {"state", "origin", "set_up_at", "can_manage"})
         admin = json.loads(knowledge_system_status(Request(["manage_settings"])).body)
-        self.assertEqual((admin["state"], admin["confirmation"], admin["can_manage"]), ("READY", "RESET", True))
+        self.assertEqual((admin["state"], admin["can_manage"]), ("READY", True))
         self.assertIn("rag_chunks", [e["table"] for e in admin["emptied"]])
-        refused = asyncio.run(knowledge_system_reset(Request(["manage_settings"], {"confirm": "yes"})))
-        self.assertEqual(refused.status_code, 400)
-        done = asyncio.run(knowledge_system_reset(Request(["manage_settings"], {"confirm": "RESET"})))
+        # Starting over needs the person to have signed in again just before.
+        refused = asyncio.run(setup_start_over(Request(["manage_settings"], {})))
+        self.assertEqual((refused.status_code, json.loads(refused.body)["confirm"]), (403, True))
+        confirmed = Request(["manage_settings"], {})
+        confirmed.session["confirmed_at"] = time.time()
+        done = asyncio.run(setup_start_over(confirmed))
         self.assertEqual(json.loads(done.body)["deleted"]["rag_chunks"], 2)
+        self.assertNotIn("confirmed_at", confirmed.session)                   # good for one reset
         # Not set up: users' questions wait; the error says why.
         waiting = asyncio.run(agent_stream(Request(["query_rag"], {"question": "Refunds?"})))
         self.assertEqual((waiting.status_code, json.loads(waiting.body)["setup"]), (409, True))

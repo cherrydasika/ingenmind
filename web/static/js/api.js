@@ -18,7 +18,11 @@ async function request(path, options = {}) {
   } catch {
     throw new Error(`${path}: ${resp.status} ${resp.statusText}`);
   }
-  if (!resp.ok) throw new Error(data?.error || `${path}: ${resp.status}`);
+  if (!resp.ok) {
+    const error = new Error(data?.error || `${path}: ${resp.status}`);
+    error.data = data;
+    throw error;
+  }
   return data;
 }
 
@@ -92,8 +96,8 @@ export const api = {
   home: () => request("/api/home"),
   flowMetrics: (id, days = 7) => request(`/api/flows/${encodeURIComponent(id)}/metrics?days=${days}`),
   knowledgeSystem: () => request("/api/knowledge-system"),
-  resetKnowledgeSystem: (confirm) => post("/api/knowledge-system/reset", { confirm }),
-  masterReset: (confirm) => post("/api/knowledge-system/master-reset", { confirm }),
+  leaveDemo: () => post("/api/knowledge-system/leave-demo", {}),
+  startOver: (everything) => post("/api/setup/start-over", { everything }),
   setup: () => request("/api/setup"),
   setupMessage: (text) => post("/api/setup/message", { text }),
   setupConfirm: () => post("/api/setup/confirm", {}),

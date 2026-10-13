@@ -4,6 +4,7 @@
 
 import { api } from "./api.js";
 import { KIND_LABEL, areaTable } from "./eval_areas.js";
+import { StartOver } from "./start_over.js";
 import { badge, errorBox, fmtTime, h, labelText, loading, markdown, md, note } from "./ui.js";
 
 const FIELDS = [
@@ -41,8 +42,10 @@ const setupChanged = () => window.dispatchEvent(new Event("rag:setup-changed"));
 export class SetupPage {
   title = "Set up your knowledge system";
 
-  constructor(root) {
+  constructor(root, { session } = {}) {
     this.root = root;
+    this.startOver = new StartOver({ user: session?.user, onDone: (text) => this.startedOver(text) });
+    this.flash = null;     // after starting over
     this.busy = false;
     this.error = null;
     this.pending = null;   // the user's message while the agent answers
@@ -65,6 +68,14 @@ export class SetupPage {
       this.root.replaceChildren(errorBox(`Couldn't load setup: ${err.message}`));
       return;
     }
+    this.render();
+    await this.startOver.load();
+  }
+
+  async startedOver(text) {
+    this.flash = text;
+    setupChanged();
+    await this.refresh();
     this.render();
   }
 
@@ -119,6 +130,7 @@ export class SetupPage {
     const side = onContent ? this.renderContentCoverage(v)
       : pastBlueprint && v.sources ? this.renderCoverage(v) : this.renderLearnt(v);
     this.root.replaceChildren(h("div", { class: "stack" },
+      this.flash ? h("div", { class: "alert ok" }, this.flash) : null,
       this.renderSteps(v),
       h("div", { class: "setup-layout" }, main, side),
       v.state === "EVALUATING" && v.build ? this.renderEvaluation(v) : null,
@@ -130,7 +142,8 @@ export class SetupPage {
       pastBlueprint && v.blueprint?.blueprint ? h("details", {}, h("summary", {}, `Blueprint (version ${v.blueprint.version})`),
         h("div", { class: "details-body" }, this.renderOutline(v.blueprint.blueprint, v.blueprint.research))) : null,
       conversing ? null : h("details", {}, h("summary", {}, "Conversation"),
-        h("div", { class: "details-body" }, this.renderTurns(v)))));
+        h("div", { class: "details-body" }, this.renderTurns(v))),
+      this.startOver.card()));
     this.poll(v);
     const box = this.root.querySelector("textarea");
     if (box && !this.busy) box.focus();
