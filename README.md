@@ -1361,6 +1361,36 @@ docs page.
 
 ### Evaluations page
 
+**Golden set from your documents** (the top of `#/evaluations`;
+`app/flows/golden.py`, `web/static/js/golden.js`, `GET`/`POST
+/api/flow-evals/golden`): pick 5, 10, 20, 50 or 100 questions and the app
+writes them, each with its expected answer, from passages spread over the
+whole knowledge base.
+- **Picking:** chunks of at least 300 characters (a random 6,000 at most) are
+  grouped into that many clusters by their embeddings (cosine k-means), and
+  each cluster gives its most typical passage. Pages share the questions
+  evenly (one each when there are enough pages), and no topic gets more than
+  about twice its fair share; a cluster with nothing that fits takes the
+  nearest passage that does.
+- **Writing:** one model call per passage (four at a time) writes the
+  question a user would ask and the answer from that passage only. A
+  passage with nothing to ask about (menus, cookie notices) or whose question
+  repeats an earlier one is swapped for the next one in its cluster.
+- **Spread, before saving:** a map of the knowledge base by meaning (PCA of
+  the embeddings: grey dots are passages, numbered dots the questions'
+  passages), a bar per topic comparing its share of the questions with its
+  share of the knowledge base, a **cluster** flag on a topic with three or
+  more questions and over twice its share, a **no question** flag on a topic
+  of 5% or more of the knowledge base without one, and how alike the two
+  closest passages are. A chunk's topic is its labelled topic, else its
+  section, else its site or document.
+- **Saving:** remove any question, then save it as an evaluation set (kind
+  `answer`, the topic as its area, the page as its expected source) to run in
+  Evaluate flow versions. A set may hold up to 100 questions; setup's own
+  evaluation still writes at most 50. One set is written at a time, kept in
+  memory until saved.
+
+**Archived local-model evaluations:**
 `#/evaluations` (`web/static/js/evaluations.js`, `app/evaluation_archive.py`) displays
 past runs stored in `data/evaluations/<id>.json`. New runs and resumes are
 disabled because the existing evaluation pipeline depends on Ollama and

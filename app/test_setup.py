@@ -1699,7 +1699,7 @@ class Evaluation(Evaluated):
                     question=f"{area['key']} {i}?", expected_answer="A", expected_source=pages[i]["url"],
                     supporting_quote=pages[i]["text"]) for i in range(count)])
             built = evaluation.build_set({**bp, "knowledge_areas": many}, self.version, writer, self.scoper)
-        self.assertEqual(len(built["questions"]), flows.evals.MAX_QUESTIONS)
+        self.assertEqual(len(built["questions"]), evaluation.MAX_QUESTIONS)
         self.assertEqual(counts, [2] * 18 + [1] * 12)                       # 48 answer questions share the room
         self.assertEqual(built["dropped"], [])
         more = [{**a, "key": f"more_{i}"} for i, a in enumerate(many)]

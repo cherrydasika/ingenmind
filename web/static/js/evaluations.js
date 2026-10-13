@@ -1,6 +1,7 @@
 import { api } from "./api.js";
 import { badge, card, errorBox, fmtTime, h, loading, markdown, note, shortUrl } from "./ui.js";
 import { FlowEvals } from "./flow_evals.js";
+import { GoldenSet } from "./golden.js";
 
 const POLL_MS = 2000;
 const SELECTED_KEY = "rag.eval.selected";
@@ -50,6 +51,7 @@ export class EvaluationsPage {
     this.timer = null;
     this.matrixView = "summary";
     this.flowEvals = new FlowEvals();
+    this.golden = new GoldenSet({ onSaved: (set) => { this.flowEvals.form.set = set.id; this.flowEvals.load(); } });
     try { this.selected = sessionStorage.getItem(SELECTED_KEY); } catch { this.selected = null; }
   }
 
@@ -57,11 +59,12 @@ export class EvaluationsPage {
     clearTimeout(this.timer);
     this.timer = null;
     this.flowEvals.stop();
+    this.golden.stop();
   }
 
   async mount() {
     this.root.replaceChildren(loading());
-    await Promise.all([this.refresh(), this.flowEvals.load()]);
+    await Promise.all([this.refresh(), this.flowEvals.load(), this.golden.load()]);
   }
 
   async refresh() {
@@ -94,6 +97,7 @@ export class EvaluationsPage {
 
   render() {
     this.root.replaceChildren(h("div", { class: "stack" },
+      this.golden.root,
       this.flowEvals.root,
       h("h2", { class: "fe-archive-title" }, "Archived local-model evaluations"),
       note("Earlier runs of the local-model workflow, read-only."),

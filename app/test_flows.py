@@ -21,6 +21,7 @@ import agent_runtime
 import answer_eval
 import evidence
 import flows
+import flows.golden
 import guardrails
 import identity
 import llm
@@ -852,7 +853,7 @@ class FlowStore(unittest.TestCase):
     def test_question_set_validation(self):
         bad = [({"id": "travel_basics", "questions": ["q"]}, "built-in"),
                ({"id": "Bad Id", "questions": ["q"]}, "lowercase"),
-               ({"id": "big", "questions": ["q"] * 51}, "at most 50"),
+               ({"id": "big", "questions": ["q"] * 101}, "at most 100"),
                ({"id": "empty", "questions": []}, "at least one")]
         for body, message in bad:
             response = self.client.post("/api/flow-evals/sets", json=body)
@@ -1205,6 +1206,88 @@ class Tracing(unittest.TestCase):
         self.assertIn("source:playground", tagged[0]["tags"])
         self.assertEqual(scored[0][:3], ("t9", "input_guardrail", "BLOCK"))
 
+
+
+class GoldenSet(unittest.TestCase):
+    """A golden question set written from the knowledge base (flows/golden.py)."""
+
+    @staticmethod
+    def chunks(per_topic=(30, 30, 30), pages_per_topic=10, seed=0):
+        import numpy as np
+        rng = np.random.default_rng(seed)
+        out = []
+        for t, n in enumerate(per_topic):
+            centre = np.zeros(16, dtype=np.float32)
+            centre[t] = 1
+            for i in range(n):
+                v = centre + rng.normal(0, 0.05, 16).astype(np.float32)
+                out.append({"id": f"{t}-{i}", "url": f"https://site/{t}/{i % pages_per_topic}",
+                            "body": f"topic {t} passage {i} " + "words " * 60, "topic": f"topic {t}",
+                            "vector": v / np.linalg.norm(v)})
+        return out
+
+    def test_passages_spread_over_the_topics_one_per_page(self):
+        chunks = self.chunks()
+        picked = [chunks[q[0]] for q in flows.golden.pick(chunks, 6)]
+        self.assertEqual(len(picked), 6)
+        self.assertEqual({c["topic"] for c in picked}, {"topic 0", "topic 1", "topic 2"})
+        self.assertEqual(len({c["url"] for c in picked}), 6)               # never two from one page
+        self.assertLessEqual(max(sum(c["topic"] == t for c in picked) for t in ("topic 0", "topic 1", "topic 2")), 4)
+        self.assertEqual(len(flows.golden.pick(chunks[:3], 10)), 3)         # no more than the passages there are
+
+    def test_a_small_knowledge_base_shares_the_questions_over_its_pages(self):
+        chunks = self.chunks(per_topic=(10, 10, 10), pages_per_topic=1)      # three pages of ten passages
+        picked = [chunks[q[0]] for q in flows.golden.pick(chunks, 6)]
+        self.assertEqual(sorted(sum(c["url"] == u for c in picked) for u in {c["url"] for c in chunks}), [2, 2, 2])
+
+    def test_a_big_topic_does_not_crowd_out_the_rest(self):
+        chunks = self.chunks(per_topic=(200, 10, 10))
+        picked = [chunks[q[0]] for q in flows.golden.pick(chunks, 10)]
+        self.assertIn("topic 1", {c["topic"] for c in picked})
+        self.assertIn("topic 2", {c["topic"] for c in picked})
+
+    def test_unusable_and_repeated_questions_are_swapped_for_the_next_passage(self):
+        chunks = self.chunks()
+        calls = []
+
+        def write(chunk):
+            calls.append(chunk["id"])
+            if len(calls) == 1:
+                return None                                                  # a menu: not usable
+            if chunk["topic"] == "topic 0":
+                return {"question": "How do refunds work for cancelled trains?", "expected": "In full.", "label": "refunds"}
+            return {"question": f"What does passage {chunk['id']} say about {chunk['topic']}?", "expected": "x", "label": "y"}
+
+        with patch.object(flows.golden, "candidates", return_value=chunks), patch.object(flows.golden, "WORKERS", 1):
+            run = flows.golden.start(5, work=lambda count: flows.golden._work(count, write), thread=False)
+        self.assertEqual(run["status"], "done", run.get("error"))
+        questions = run["questions"]
+        refunds = [q for q in questions if q["question"].startswith("How do refunds")]
+        self.assertEqual(len(refunds), 1)                                    # the repeat was not kept
+        self.assertTrue(all(q["source"].startswith("https://site/") and q["expected"] for q in questions))
+        self.assertEqual(sum(1 for p in run["map"] if p["q"] is not None), len(questions))
+        self.assertEqual(run["spread"]["of"], 3)
+        self.assertEqual(sum(t["questions"] for t in run["spread"]["topics"]), len(questions))
+
+    def test_spread_flags_clusters_and_missing_topics(self):
+        chunks = self.chunks(per_topic=(30, 30, 30))
+        questions = [{"topic": "topic 0"}] * 5 + [{"topic": "topic 1"}]
+        report = flows.golden.spread(chunks, questions, [0, 1, 2, 3, 4, 30])
+        flags = {t["topic"]: t["flag"] for t in report["topics"]}
+        self.assertEqual(flags, {"topic 0": "cluster", "topic 1": None, "topic 2": "missing"})
+        self.assertEqual((report["covered"], report["of"]), (2, 3))
+        self.assertGreater(report["closest"]["similarity"], 0.9)             # two passages of one topic
+
+    def test_counts_and_one_run_at_a_time(self):
+        with self.assertRaises(ValueError):
+            flows.golden.start(7, work=lambda count: None, thread=False)
+        flows.golden.start(5, work=lambda count: None, thread=False)        # a run that never finishes
+        with self.assertRaises(ValueError):
+            flows.golden.start(5, work=lambda count: None, thread=False)
+        flows.golden._run = None
+        with patch.object(flows.golden, "candidates", return_value=[]):
+            run = flows.golden.start(5, thread=False)
+        self.assertEqual((run["status"], "no pages" in run["error"]), ("failed", True))
 
 if __name__ == "__main__":
     unittest.main()
