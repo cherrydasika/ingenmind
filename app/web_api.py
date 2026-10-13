@@ -1042,7 +1042,7 @@ async def setup_content_choose(request: Request) -> Response:
 
 async def setup_content_exclude(request: Request) -> Response:
     excluded = (await request.json()).get("excluded")
-    if not isinstance(excluded, list) or not all(isinstance(u, str) for u in excluded) or len(excluded) > 5000:
+    if not isinstance(excluded, list) or not all(isinstance(u, str) for u in excluded) or len(excluded) > 50000:
         return _json({"error": "excluded must be a list of page addresses"}, 400)
     try:
         section = await run_in_threadpool(setup_content.exclude, request.path_params["content_id"], excluded)

@@ -871,3 +871,10 @@ tr.user-edit-row > td { background: var(--surface-2); }
 .service-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
 .service-row:last-child { border-bottom: 0; }
 .dag-flow-name { font-size: 12px; margin: -4px 0 6px; }
+/* Setup → Content: a section's pages, with select / deselect all and a filter. */
+.content-pages-tools { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 0; margin-bottom: 4px; font-size: 13px; background: var(--surface); }
+.content-pages-tools strong { margin-right: 4px; }
+.source-item.selected .content-pages-tools { background: linear-gradient(var(--primary-soft), var(--primary-soft)), var(--surface); }
+.content-pages-filter { flex: 1 1 200px; min-width: 160px; max-width: 320px; font: inherit; font-size: 13px; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 5px 9px; }

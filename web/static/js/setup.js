@@ -52,6 +52,7 @@ export class SetupPage {
     this.pending = null;   // the user's message while the agent answers
     this.changing = false; // the blueprint's "Change something" box is open
     this.opened = {};      // content_id → the section with its pages, while open
+    this.pageFilter = {};  // content_id → what its page filter holds
     this.review = null;    // the ingestion plan under review (before Build RAG)
     this.confirmingLive = false;   // Go live with gaps: asking to confirm them
     this.timer = null;
@@ -626,29 +627,76 @@ export class SetupPage {
       h("div", { class: "source-actions" }, toggle, remove));
   }
 
+  // A section's pages: tick or untick one by one, all at once, or the ones a
+  // filter finds. The list redraws in place as the filter is typed (focus stays).
   renderPages(section, choosing) {
     const excluded = new Set(section.excluded_urls || []);
-    const urls = section.urls.slice(0, PAGES_SHOWN);
-    const set = async (url, keep) => {
-      if (keep) excluded.delete(url); else excluded.add(url);
+    const all = section.urls.map((u) => u.url);
+    const filter = h("input", { type: "search", placeholder: "Filter pages, e.g. refunds", value: this.pageFilter[section.content_id] || "",
+      "aria-label": `Filter the pages of ${section.name}`, class: "content-pages-filter" });
+    const list = h("ul");
+    const more = h("div");
+    const count = h("strong");
+    const selectAll = h("button", { class: "btn btn-sm btn-ghost", type: "button", disabled: !choosing });
+    const deselectAll = h("button", { class: "btn btn-sm btn-ghost", type: "button", disabled: !choosing });
+    const save = async (next) => {
       try {
-        const { section: updated, view } = await api.setupContentExclude(section.content_id, [...excluded]);
-        this.opened[section.content_id] = updated;
-        this.view = view;
+        const { section: updated, view } = await api.setupContentExclude(section.content_id, [...next]);
+        // Choosing pages of a section that is not ticked ticks it.
+        if (section.status !== "selected" && updated.url_count > (updated.excluded_urls || []).length) {
+          this.view = await api.setupContentChoose(section.content_id, "selected");
+          this.opened[section.content_id] = await api.setupContentSection(section.content_id);
+        } else {
+          this.opened[section.content_id] = updated;
+          this.view = view;
+        }
       } catch (err) {
         this.error = err.message;
       }
       this.render();
     };
-    return h("div", { class: "content-pages" },
-      h("ul", {}, urls.map((u) => {
+    const matching = () => {
+      const words = (this.pageFilter[section.content_id] || "").toLowerCase().split(/\s+/).filter(Boolean);
+      return section.urls.filter((u) => words.every((w) => u.url.toLowerCase().includes(w)));
+    };
+    const draw = () => {
+      const found = matching();
+      const filtered = found.length !== all.length;
+      count.textContent = `${(all.length - excluded.size).toLocaleString()} of ${all.length.toLocaleString()} pages chosen`;
+      selectAll.textContent = filtered ? `Select the ${found.length.toLocaleString()} found` : "Select all";
+      deselectAll.textContent = filtered ? `Deselect the ${found.length.toLocaleString()} found` : "Deselect all";
+      selectAll.disabled = !choosing || !found.some((u) => excluded.has(u.url));
+      deselectAll.disabled = !choosing || found.every((u) => excluded.has(u.url));
+      list.replaceChildren(...found.slice(0, PAGES_SHOWN).map((u) => {
         const box = h("input", { type: "checkbox", checked: !excluded.has(u.url), disabled: !choosing,
           "aria-label": `Read ${u.url}` });
-        box.addEventListener("change", () => set(u.url, box.checked));
+        box.addEventListener("change", () => {
+          const next = new Set(excluded);
+          if (box.checked) next.delete(u.url); else next.add(u.url);
+          save(next);
+        });
         return h("li", {}, h("label", {}, box, " ", h("a", { href: u.url, target: "_blank", rel: "noopener" },
           new URL(u.url).pathname)), u.lastmod ? h("span", { class: "note" }, ` · ${u.lastmod.slice(0, 10)}`) : null);
-      })),
-      section.urls.length > PAGES_SHOWN ? note(`and ${section.urls.length - PAGES_SHOWN} more pages`) : null);
+      }));
+      more.replaceChildren(found.length > PAGES_SHOWN
+        ? note(`and ${(found.length - PAGES_SHOWN).toLocaleString()} more: filter to find them`)
+        : found.length ? "" : note("No page matches the filter."));
+    };
+    filter.addEventListener("input", () => { this.pageFilter[section.content_id] = filter.value; draw(); });
+    selectAll.addEventListener("click", () => {
+      const next = new Set(excluded);
+      for (const u of matching()) next.delete(u.url);
+      save(next);
+    });
+    deselectAll.addEventListener("click", () => {
+      const next = new Set(excluded);
+      for (const u of matching()) next.add(u.url);
+      save(next);
+    });
+    draw();
+    return h("div", { class: "content-pages" },
+      h("div", { class: "content-pages-tools" }, count, selectAll, deselectAll, filter),
+      list, more);
   }
 
   renderContentCoverage(v) {
