@@ -1133,32 +1133,45 @@ for guided setup), the URL count, and a history of events.
   and real pages; stores nothing): `RUN_LIVE=1 python -m unittest -v
   test_blueprint_live`.
 - **Start over** (the bottom of Setup; `POST /api/setup/start-over`), for
-  example to move from trains to flights. Two choices:
-  - **Change the domain** (`manage_settings`) empties the knowledge base and
-    everything learnt from it: both chunk tables, ingestion jobs, the URL
-    list, data-source profiles and reports, saved evaluation sets and all
-    evaluation runs, setup's evaluation preparations, agent memory, the local
-    harness's conversations, and setup's own work (the conversation and
-    purpose, blueprints, sources, content, plans, labelling runs). It keeps
-    users, people's sessions, flow versions and the live flow, the embedding
-    setting, built-in evaluation sets and Langfuse. Setup starts again at
-    its first question.
-  - **Everything** (**admins only**: the role, not just the permission) is
-    back to a fresh install: also every flow, its versions and drafts, the
-    live flow (the built-in one again), flow run metrics and everyone's
-    sessions. Users are kept, so an admin can sign in and set it up again.
+  example to move from trains to flights. The current domain is **set
+  aside, not deleted**: its rows are copied into the schema `ks_aside` and
+  the stores emptied for the new setup, which starts again at its first
+  question (`knowledge_system.set_aside`). Questions wait until the new
+  domain goes live. Two choices:
+  - **Change the domain** (`manage_settings`) sets aside the knowledge base
+    and everything learnt from it: both chunk tables, ingestion jobs, the
+    URL list, data-source profiles and reports, saved evaluation sets and
+    all evaluation runs, setup's evaluation preparations, agent memory, the
+    local harness's conversations, and setup's own work (the conversation
+    and purpose, blueprints, sources, content, plans, labelling runs). Users,
+    people's sessions, flow versions and the live flow, the embedding
+    setting, built-in evaluation sets and Langfuse stay as they are.
+  - **Everything** (**admins only**: the role, not just the permission) also
+    sets aside every flow, its versions and drafts, the live flow, flow run
+    metrics and everyone's sessions. Users stay, so an admin can always
+    sign in.
+
+  While a domain is set aside, Setup says so with **Back to <domain>**
+  (`POST /api/setup/restore`): the unfinished setup is discarded and every
+  store holds what it held before, state included. Starting over again
+  discards the unfinished setup and keeps the same domain aside. **Going
+  live deletes the domain set aside**: from the evaluation (the step before)
+  the notice turns into a warning, and Go live opens a pop-up with Cancel,
+  Back to <domain>, and Go live (`replace_aside: true`; without it the API
+  answers 409 with the domain set aside).
 
   **You confirm by signing in again.** The button sends you to
   `/auth/confirm`: with OIDC, to the provider with `prompt=login` and
   `max_age=0`, so it asks for your password even while its own sign-in
   lasts; the server then checks it is the same person and that the
   token's `auth_time` is under 3 minutes old. In dev mode you pick yourself
-  again. The confirmation allows one reset within 5 minutes. A reset
+  again. The confirmation allows one start within 5 minutes. Starting over
   refuses while an ingestion job or an evaluation run is running, runs as
   one transaction, and is recorded in the history. Leaving the demo
-  (Profile, `POST /api/knowledge-system/leave-demo`) is the same reset
-  without signing in again, and only while the demo is what's loaded.
-  **It cannot be undone**: on EC2, take a snapshot first
+  (Profile, `POST /api/knowledge-system/leave-demo`) deletes the demo
+  outright, without signing in again, and only while the demo is what's
+  loaded. **Going live after starting over cannot be undone**: on EC2, take
+  a snapshot first
   (`scripts/aws/snapshot.sh create "before reset"`, see
   [infra/README.md](infra/README.md#backup-not-yet-tested-on-aws)).
 

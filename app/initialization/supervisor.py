@@ -94,7 +94,8 @@ def view() -> dict:
                      else None,
             "evaluation": evaluation.view() if state.STATES.index(current) >= state.STATES.index(state.EVALUATING)
                           else None,
-            "readiness": _readiness(current)}
+            "readiness": _readiness(current),
+            "aside": knowledge_system.aside()}
 
 
 def _readiness(current: str) -> dict | None:

@@ -848,6 +848,12 @@ def knowledge_system_status(request: Request) -> Response:
     return _json({**out, "can_manage": can_manage})
 
 
+def _knowledge_changed() -> None:
+    fetch_qdrant_overview.clear()
+    fetch_research_overview.clear()
+    agent.describe.clear()
+
+
 def _reset(request: Request, everything: bool) -> Response:
     user_id = (auth.current_user(request) or {}).get("user_id")
     confirmation = knowledge_system.MASTER_CONFIRMATION if everything else knowledge_system.RESET_CONFIRMATION
@@ -858,10 +864,21 @@ def _reset(request: Request, everything: bool) -> Response:
     except Exception as exc:
         return _json({"error": f"Reset failed, nothing was deleted: {exc}"}, 502)
     finally:
-        fetch_qdrant_overview.clear()
-        fetch_research_overview.clear()
-        agent.describe.clear()
+        _knowledge_changed()
     return _json({"ok": True, "deleted": deleted})
+
+
+def _set_aside(request: Request, everything: bool) -> Response:
+    user_id = (auth.current_user(request) or {}).get("user_id")
+    try:
+        result = knowledge_system.set_aside(user_id, everything)
+    except (knowledge_system.Busy, ValueError) as exc:
+        return _json({"error": str(exc)}, 409)
+    except Exception as exc:
+        return _json({"error": f"Starting over failed, nothing changed: {exc}"}, 502)
+    finally:
+        _knowledge_changed()
+    return _json({"ok": True, **result})
 
 
 async def knowledge_system_leave_demo(request: Request) -> Response:
@@ -876,19 +893,36 @@ CONFIRM_FIRST = "Confirm it's you first: sign in again."
 
 
 async def setup_start_over(request: Request) -> Response:
-    """Start over, e.g. for another domain: the knowledge reset, or with
-    everything also flows and sessions (admins only). Needs the person to have
-    signed in again just before (auth.confirmed), once per reset."""
+    """Start over, e.g. for another domain: the current domain is set aside
+    (kept until the new one goes live, knowledge_system.set_aside), with
+    everything its flows and sessions too (admins only). Needs the person to
+    have signed in again just before (auth.confirmed), once per start."""
     body = await request.json()
     everything = body.get("everything") is True
     if everything and (auth.current_user(request) or {}).get("role") != "admin":
         return _json({"error": "only an admin can reset everything"}, 403)
     if not auth.confirmed(request):
         return _json({"error": CONFIRM_FIRST, "confirm": True}, 403)
-    response = await run_in_threadpool(_reset, request, everything)
+    response = await run_in_threadpool(_set_aside, request, everything)
     if response.status_code == 200:
         auth.use_confirmation(request)
     return response
+
+
+async def setup_restore(request: Request) -> Response:
+    """Go back to the domain set aside: the unfinished setup is discarded."""
+    user_id = (auth.current_user(request) or {}).get("user_id")
+    try:
+        info = await run_in_threadpool(knowledge_system.restore, user_id)
+    except LookupError as exc:
+        return _json({"error": str(exc)}, 404)
+    except knowledge_system.Busy as exc:
+        return _json({"error": str(exc)}, 409)
+    except Exception as exc:
+        return _json({"error": f"Going back failed, nothing changed: {exc}"}, 502)
+    finally:
+        _knowledge_changed()
+    return _json({"ok": True, "restored": info["name"]})
 
 
 # ---------- Setup (the Initialization Agent, epic #19) ----------
@@ -1142,13 +1176,20 @@ async def setup_go_live(request: Request) -> Response:
     except ValueError:
         body = {}
     user_id = (auth.current_user(request) or {}).get("user_id")
-    confirm = isinstance(body, dict) and body.get("confirm_gaps") is True
+    body = body if isinstance(body, dict) else {}
+    confirm = body.get("confirm_gaps") is True
+    # Going live deletes the domain set aside when this setup started over: say so first.
+    previous = await run_in_threadpool(knowledge_system.aside)
+    if previous and body.get("replace_aside") is not True:
+        return _json({"error": f"Going live deletes {previous['name']}.", "aside": previous}, 409)
     try:
         await run_in_threadpool(setup_readiness.go_live, user_id, confirm, _run_check)
     except setup_readiness.GapsNotConfirmed as exc:
         return _json({"error": str(exc), "confirm": True}, 409)
     except (setup_state.TransitionNotAllowed, ValueError, flows.FlowError) as exc:
         return _json({"error": str(exc)}, 409)
+    if previous:
+        await run_in_threadpool(knowledge_system.discard_aside, user_id)
     return _json(await run_in_threadpool(supervisor.view))
 
 
@@ -1441,6 +1482,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/knowledge-system", knowledge_system_status),
     Route("/api/knowledge-system/leave-demo", knowledge_system_leave_demo, methods=["POST"]),
     Route("/api/setup/start-over", setup_start_over, methods=["POST"]),
+    Route("/api/setup/restore", setup_restore, methods=["POST"]),
     Route("/api/setup", setup_view),
     Route("/api/setup/message", setup_message, methods=["POST"]),
     Route("/api/setup/confirm", setup_confirm, methods=["POST"]),

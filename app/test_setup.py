@@ -15,6 +15,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import psycopg
+from psycopg.types.json import Jsonb
 from psycopg import sql
 
 import knowledge_system
@@ -360,6 +361,13 @@ class SetupApi(SetupDatabase):
         self.assertIsNone(flows.store.live_pointer())                                    # the built-in flow again
         self.assertEqual(knowledge_system.status()["state"], knowledge_system.NEW)
         self.assertTrue(knowledge_system.events()[0]["details"]["everything"])
+        self.assertEqual(json.loads(response.body)["aside"]["rows"]["agent_flows"], 1)  # set aside, not gone
+        # Changing one's mind brings the flows, the live flow and the state back.
+        status, body = self.call(web_api.setup_restore)
+        self.assertEqual(status, 200)
+        self.assertEqual(flows.store.live_pointer()["flow_id"], "mine")
+        self.assertEqual((knowledge_system.status()["state"], knowledge_system.status()["origin"]),
+                         (knowledge_system.READY, "setup"))
 
     def admin(self, body):
         request = self.Request(body)
@@ -1959,11 +1967,22 @@ class Readiness(Evaluated):
         import web_api
         api = SetupApi()
         self.evaluated()
+        # This setup started over: a domain is set aside, and going live deletes it.
+        with knowledge_system._connect() as connection:
+            connection.execute("CREATE SCHEMA ks_aside")
+            connection.execute("CREATE TABLE ks_aside.meta (info jsonb NOT NULL)")
+            connection.execute("INSERT INTO ks_aside.meta (info) VALUES (%s)", (Jsonb(
+                {"name": "UK trains", "everything": False, "rows": {"rag_chunks": 5}, "status": {}}),))
         with patch.object(web_api, "_run_check"):
-            status, body = api.call(web_api.setup_go_live, {})
-            self.assertEqual((status, body.get("confirm")), (409, True))
-            status, view = api.call(web_api.setup_go_live, {"confirm_gaps": True})
+            status, body = api.call(web_api.setup_go_live, {"confirm_gaps": True})
+            self.assertEqual((status, body["aside"]["name"], body["aside"]["total"]), (409, "UK trains", 5))
+            status, body = api.call(web_api.setup_go_live, {"replace_aside": True})
+            self.assertEqual((status, body.get("confirm")), (409, True))      # the gaps still need confirming
+            self.assertIsNotNone(knowledge_system.aside())                     # not gone live: still aside
+            status, view = api.call(web_api.setup_go_live, {"confirm_gaps": True, "replace_aside": True})
         self.assertEqual((status, view["state"], view["readiness"]["went_live"]["flow_version"]), (200, state.READY, 1))
+        self.assertIsNone(view["aside"])
+        self.assertEqual(knowledge_system.events()[0]["event"], "aside_deleted")
 
     def test_the_readiness_api(self):
         import web_api
