@@ -223,7 +223,7 @@ class ConfirmingItsYou(AuthDatabase):
         back = client.post("/auth/confirm", data={"user_id": me["user_id"]}, follow_redirects=False)
         self.assertEqual(back.headers["location"], "/")                  # only paths on this site
         self.assertTrue(client.get("/api/me").json()["confirmed"])
-        with patch.object(web_api, "_reset", return_value=web_api._json({"ok": True, "deleted": {}})):
+        with patch.object(web_api, "_set_aside", return_value=web_api._json({"ok": True, "deleted": {}})):
             self.assertEqual(client.post("/api/setup/start-over", json={}).status_code, 200)
             refused = client.post("/api/setup/start-over", json={})      # used up
         self.assertEqual((refused.status_code, refused.json()["confirm"]), (403, True))

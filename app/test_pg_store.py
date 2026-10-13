@@ -26,7 +26,7 @@ from common import config, embedding, ingest, storage
 from ingestion_worker import process_job
 from retrieval import _fuse, hybrid_search
 from qdrant_overview import fetch_research_overview
-from web_api import (_answer, agent_stream, ask_stream, knowledge_system_status, setup_start_over, remove_sources,
+from web_api import (_answer, agent_stream, ask_stream, knowledge_system_status, setup_restore, setup_start_over, remove_sources,
                      source_reports, source_reports_remove, trigger)
 
 
@@ -381,6 +381,7 @@ class PgStoreTest(unittest.TestCase):
         with self.client.connection() as connection:
             for table in ("app_knowledge_system", "app_knowledge_system_events", "kb_urls"):
                 connection.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(table)))
+            connection.execute("DROP SCHEMA IF EXISTS ks_aside CASCADE")
         knowledge_system.reset_schema_cache()
         self.addCleanup(knowledge_system.reset_schema_cache)
         with patch.object(config, "URLS_CONFIG_PATH", urls_path):
@@ -530,13 +531,29 @@ class PgStoreTest(unittest.TestCase):
         self.assertEqual((refused.status_code, json.loads(refused.body)["confirm"]), (403, True))
         confirmed = Request(["manage_settings"], {})
         confirmed.session["confirmed_at"] = time.time()
-        done = asyncio.run(setup_start_over(confirmed))
-        self.assertEqual(json.loads(done.body)["deleted"]["rag_chunks"], 2)
-        self.assertNotIn("confirmed_at", confirmed.session)                   # good for one reset
+        done = json.loads(asyncio.run(setup_start_over(confirmed)).body)
+        self.assertEqual((done["deleted"]["rag_chunks"], done["aside"]["rows"]["rag_chunks"]), (2, 2))  # kept aside
+        self.assertNotIn("confirmed_at", confirmed.session)                   # good for one start
+        self.assertEqual(knowledge_system.aside()["status"]["state"], "READY")
         # Not set up: users' questions wait; the error says why.
         waiting = asyncio.run(agent_stream(Request(["query_rag"], {"question": "Refunds?"})))
         self.assertEqual((waiting.status_code, json.loads(waiting.body)["setup"]), (409, True))
         self.assertEqual(asyncio.run(ask_stream(Request(["query_rag"], {"question": "Refunds?"}))).status_code, 409)
+        # Changing one's mind: back to the domain set aside, every row as it was.
+        back = asyncio.run(setup_restore(Request(["manage_settings"], {})))
+        self.assertEqual(back.status_code, 200)
+        with self.client.connection() as connection:
+            restored = connection.execute("SELECT count(*) AS n, count(search_document) AS searchable "
+                                          "FROM rag_chunks").fetchone()
+        self.assertEqual((restored["n"], restored["searchable"]), (2, 2))    # generated columns rebuilt
+        self.assertEqual((knowledge_system.status()["state"], knowledge_system.aside()), ("READY", None))
+        self.assertEqual(asyncio.run(setup_restore(Request(["manage_settings"], {}))).status_code, 404)
+        # Starting over twice keeps the first domain aside; going live deletes it.
+        knowledge_system.set_aside("u1")
+        again = knowledge_system.set_aside("u1")
+        self.assertEqual((again["aside"]["rows"]["rag_chunks"], knowledge_system.events()[0]["event"]), (2, "restarted"))
+        self.assertEqual(knowledge_system.discard_aside("u1")["rows"]["rag_chunks"], 2)
+        self.assertIsNone(knowledge_system.aside())
 
     def test_trigger_without_urls_is_refused(self):
         class Request:

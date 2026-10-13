@@ -103,7 +103,7 @@ RULES = [
     ({"GET", "POST"}, r"/api/setup(/message|/confirm|/back|/blueprint(/revise|/confirm)?"
                       r"|/sources/(discover|add|continue|\d+)|/content/(analyse|\d+|\d+/urls|\d+/ttl)|/back-to-sources"
                       r"|/plan|/plan/approve|/build/(start|retry)|/back-to-content|/evaluation(/prepare|/run)?|/readiness|/go-live|/relabel"
-                      r"|/start-over)?",
+                      r"|/start-over|/restore)?",
      "manage_settings"),
     ({"PUT"}, r"/api/me/theme", ANY),
     ({"POST"}, r"/api/(ask|ask/stream|agent/stream|agent/resume|session/reset)", "query_rag"),

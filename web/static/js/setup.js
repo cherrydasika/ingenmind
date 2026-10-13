@@ -45,8 +45,9 @@ export class SetupPage {
 
   constructor(root, { session } = {}) {
     this.root = root;
-    this.startOver = new StartOver({ user: session?.user, onDone: (text) => this.startedOver(text) });
-    this.flash = null;     // after starting over
+    this.startOver = new StartOver({ user: session?.user, view: () => this.view,
+      onChange: (text) => this.domainChanged(text) });
+    this.flash = null;     // after starting over or going back
     this.busy = false;
     this.error = null;
     this.pending = null;   // the user's message while the agent answers
@@ -73,7 +74,7 @@ export class SetupPage {
     await this.startOver.load();
   }
 
-  async startedOver(text) {
+  async domainChanged(text) {
     this.flash = text;
     setupChanged();
     await this.refresh();
@@ -132,6 +133,7 @@ export class SetupPage {
       : pastBlueprint && v.sources ? this.renderCoverage(v) : this.renderLearnt(v);
     this.root.replaceChildren(h("div", { class: "stack" },
       this.flash ? h("div", { class: "alert ok" }, this.flash) : null,
+      this.startOver.banner(),
       this.renderSteps(v),
       h("div", { class: "setup-layout" }, main, side),
       v.state === "EVALUATING" && v.build ? this.renderEvaluation(v) : null,
@@ -450,8 +452,13 @@ export class SetupPage {
     return h("div", {}, children);
   }
 
-  async goLive(confirmGaps, button) {
-    await this.act(async () => { await api.setupGoLive(confirmGaps); return api.setup(); }, button);
+  async goLive(confirmGaps, button, replaceAside = false) {
+    // Started over: going live deletes the domain set aside, so a pop-up says so first.
+    if (this.view.aside && !replaceAside) {
+      this.startOver.confirmReplace(() => this.goLive(confirmGaps, button, true));
+      return;
+    }
+    await this.act(async () => { await api.setupGoLive(confirmGaps, replaceAside); return api.setup(); }, button);
     this.confirmingLive = false;
     this.render();
   }

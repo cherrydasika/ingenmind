@@ -5,6 +5,8 @@ URLs it ingests, and an audit log of what happened to it.
                                  who set it up and when
     app_knowledge_system_events  audit log: event, user, time, details
     kb_urls                      the URLs to ingest, in order (was data/urls.json)
+    ks_aside.*                   while starting over: the previous domain's rows,
+                                 kept until the new domain goes live (set_aside)
 
 A fresh install starts NEW and is set up by the Initialization Agent
 (epic #19). An install that already has knowledge when this record is first
@@ -163,7 +165,7 @@ def demo_wanted() -> bool:
         return False
     with _connect() as connection:
         return connection.execute(
-            "SELECT NOT EXISTS (SELECT 1 FROM app_knowledge_system_events WHERE event = 'reset') AS fresh"
+            "SELECT NOT EXISTS (SELECT 1 FROM app_knowledge_system_events WHERE event IN ('reset', 'set_aside')) AS fresh"
         ).fetchone()["fresh"]
 
 
@@ -301,16 +303,152 @@ def reset(confirmation: str, user_id: str | None, everything: bool = False) -> d
     ensure_schema()
     with _connect() as connection:
         connection.execute("SELECT pg_advisory_xact_lock(72616702)")
-        for table, what in (("ingestion_jobs", "an ingestion job"), ("agent_eval_runs", "an evaluation run")):
-            if _exists(connection, table) and connection.execute(
-                    f"SELECT EXISTS (SELECT 1 FROM {table} WHERE status IN ('queued', 'running')) AS busy"
-            ).fetchone()["busy"]:
-                raise Busy(f"{what} is queued or running: wait for it or cancel it first")
-        deleted = {}
-        for table, _ in EMPTIED + (MASTER_EMPTIED if everything else ()):   # children before parents
-            deleted[table] = connection.execute(f"DELETE FROM {table}").rowcount if _exists(connection, table) else 0
-        # urls_imported_at stays: data/urls.json is not imported again after a reset.
-        connection.execute("UPDATE app_knowledge_system SET state = %s, origin = NULL, blueprint_version = NULL, "
-                           "set_up_at = NULL, set_up_by = NULL, updated_at = now()", (NEW,))
+        _refuse_while_busy(connection)
+        deleted = _empty(connection, everything)
         _event(connection, "reset", user_id, {"deleted": deleted, **({"everything": True} if everything else {})})
     return deleted
+
+
+def _refuse_while_busy(connection) -> None:
+    for table, what in (("ingestion_jobs", "an ingestion job"), ("agent_eval_runs", "an evaluation run")):
+        if _exists(connection, table) and connection.execute(
+                f"SELECT EXISTS (SELECT 1 FROM {table} WHERE status IN ('queued', 'running')) AS busy"
+        ).fetchone()["busy"]:
+            raise Busy(f"{what} is queued or running: wait for it or cancel it first")
+
+
+def _tables(everything: bool) -> list[str]:
+    """The stores a reset empties, children before parents."""
+    return [table for table, _ in EMPTIED + (MASTER_EMPTIED if everything else ())]
+
+
+def _empty(connection, everything: bool) -> dict[str, int]:
+    deleted = {table: connection.execute(f"DELETE FROM {table}").rowcount if _exists(connection, table) else 0
+               for table in _tables(everything)}
+    # urls_imported_at stays: data/urls.json is not imported again after a reset.
+    connection.execute("UPDATE app_knowledge_system SET state = %s, origin = NULL, blueprint_version = NULL, "
+                       "set_up_at = NULL, set_up_by = NULL, updated_at = now()", (NEW,))
+    return deleted
+
+
+# ---------- Setting a domain aside (starting over) ----------
+#
+# Starting over does not delete the current domain: its rows are copied into
+# the schema ASIDE (one table per store, plus `meta`) and the stores emptied
+# for the new setup. Until the new domain goes live the person can go back
+# (restore); going live deletes it (discard_aside). One domain is aside at a
+# time: starting over again while one is aside discards the unfinished setup.
+
+ASIDE = "ks_aside"
+
+
+def _aside(connection) -> dict | None:
+    if not connection.execute("SELECT to_regclass(%s) AS t", (f"{ASIDE}.meta",)).fetchone()["t"]:
+        return None
+    return connection.execute(f"SELECT info FROM {ASIDE}.meta").fetchone()["info"]
+
+
+def aside() -> dict | None:
+    """The domain set aside, or None: {"name", "everything", "rows", "set_aside_at", "set_aside_by", "status"}."""
+    ensure_schema()
+    with _connect() as connection:
+        info = _aside(connection)
+    return {**info, "total": sum(info["rows"].values())} if info else None
+
+
+def _domain_name(connection, origin: str | None) -> str:
+    """What to call the current domain: its blueprint's name, else its purpose."""
+    if origin == "demo":
+        return "the demo (Lakeshore Rail)"
+    for query in ("SELECT blueprint->>'name' AS name FROM app_domain_blueprints WHERE status = 'ready' "
+                  "ORDER BY version DESC LIMIT 1",
+                  "SELECT requirements->>'purpose' AS name FROM app_setup"):
+        table = query.split(" FROM ")[1].split()[0]
+        if _exists(connection, table):
+            row = connection.execute(query).fetchone()
+            if row and (row["name"] or "").strip():
+                return row["name"].strip()[:80]
+    return "the previous domain"
+
+
+def _columns(connection, schema: str, table: str) -> list[str]:
+    """Columns that can be written (not generated), in order."""
+    return [r["column_name"] for r in connection.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s "
+        "AND is_generated = 'NEVER' ORDER BY ordinal_position", (schema, table)).fetchall()]
+
+
+def set_aside(user_id: str | None, everything: bool = False) -> dict:
+    """Start over: set the current domain aside (or, when one is already aside,
+    discard the unfinished setup) and empty the stores; returns
+    {"aside": the domain aside, "deleted": rows emptied per store}."""
+    ensure_schema()
+    with _connect() as connection:
+        connection.execute("SELECT pg_advisory_xact_lock(72616702)")
+        _refuse_while_busy(connection)
+        info = _aside(connection)
+        if info and everything and not info["everything"]:
+            raise ValueError(f"{info['name']} is set aside without its flows and sessions: go back to it "
+                             "first, then reset everything")
+        if info is None:
+            current = connection.execute("SELECT state, origin, blueprint_version, set_up_at, set_up_by "
+                                         "FROM app_knowledge_system").fetchone()
+            connection.execute(f"CREATE SCHEMA {ASIDE}")
+            rows = {}
+            for table in _tables(everything):
+                if _exists(connection, table):
+                    rows[table] = connection.execute(f"CREATE TABLE {ASIDE}.{table} AS TABLE public.{table}").rowcount
+            info = {"name": _domain_name(connection, current["origin"]), "everything": everything, "rows": rows,
+                    "set_aside_at": datetime.now(timezone.utc).isoformat(), "set_aside_by": user_id,
+                    "status": {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in current.items()}}
+            connection.execute(f"CREATE TABLE {ASIDE}.meta (info jsonb NOT NULL)")
+            connection.execute(f"INSERT INTO {ASIDE}.meta (info) VALUES (%s)", (Jsonb(info),))
+            event = "set_aside"
+        else:
+            event = "restarted"   # the unfinished setup is discarded; the domain aside stays
+        deleted = _empty(connection, everything)
+        _event(connection, event, user_id, {"name": info["name"], "deleted": deleted,
+                                            **({"everything": True} if everything else {})})
+    return {"aside": {**info, "total": sum(info["rows"].values())}, "deleted": deleted}
+
+
+def restore(user_id: str | None) -> dict:
+    """Go back to the domain set aside: the unfinished setup is discarded and
+    every store holds what it held before. LookupError when none is aside."""
+    ensure_schema()
+    with _connect() as connection:
+        connection.execute("SELECT pg_advisory_xact_lock(72616702)")
+        _refuse_while_busy(connection)
+        info = _aside(connection)
+        if info is None:
+            raise LookupError("no domain is set aside")
+        tables = _tables(info["everything"])
+        discarded = {table: connection.execute(f"DELETE FROM {table}").rowcount
+                     for table in tables if _exists(connection, table)}
+        for table in reversed(tables):   # parents before children
+            if table in info["rows"] and _exists(connection, table):
+                kept = set(_columns(connection, ASIDE, table))
+                columns = ", ".join(c for c in _columns(connection, "public", table) if c in kept)
+                connection.execute(f"INSERT INTO public.{table} ({columns}) OVERRIDING SYSTEM VALUE "
+                                   f"SELECT {columns} FROM {ASIDE}.{table}")
+        before = info["status"]
+        connection.execute("UPDATE app_knowledge_system SET state = %s, origin = %s, blueprint_version = %s, "
+                           "set_up_at = %s, set_up_by = %s, updated_at = now()",
+                           (before["state"], before["origin"], before["blueprint_version"], before["set_up_at"],
+                            before["set_up_by"]))
+        connection.execute(f"DROP SCHEMA {ASIDE} CASCADE")
+        _event(connection, "restored", user_id, {"name": info["name"], "discarded": discarded})
+    return info
+
+
+def discard_aside(user_id: str | None) -> dict | None:
+    """Delete the domain set aside for good (going live replaces it); the domain, or None."""
+    ensure_schema()
+    with _connect() as connection:
+        connection.execute("SELECT pg_advisory_xact_lock(72616702)")
+        info = _aside(connection)
+        if info is None:
+            return None
+        connection.execute(f"DROP SCHEMA {ASIDE} CASCADE")
+        _event(connection, "aside_deleted", user_id, {"name": info["name"], "rows": info["rows"]})
+    return info
