@@ -59,6 +59,7 @@ from . import content, plan, sources, state
 SET_ID = "setup_evaluation"
 QUESTIONS_PER_AREA = 3
 OUT_OF_SCOPE = 2
+MAX_QUESTIONS = 50          # setup's own set (a set may hold more: flows.evals.MAX_QUESTIONS)
 PAGES_PER_AREA = 4
 PAGE_CHARS = 3000           # per page, in the writing prompt
 MIN_QUOTE = 20              # characters: a shorter quote proves nothing
@@ -283,7 +284,7 @@ def build_set(bp: dict, plan_version: int, writer: Callable | None = None, scope
     live = [a for a in bp["knowledge_areas"] if a["knowledge_class"] in LIVE_CLASSES]
     pages = {a["key"]: area_pages(plan_version, a["key"]) for a in sourced}
     covered = [a for a in sourced if pages[a["key"]]]
-    room = evals.MAX_QUESTIONS - (len(sourced) - len(covered)) - len(live) - OUT_OF_SCOPE
+    room = MAX_QUESTIONS - (len(sourced) - len(covered)) - len(live) - OUT_OF_SCOPE
     areas_left = len(covered)
 
     for area in sourced:

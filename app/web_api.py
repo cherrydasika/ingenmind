@@ -45,6 +45,7 @@ import source_profiles
 import evaluation_archive as evaluation
 import embedding_viz
 import flows
+from flows import golden as golden_sets
 import pipeline_flow
 from common import config, storage
 from ingestion_info import JOB_INFO, STATUS_LABELS
@@ -627,6 +628,19 @@ async def eval_set_save(request: Request) -> Response:
     except ValueError as error:
         return _json({"error": str(error)}, 400)
     return _json(flows.evals.get_set(set_id))
+
+
+async def golden_start(request: Request) -> Response:
+    """Write a golden question set from the knowledge base, in the background."""
+    body = await request.json()
+    try:
+        return _json(golden_sets.start(int(body.get("count") or 0)), 202)
+    except (TypeError, ValueError) as error:
+        return _json({"error": str(error)}, 409 if "already" in str(error) else 400)
+
+
+def golden_status(request: Request) -> Response:
+    return _json({"run": golden_sets.status(), "counts": list(golden_sets.COUNTS)})
 
 
 def eval_archive_sets(request: Request) -> Response:
@@ -1470,6 +1484,8 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/flow-evals/sets", eval_sets),
     Route("/api/flow-evals/sets", eval_set_save, methods=["POST"]),
     Route("/api/flow-evals/archive", eval_archive_sets),
+    Route("/api/flow-evals/golden", golden_status),
+    Route("/api/flow-evals/golden", golden_start, methods=["POST"]),
     Route("/api/flow-evals/runs", eval_runs),
     Route("/api/flow-evals/runs", eval_start, methods=["POST"]),
     Route("/api/flow-evals/runs/{run_id}", eval_run_detail),

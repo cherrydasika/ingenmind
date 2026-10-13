@@ -880,3 +880,33 @@ tr.user-edit-row > td { background: var(--surface-2); }
 .source-item.selected .content-pages-tools { background: linear-gradient(var(--primary-soft), var(--primary-soft)), var(--surface); }
 .content-pages-filter { flex: 1 1 200px; min-width: 160px; max-width: 320px; font: inherit; font-size: 13px; color: var(--text);
   background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 5px 9px; }
+
+/* Evaluations → Golden set from your documents (golden.js). */
+.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
+.seg-btn { font: inherit; font-size: 13px; font-weight: 600; padding: 6px 12px; border: 0; cursor: pointer;
+  background: var(--surface-2); color: var(--text); }
+.seg-btn + .seg-btn { border-left: 1px solid var(--border-strong); }
+.seg-btn.is-on { background: var(--primary); color: #fff; }
+.seg-btn:disabled { opacity: 0.6; cursor: default; }
+.golden-spread { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 900px) { .golden-spread { grid-template-columns: minmax(0, 1fr); } }
+.golden-figure { margin: 0; }
+.golden-map { width: 100%; height: auto; display: block; background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); }
+.golden-bg { fill: var(--faint); opacity: 0.35; }
+.golden-num { font: 700 9px system-ui, sans-serif; fill: #fff; pointer-events: none; }
+.golden-topics { display: grid; gap: 8px; font-size: 13px; }
+.golden-topic { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 24px; gap: 8px; align-items: center; }
+.golden-topic-name { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.golden-topic-n { text-align: right; }
+.golden-swatch { flex: none; width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.golden-bar { position: relative; height: 10px; background: var(--surface-2); border-radius: 999px; }
+.golden-bar-q { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; }
+.golden-bar-kb { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text); opacity: 0.6; }
+.golden-list { margin: 0; padding-left: 22px; display: grid; gap: 10px; font-size: 13.5px; }
+.golden-list li.is-removed { opacity: 0.45; text-decoration: line-through; }
+.golden-q { display: flex; align-items: center; gap: 8px; }
+.golden-q strong { flex: 1; }
+.golden-name { font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); min-width: 240px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 9px; }
+

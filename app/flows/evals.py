@@ -24,7 +24,7 @@ from psycopg.types.json import Jsonb
 from . import store
 
 BUILTIN_DIR = Path(__file__).with_name("eval_sets")
-MAX_QUESTIONS = 50
+MAX_QUESTIONS = 100
 MAX_VERSIONS = 3
 # What a question tests (sets setup writes, initialization/evaluation.py): an answer
 # from the knowledge base, an area with no pages, a live tool, or a refusal.
@@ -40,6 +40,8 @@ def ensure_schema() -> None:
         return
     store.ensure_schema()
     with store._connect() as connection:
+        # Two first requests at once would both create the tables (a duplicate-type error).
+        connection.execute("SELECT pg_advisory_xact_lock(72616710)")
         connection.execute("""
             CREATE TABLE IF NOT EXISTS agent_eval_sets (
                 id text PRIMARY KEY,
