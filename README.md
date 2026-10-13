@@ -922,8 +922,8 @@ the pipeline modules directly (`pipeline.answer_question`, `embedding_viz`,
   | Evaluate | **Evaluations** |
   | Data | **Knowledge base** (tabs: Sources, every page with its labels; Ingestion, jobs, pages research added and data-source reports), **Ad-hoc documents** |
   | Monitoring | **Overview** (setup state, the live flow, the knowledge base, the last 7 days' questions and pass rate, services), **Sessions**, **Agent memory**, **Langfuse** (opens in a new tab, after a notice you can turn off) |
-  | Admin | **Setup**, **Users** |
-  | Account | **Profile**; for admins the knowledge system (use your own domain, reset) and the **master reset** |
+  | Admin | **Setup** (with **Start over** at the bottom), **Users** |
+  | Account | **Profile**; for admins the knowledge system (state, history, use your own domain instead of the demo) |
 
   Old addresses (`#/home`, `#/ingestion`, `#/sources`, `#/knowledge`,
   `#/docs`) redirect to their new places.
@@ -1132,22 +1132,33 @@ for guided setup), the URL count, and a history of events.
   A live check for two domains (UK trains, flights; Tavily, the chat model
   and real pages; stores nothing): `RUN_LIVE=1 python -m unittest -v
   test_blueprint_live`.
-- **Master reset** (Profile, **admins only**: the role, not just the
-  permission): back to a fresh install. Everything the reset below empties,
-  and also every flow, its versions and drafts, the live flow (the built-in
-  one again), flow run metrics and everyone's sessions. Users are kept, so
-  an admin can sign in and set it up again. It needs the typed words
-  `RESET EVERYTHING`, and otherwise works like the reset.
-- **Reset** (Profile → Knowledge system) empties the knowledge base and everything learnt from it so
-  the knowledge system can be set up again: both chunk tables, ingestion
-  jobs, the URL list, data-source profiles and reports, saved evaluation
-  sets and all evaluation runs, setup's evaluation preparations, agent
-  memory and the local harness's
-  conversations. It keeps users, people's sessions, flow versions and the
-  live flow, the embedding setting, built-in evaluation sets and Langfuse.
-  It needs the typed word `RESET`, refuses while an ingestion job or an
-  evaluation run is running, runs as one transaction, and is recorded in
-  the history. **It cannot be undone**: on EC2, take a snapshot first
+- **Start over** (the bottom of Setup; `POST /api/setup/start-over`), for
+  example to move from trains to flights. Two choices:
+  - **Change the domain** (`manage_settings`) empties the knowledge base and
+    everything learnt from it: both chunk tables, ingestion jobs, the URL
+    list, data-source profiles and reports, saved evaluation sets and all
+    evaluation runs, setup's evaluation preparations, agent memory, the local
+    harness's conversations, and setup's own work (the conversation and
+    purpose, blueprints, sources, content, plans, labelling runs). It keeps
+    users, people's sessions, flow versions and the live flow, the embedding
+    setting, built-in evaluation sets and Langfuse. Setup starts again at
+    its first question.
+  - **Everything** (**admins only**: the role, not just the permission) is
+    back to a fresh install: also every flow, its versions and drafts, the
+    live flow (the built-in one again), flow run metrics and everyone's
+    sessions. Users are kept, so an admin can sign in and set it up again.
+
+  **You confirm by signing in again.** The button sends you to
+  `/auth/confirm`: with OIDC, to the provider with `prompt=login` and
+  `max_age=0`, so it asks for your password even while its own sign-in
+  lasts; the server then checks it is the same person and that the
+  token's `auth_time` is under 3 minutes old. In dev mode you pick yourself
+  again. The confirmation allows one reset within 5 minutes. A reset
+  refuses while an ingestion job or an evaluation run is running, runs as
+  one transaction, and is recorded in the history. Leaving the demo
+  (Profile, `POST /api/knowledge-system/leave-demo`) is the same reset
+  without signing in again, and only while the demo is what's loaded.
+  **It cannot be undone**: on EC2, take a snapshot first
   (`scripts/aws/snapshot.sh create "before reset"`, see
   [infra/README.md](infra/README.md#backup-not-yet-tested-on-aws)).
 

@@ -30,6 +30,7 @@ import logging
 import os
 import re
 import secrets
+import time
 from urllib.parse import parse_qs, quote, urlencode
 
 from starlette.concurrency import run_in_threadpool
@@ -57,6 +58,11 @@ SCOPES = os.environ.get("OIDC_SCOPES", "openid email profile").strip()
 # https://<domain>.auth.<region>.amazoncognito.com/logout?client_id={client_id}&logout_uri={return}
 LOGOUT_URL = os.environ.get("OIDC_LOGOUT_URL", "").strip()
 SESSION_MAX_AGE = 12 * 3600   # the cookie; a sign-in lasts at most a working day
+# Confirming it's you (before a reset): sign in again at the provider. The
+# provider must have asked for the password within FRESH_SECONDS (its
+# auth_time), and the confirmation is good for one action within CONFIRM_SECONDS.
+FRESH_SECONDS = 180
+CONFIRM_SECONDS = 300
 # Send the cookie over HTTPS only. Off for http://localhost (and the SSM
 # tunnel); turn on behind a domain with HTTPS.
 COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "").strip().lower() in ("1", "true", "yes")
@@ -93,10 +99,11 @@ ANY = None   # any signed-in user
 RULES = [
     ({"GET"}, r"/api/me", ANY),
     ({"GET"}, r"/api/(config|models|status|home|docs|docs/sample|knowledge-system)", ANY),
-    ({"POST"}, r"/api/knowledge-system/(reset|master-reset)", "manage_settings"),   # master: admins (web_api)
+    ({"POST"}, r"/api/knowledge-system/leave-demo", "manage_settings"),
     ({"GET", "POST"}, r"/api/setup(/message|/confirm|/back|/blueprint(/revise|/confirm)?"
                       r"|/sources/(discover|add|continue|\d+)|/content/(analyse|\d+|\d+/urls|\d+/ttl)|/back-to-sources"
-                      r"|/plan|/plan/approve|/build/(start|retry)|/back-to-content|/evaluation(/prepare|/run)?|/readiness|/go-live|/relabel)?",
+                      r"|/plan|/plan/approve|/build/(start|retry)|/back-to-content|/evaluation(/prepare|/run)?|/readiness|/go-live|/relabel"
+                      r"|/start-over)?",
      "manage_settings"),
     ({"PUT"}, r"/api/me/theme", ANY),
     ({"POST"}, r"/api/(ask|ask/stream|agent/stream|agent/resume|session/reset)", "query_rag"),
@@ -222,6 +229,8 @@ async def callback(request: Request) -> Response:
         return _fail("not_invited")
     except identity.Disabled:
         return _fail("disabled")
+    if request.session.get("confirm_next"):
+        return _confirmed(request, user["user_id"], claims.get("auth_time"))
     request.session.clear()
     request.session.update({"user_id": user["user_id"], "id_token": token.get("id_token", "")})
     return RedirectResponse("/", 303)
@@ -255,6 +264,75 @@ async def logout(request: Request) -> Response:
             except Exception as error:
                 log.warning("could not read the provider's logout endpoint: %s", error)
     return JSONResponse({"ok": True, "provider_logout": provider_logout})
+
+
+# ---------- confirming it's you (before a reset) ----------
+#
+# GET /auth/confirm?next=/#/setup signs the person in again: with OIDC at the
+# provider with prompt=login and max_age=0, so it asks for the password even
+# while its own sign-in lasts; in dev mode, by picking themselves again. The
+# person must be the one signed in here. Then confirmed() is true for one
+# action (use_confirmation) within CONFIRM_SECONDS.
+
+def _safe_next(value: str | None) -> str:
+    value = value or "/"
+    return value if value.startswith("/") and not value.startswith("//") else "/"
+
+
+def _confirmed(request: Request, user_id: str, auth_time=None) -> Response:
+    """The end of a confirmation: the same person, freshly signed in."""
+    target = _safe_next(request.session.pop("confirm_next", None))
+    if user_id != request.session.get("user_id"):
+        request.session["confirm_error"] = "You signed in as someone else: sign in as yourself to confirm."
+    elif MODE == "oidc" and not (isinstance(auth_time, (int, float)) and time.time() - auth_time <= FRESH_SECONDS):
+        request.session["confirm_error"] = "Your identity provider didn't ask for your password again: try once more."
+    else:
+        request.session["confirmed_at"] = time.time()
+        request.session.pop("confirm_error", None)
+    return RedirectResponse(target, 303)
+
+
+async def confirm_identity(request: Request) -> Response:
+    if not request.session.get("user_id"):
+        return RedirectResponse("/", 303)
+    request.session["confirm_next"] = _safe_next(request.query_params.get("next"))
+    if MODE == "oidc":
+        return await _client().authorize_redirect(request, str(request.url_for("auth_callback")),
+                                                  prompt="login", max_age=0)
+    if not _dev_allowed(request):
+        return HTMLResponse("Development sign-in is off.", 404)
+    user = await run_in_threadpool(identity.get_user, request.session["user_id"])
+    return _page(f"""<h1>Confirm it's you</h1>
+<p>Development sign-in (AUTH_MODE=dev, localhost only). A real deployment asks
+for your password at your identity provider here.</p>
+<form method="post"><button name="user_id" value="{_escape(user["user_id"])}">I am {_escape(user["first_name"])}
+<small>· {_escape(user["email"])}</small></button></form>
+<p><a href="{_escape(request.session["confirm_next"])}" style="color:#8b9ab8">Cancel</a></p>""")
+
+
+async def confirm_identity_dev(request: Request) -> Response:
+    if not _dev_allowed(request) or not request.session.get("confirm_next"):
+        return HTMLResponse("Development sign-in is off.", 404)
+    form = {key: values[0] for key, values in parse_qs((await request.body()).decode(errors="replace")).items()}
+    return _confirmed(request, form.get("user_id", ""))
+
+
+def _session(request) -> dict:
+    try:
+        return request.session
+    except (AssertionError, AttributeError):   # no session middleware (handlers called directly in tests)
+        return {}
+
+
+def confirmed(request) -> bool:
+    """Whether the signed-in person confirmed it's them within CONFIRM_SECONDS."""
+    at = _session(request).get("confirmed_at")
+    return isinstance(at, (int, float)) and time.time() - at <= CONFIRM_SECONDS
+
+
+def use_confirmation(request) -> None:
+    """A confirmation is good for one action."""
+    _session(request).pop("confirmed_at", None)
 
 
 # ---------- development sign-in (AUTH_MODE=dev, localhost only) ----------
@@ -333,6 +411,8 @@ async def me(request: Request) -> Response:
     return Response(json.dumps({
         "user": identity.public(user) if user else None,
         "auth": {"mode": MODE, "provider": PROVIDER_NAME if MODE == "oidc" else "Development sign-in"},
+        "confirmed": bool(user) and confirmed(request),
+        "confirm_error": request.session.pop("confirm_error", None) if user else None,
     }, default=str), media_type="application/json")
 
 
@@ -350,6 +430,8 @@ ROUTES = [
     Route("/auth/login", login),
     Route("/auth/callback", callback, name="auth_callback"),
     Route("/auth/logout", logout, methods=["POST"]),
+    Route("/auth/confirm", confirm_identity),
+    Route("/auth/confirm", confirm_identity_dev, methods=["POST"]),
     Route("/auth/dev", dev_page),
     Route("/auth/dev", dev_sign_in, methods=["POST"]),
     Route("/api/me", me),

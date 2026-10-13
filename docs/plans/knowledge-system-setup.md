@@ -79,8 +79,9 @@ kb_urls   url (primary key), ttl_days, origin (import | plan | manual),
 
 ### 3. Reset
 
-`POST /api/knowledge-system/reset` with `{"confirm": "RESET"}`, permission
-`manage_settings`; refused while an ingestion job is queued or running (as
+`POST /api/setup/start-over` (it replaced `POST /api/knowledge-system/reset`
+with a typed `RESET`), permission `manage_settings`, after signing in again
+(`/auth/confirm`; see the README's Start over); refused while an ingestion job is queued or running (as
 `stack.sh stop` and `deploy.sh` do). In **one transaction**:
 
 | Emptied | Kept |
@@ -165,8 +166,8 @@ reset runs on EC2 as part of this issue.
     database), found through tests that switch databases.
   - API: `GET /api/knowledge-system` (everyone: state, origin, set-up
     time; `manage_settings` also gets counts, events, what a reset empties
-    and keeps), `POST /api/knowledge-system/reset` (`manage_settings`; 400
-    without the confirmation, 409 when busy; clears the overview caches).
+    and keeps), `POST /api/setup/start-over` (`manage_settings`; 403 until
+    the person has signed in again, 409 when busy; clears the overview caches).
   - "Being set up": `/api/ask`, `/api/ask/stream` and `/api/agent/stream`
     answer 409 `{"error": "This knowledge system is being set up…",
     "setup": true}` while not `READY`; the playground and evaluations are

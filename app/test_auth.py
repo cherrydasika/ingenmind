@@ -2,12 +2,14 @@
 its own database (needs the pgvector service)."""
 
 import re
+import time
 import unittest
 import uuid
 from unittest.mock import Mock, patch
 
 import psycopg
 from psycopg import sql
+from starlette.responses import RedirectResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
@@ -80,7 +82,8 @@ class EveryRouteHasARule(unittest.TestCase):
         self.assertEqual(auth.required_permission("GET", "/api/source-reports"), "view_knowledge")
         self.assertEqual(auth.required_permission("POST", "/api/source-reports/remove"), "manage_knowledge")
         self.assertIsNone(auth.required_permission("GET", "/api/knowledge-system"))
-        self.assertEqual(auth.required_permission("POST", "/api/knowledge-system/reset"), "manage_settings")
+        self.assertEqual(auth.required_permission("POST", "/api/knowledge-system/leave-demo"), "manage_settings")
+        self.assertEqual(auth.required_permission("POST", "/api/setup/start-over"), "manage_settings")
         for method, path in (("GET", "/api/setup"), ("POST", "/api/setup/message"), ("POST", "/api/setup/confirm"),
                              ("POST", "/api/setup/back"), ("POST", "/api/setup/blueprint"),
                              ("POST", "/api/setup/blueprint/revise"), ("POST", "/api/setup/blueprint/confirm"),
@@ -199,6 +202,66 @@ class SigningIn(AuthDatabase):
         self.assertTrue(seen["session_id"].startswith("s_"))   # the server's session, not the browser's "abc"
         self.assertEqual(web_api._scoped(Mock(state=Mock(user=user)), {"session_id": "abc", "user_id": "u_admin"}),
                          {"session_id": f"{user['user_id']}:abc", "user_id": user["user_id"]})   # other routes
+
+
+class ConfirmingItsYou(AuthDatabase):
+    """Signing in again before a reset (auth.confirmed)."""
+
+    def test_dev_confirmation_is_the_same_person_and_lasts_one_reset(self):
+        me = identity.create_user("Ann", f"ann-{uuid.uuid4().hex[:6]}@example.com", "admin")
+        other = identity.create_user("Bob", f"bob-{uuid.uuid4().hex[:6]}@example.com", "admin")
+        client = self.signed_in(me)
+        self.assertFalse(client.get("/api/me").json()["confirmed"])
+        page = client.get("/auth/confirm", params={"next": "/#/setup"})
+        self.assertIn("I am Ann", page.text)
+        self.assertNotIn("Bob", page.text)
+        back = client.post("/auth/confirm", data={"user_id": other["user_id"]}, follow_redirects=False)
+        self.assertEqual(back.headers["location"], "/#/setup")
+        body = client.get("/api/me").json()
+        self.assertEqual((body["confirmed"], "someone else" in body["confirm_error"]), (False, True))
+        client.get("/auth/confirm", params={"next": "https://evil.example/"})
+        back = client.post("/auth/confirm", data={"user_id": me["user_id"]}, follow_redirects=False)
+        self.assertEqual(back.headers["location"], "/")                  # only paths on this site
+        self.assertTrue(client.get("/api/me").json()["confirmed"])
+        with patch.object(web_api, "_reset", return_value=web_api._json({"ok": True, "deleted": {}})):
+            self.assertEqual(client.post("/api/setup/start-over", json={}).status_code, 200)
+            refused = client.post("/api/setup/start-over", json={})      # used up
+        self.assertEqual((refused.status_code, refused.json()["confirm"]), (403, True))
+        self.assertEqual(self.client().post("/auth/confirm", data={"user_id": me["user_id"]}).status_code, 404)
+
+    def test_with_a_provider_the_password_must_have_been_asked_just_now(self):
+        me = identity.create_user("Cat", f"cat-{uuid.uuid4().hex[:6]}@example.com", "admin")
+        asked = {}
+
+        class Client:
+            def __init__(self, auth_time, user):
+                self.auth_time, self.user = auth_time, user
+
+            async def authorize_redirect(self, request, uri, **params):
+                asked.update(params)
+                return RedirectResponse("https://idp.example/authorize", 302)
+
+            async def authorize_access_token(self, request):
+                return {"userinfo": {"sub": "s1", "email": self.user["email"], "auth_time": self.auth_time}}
+
+        def run(auth_time, user=me):
+            client = self.signed_in(me)
+            with patch.object(auth, "MODE", "oidc"), patch.object(auth, "_client", return_value=Client(auth_time, user)), \
+                    patch.object(auth.identity, "sign_in", return_value=user):
+                self.assertEqual(client.get("/auth/confirm", params={"next": "/#/setup"},
+                                            follow_redirects=False).status_code, 302)
+                back = client.get("/auth/callback", follow_redirects=False)
+                self.assertEqual(back.headers["location"], "/#/setup")
+                return client.get("/api/me").json()
+
+        self.assertTrue(run(time.time() - 5)["confirmed"])
+        self.assertEqual((asked["prompt"], asked["max_age"]), ("login", 0))    # the provider must ask again
+        stale = run(time.time() - 3600)                                         # its old sign-in, reused
+        self.assertEqual((stale["confirmed"], "password" in stale["confirm_error"]), (False, True))
+        self.assertFalse(run(None)["confirmed"])                                # no auth_time: cannot tell
+        other = identity.create_user("Dan", f"dan-{uuid.uuid4().hex[:6]}@example.com", "admin")
+        self.assertFalse(run(time.time(), other)["confirmed"])
+        self.assertEqual(run(time.time(), other)["user"]["first_name"], "Cat")  # still signed in as themselves
 
 
 class FirstAdmin(AuthDatabase):

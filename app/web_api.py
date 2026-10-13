@@ -841,44 +841,18 @@ def knowledge_system_status(request: Request) -> Response:
         counts = knowledge_system.counts()
         out.update(status, counts=counts, events=knowledge_system.events(),
                    emptied=[{"table": t, "label": label, "rows": counts[t]} for t, label in knowledge_system.EMPTIED],
-                   kept=list(knowledge_system.KEPT), confirmation=knowledge_system.RESET_CONFIRMATION,
+                   kept=list(knowledge_system.KEPT),
                    master={"emptied": [label for _, label in knowledge_system.MASTER_EMPTIED],
-                           "kept": list(knowledge_system.MASTER_KEPT),
-                           "confirmation": knowledge_system.MASTER_CONFIRMATION},
+                           "kept": list(knowledge_system.MASTER_KEPT)},
                    web_search=research.web_search_configured())
     return _json({**out, "can_manage": can_manage})
 
 
-async def knowledge_system_reset(request: Request) -> Response:
-    """Empty the knowledge base and what was learnt from it, so setup can start again."""
-    body = await request.json()
+def _reset(request: Request, everything: bool) -> Response:
     user_id = (auth.current_user(request) or {}).get("user_id")
+    confirmation = knowledge_system.MASTER_CONFIRMATION if everything else knowledge_system.RESET_CONFIRMATION
     try:
-        deleted = await run_in_threadpool(knowledge_system.reset, str(body.get("confirm") or ""), user_id)
-    except ValueError as exc:
-        return _json({"error": str(exc)}, 400)
-    except knowledge_system.Busy as exc:
-        return _json({"error": str(exc)}, 409)
-    except Exception as exc:
-        return _json({"error": f"Reset failed, nothing was deleted: {exc}"}, 502)
-    finally:
-        fetch_qdrant_overview.clear()
-        fetch_research_overview.clear()
-    return _json({"ok": True, "deleted": deleted})
-
-
-async def knowledge_system_master_reset(request: Request) -> Response:
-    """Back to a fresh install: the knowledge reset plus sessions and every flow.
-    Admins only (the role, not just the permission); people's accounts stay."""
-    user = auth.current_user(request) or {}
-    if user.get("role") != "admin":
-        return _json({"error": "only an admin can reset everything"}, 403)
-    body = await request.json()
-    try:
-        deleted = await run_in_threadpool(knowledge_system.reset, str(body.get("confirm") or ""),
-                                          user.get("user_id"), True)
-    except ValueError as exc:
-        return _json({"error": str(exc)}, 400)
+        deleted = knowledge_system.reset(confirmation, user_id, everything)
     except knowledge_system.Busy as exc:
         return _json({"error": str(exc)}, 409)
     except Exception as exc:
@@ -888,6 +862,33 @@ async def knowledge_system_master_reset(request: Request) -> Response:
         fetch_research_overview.clear()
         agent.describe.clear()
     return _json({"ok": True, "deleted": deleted})
+
+
+async def knowledge_system_leave_demo(request: Request) -> Response:
+    """Replace the demo with your own domain: the knowledge reset, while the
+    knowledge system is the demo (nothing of yours to lose, so no sign-in again)."""
+    if knowledge_system.status().get("origin") != "demo":
+        return _json({"error": "this is not the demo: start over from Setup"}, 409)
+    return await run_in_threadpool(_reset, request, False)
+
+
+CONFIRM_FIRST = "Confirm it's you first: sign in again."
+
+
+async def setup_start_over(request: Request) -> Response:
+    """Start over, e.g. for another domain: the knowledge reset, or with
+    everything also flows and sessions (admins only). Needs the person to have
+    signed in again just before (auth.confirmed), once per reset."""
+    body = await request.json()
+    everything = body.get("everything") is True
+    if everything and (auth.current_user(request) or {}).get("role") != "admin":
+        return _json({"error": "only an admin can reset everything"}, 403)
+    if not auth.confirmed(request):
+        return _json({"error": CONFIRM_FIRST, "confirm": True}, 403)
+    response = await run_in_threadpool(_reset, request, everything)
+    if response.status_code == 200:
+        auth.use_confirmation(request)
+    return response
 
 
 # ---------- Setup (the Initialization Agent, epic #19) ----------
@@ -1438,8 +1439,8 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/sessions/{session_id}", session_detail),
     Route("/api/home", home),
     Route("/api/knowledge-system", knowledge_system_status),
-    Route("/api/knowledge-system/reset", knowledge_system_reset, methods=["POST"]),
-    Route("/api/knowledge-system/master-reset", knowledge_system_master_reset, methods=["POST"]),
+    Route("/api/knowledge-system/leave-demo", knowledge_system_leave_demo, methods=["POST"]),
+    Route("/api/setup/start-over", setup_start_over, methods=["POST"]),
     Route("/api/setup", setup_view),
     Route("/api/setup/message", setup_message, methods=["POST"]),
     Route("/api/setup/confirm", setup_confirm, methods=["POST"]),

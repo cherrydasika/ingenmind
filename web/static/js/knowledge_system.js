@@ -1,7 +1,7 @@
 // Knowledge system, shown on the Profile page for people who manage settings:
-// whether it is set up, what it holds, its recent history, using your own
-// domain instead of the demo, and the reset that empties it so setup can start
-// again (app/knowledge_system.py). Setup itself is setup.js.
+// whether it is set up, what it holds, its recent history, and using your own
+// domain instead of the demo (app/knowledge_system.py). Setup itself, and
+// starting over, are setup.js and start_over.js.
 
 import { api } from "./api.js";
 import { badge, card, errorBox, fmtInt, fmtTimestamp, h, loading, note } from "./ui.js";
@@ -36,19 +36,6 @@ export class KnowledgeSystemPage {
     this.render();
   }
 
-  async reset(input, button) {
-    button.disabled = true;
-    try {
-      const { deleted } = await api.resetKnowledgeSystem(input.value);
-      const total = Object.values(deleted).reduce((a, b) => a + b, 0);
-      this.flash = { kind: "ok", text: `Reset done: ${fmtInt(total)} rows deleted. The knowledge system is ready to be set up again.` };
-      setupChanged();
-    } catch (err) {
-      this.flash = { kind: "err", text: err.message };
-    }
-    await this.mount();
-  }
-
   // Leave the demo: the same reset, then setup (#60). Two clicks, no typing.
   async ownDomain(button) {
     if (!button.dataset.armed) {
@@ -58,7 +45,7 @@ export class KnowledgeSystemPage {
     }
     button.disabled = true;
     try {
-      await api.resetKnowledgeSystem(this.data.confirmation);
+      await api.leaveDemo();
       setupChanged();
       location.hash = "#/setup";
     } catch (err) {
@@ -87,11 +74,6 @@ export class KnowledgeSystemPage {
 
   render() {
     const d = this.data;
-    const confirmation = h("input", { type: "text", placeholder: `Type ${d.confirmation}`, autocomplete: "off",
-      "aria-label": `Type ${d.confirmation} to confirm`, style: "max-width:220px" });
-    const button = h("button", { class: "btn btn-danger", type: "button", disabled: true }, "Reset knowledge system");
-    confirmation.addEventListener("input", () => { button.disabled = confirmation.value !== d.confirmation; });
-    button.addEventListener("click", () => this.reset(confirmation, button));
 
     this.root.replaceChildren(h("div", { class: "stack" },
       this.flash ? h("div", { class: `alert ${this.flash.kind}` }, this.flash.text) : null,
@@ -106,18 +88,10 @@ export class KnowledgeSystemPage {
           h("tr", {}, h("th", {}, "URLs to ingest"), h("td", {}, fmtInt(d.urls))))))
       }),
       card({
-        title: "Reset",
-        sub: "Empties the knowledge base and everything learnt from it, so the knowledge system can be set up "
-          + "again, for example for another domain. People keep their accounts and history. This cannot be undone.",
-        children: [
-          h("details", {}, h("summary", {}, `What it deletes (${fmtInt(d.emptied.reduce((n, e) => n + e.rows, 0))} rows) and keeps`),
-            h("div", { class: "grid-auto details-body", style: "align-items:start" },
-              h("div", {}, h("strong", {}, "Deleted"),
-                h("ul", {}, d.emptied.filter((e) => e.rows).map((e) => h("li", {}, `${e.label}: `, h("strong", {}, fmtInt(e.rows)))))),
-              h("div", {}, h("strong", {}, "Kept"), h("ul", {}, d.kept.map((k) => h("li", {}, k)))))),
-          h("div", { class: "toolbar", style: "justify-content:flex-start;gap:12px" }, confirmation, button),
-          note("Wait for running ingestion jobs and evaluation runs to finish first; the reset refuses while they run."),
-        ],
+        title: "Start over",
+        sub: "To set the knowledge system up again, for example for another domain, use Start over at the "
+          + "bottom of Setup. It asks you to sign in again first.",
+        children: h("a", { class: "btn", href: "#/setup" }, "Go to Setup"),
       }),
       card({
         title: "History",

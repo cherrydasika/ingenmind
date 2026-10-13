@@ -1,11 +1,11 @@
 // Profile: who you are signed in as, your role and what you may do. For people
-// who manage settings, the knowledge system (use your own domain, reset); for
-// admins, the master reset back to a fresh install.
+// who manage settings, the knowledge system (use your own domain instead of the
+// demo). Starting over is on Setup (start_over.js).
 
 import { api } from "./api.js";
 import { KnowledgeSystemPage } from "./knowledge_system.js";
 import { applyTheme } from "./theme.js";
-import { card, dataTable, errorBox, h, loading, note, section } from "./ui.js";
+import { card, dataTable, errorBox, h, loading, section } from "./ui.js";
 
 const PERMISSION_TEXT = {
   view_knowledge: "View the knowledge base and its sources",
@@ -57,54 +57,16 @@ export class ProfilePage {
         : h("p", { class: "note" }, "No permissions yet. Ask an administrator.") }),
       card({ title: "Appearance", children: this.appearance(u.theme) }),
       h("p", { class: "note" }, "This app never stores your password: your identity provider signs you in."),
-      u.permissions.includes("manage_settings") ? this.knowledgeSystem(u) : null));
+      u.permissions.includes("manage_settings") ? this.knowledgeSystem() : null));
   }
 
-  // The knowledge system's page, here; then, for admins, the master reset.
-  knowledgeSystem(user) {
+  // The knowledge system's page, here.
+  knowledgeSystem() {
     const body = h("div");
     const page = new KnowledgeSystemPage(body);
-    page.mount().then(() => {
-      if (user.role === "admin" && page.data?.master) body.append(this.masterReset(page.data.master));
-    });
+    page.mount();
     return section("knowledge-system", "Knowledge system",
-      "What this installation answers from, and starting again.", body);
-  }
-
-  // Back to a fresh install. Typed confirmation; the server checks the admin role.
-  masterReset(master) {
-    const input = h("input", { type: "text", placeholder: `Type ${master.confirmation}`, autocomplete: "off",
-      "aria-label": `Type ${master.confirmation} to confirm`, style: "max-width:240px" });
-    const button = h("button", { class: "btn btn-danger", type: "button", disabled: true }, "Reset everything");
-    const result = h("div");
-    input.addEventListener("input", () => { button.disabled = input.value !== master.confirmation; });
-    button.addEventListener("click", async () => {
-      button.disabled = true;
-      try {
-        const { deleted } = await api.masterReset(input.value);
-        const total = Object.values(deleted).reduce((a, b) => a + b, 0);
-        result.replaceChildren(h("div", { class: "alert ok" }, `Everything was reset (${total.toLocaleString()} rows). `
-          + "Setup starts again; people keep their accounts."));
-        window.dispatchEvent(new Event("rag:setup-changed"));
-        setTimeout(() => { location.hash = "#/setup"; }, 1500);
-      } catch (err) {
-        result.replaceChildren(h("div", { class: "alert err" }, err.message));
-        button.disabled = false;
-      }
-    });
-    return card({
-      title: "Master reset (admins only)",
-      sub: "Back to a fresh install: everything the reset above empties, and also every flow and its versions, "
-        + "the live flow, and everyone's sessions. This cannot be undone.",
-      children: [
-        h("div", { class: "grid-auto", style: "align-items:start" },
-          h("div", {}, h("strong", {}, "Also deleted"), h("ul", {}, master.emptied.map((e) => h("li", {}, e)))),
-          h("div", {}, h("strong", {}, "Kept"), h("ul", {}, master.kept.map((k) => h("li", {}, k))))),
-        h("div", { class: "toolbar", style: "justify-content:flex-start;gap:12px" }, input, button),
-        note("Wait for running ingestion jobs and evaluation runs to finish first."),
-        result,
-      ],
-    });
+      "What this installation answers from.", body);
   }
 
   // Light / Dark / System, saved on your profile (any browser you sign in on).

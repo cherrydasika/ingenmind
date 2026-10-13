@@ -7,6 +7,7 @@ conversation. Runs against its own database (needs the pgvector service).
 import asyncio
 import json
 import threading
+import time
 import unittest
 import uuid
 from datetime import datetime, timezone
@@ -345,11 +346,14 @@ class SetupApi(SetupDatabase):
         flows.store.set_live("mine", flows.store.publish("mine", "v1", evaluation._check_flow), builtin,
                              evaluation._check_flow)
         knowledge_system.mark_ready("setup")
-        status, body = self.call(web_api.knowledge_system_master_reset, {"confirm": "RESET EVERYTHING"})
+        status, body = self.call(web_api.setup_start_over, {"everything": True})
         self.assertEqual((status, body["error"]), (403, "only an admin can reset everything"))   # manage_settings is not enough
-        admin = lambda body: asyncio.run(web_api.knowledge_system_master_reset(self.admin(body)))
-        self.assertEqual(admin({"confirm": "RESET"}).status_code, 400)                  # the knowledge reset's word: no
-        response = admin({"confirm": "RESET EVERYTHING"})
+        status, body = self.call(web_api.setup_start_over, {})
+        self.assertEqual((status, body["confirm"]), (403, True))               # not signed in again: refused
+        admin = lambda body: asyncio.run(web_api.setup_start_over(self.admin(body)))
+        self.assertEqual(admin({"everything": True}).status_code, 403)
+        self.assertEqual(knowledge_system.status()["state"], knowledge_system.READY)    # nothing deleted
+        response = admin({"everything": True, "confirmed": True})
         deleted = json.loads(response.body)["deleted"]
         self.assertEqual((response.status_code, deleted["agent_flows"], deleted["agent_flow_versions"]), (200, 1, 1))
         self.assertIn("app_sessions", deleted)
@@ -360,6 +364,8 @@ class SetupApi(SetupDatabase):
     def admin(self, body):
         request = self.Request(body)
         request.state.user = {**request.state.user, "role": "admin"}
+        if body.pop("confirmed", False):          # signed in again just now
+            request.session = {"confirmed_at": time.time()}
         return request
 
     def test_api_errors(self):
