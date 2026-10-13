@@ -6,6 +6,7 @@ import { api } from "./api.js";
 import { KIND_LABEL, areaTable } from "./eval_areas.js";
 import { StartOver } from "./start_over.js";
 import { badge, errorBox, fmtTime, h, labelText, loading, markdown, md, note } from "./ui.js";
+import { waiting } from "./wait_scene.js";
 
 const FIELDS = [
   ["purpose", "Purpose"], ["audience", "Who asks"], ["regions", "Regions"], ["question_types", "Questions"],
@@ -181,9 +182,11 @@ export class SetupPage {
     const names = Object.fromEntries((v.blueprint?.blueprint?.knowledge_areas || []).map((a) => [a.key, a.name]));
     const children = [];
     if (this.error) children.push(h("div", { class: "alert err" }, this.error));
+    const analysing = v.state === "ANALYSING_SOURCES" || c.sites.some((site) => site.analysis?.status === "analysing");
+    if (analysing) children.push(waiting("Reading the sites…", "Each site's robots.txt, its sitemap or menus, and how "
+      + "its pages group into sections. Nothing is read into the knowledge base yet."));
     children.push(h("p", {}, v.state === "ANALYSING_SOURCES"
-      ? "Reading each site you chose: its robots.txt, its sitemap or menus, and how its pages group into sections. "
-        + "Nothing is read into the knowledge base yet."
+      ? "Sites appear below as they are read."
       : "Tick the sections to read into the knowledge base; open a section to untick single pages. Recommended "
         + "sections are suggestions."));
     for (const site of c.sites) children.push(this.renderSite(site, names, choosing));
@@ -291,7 +294,9 @@ export class SetupPage {
       INDEXING: stuck ? "The build stopped while checking the index." : "Checking the index…",
       EVALUATING: "The knowledge base is built. Next, check how well it answers: see Evaluation below.",
     };
-    children.push(h("p", {}, lines[v.state] || ""));
+    const working = BUILDING.includes(v.state) && ["queued", "running"].includes(job?.status);
+    children.push(working ? waiting(lines[v.state], "Each page is split into chunks and indexed as it is read.")
+      : h("p", {}, lines[v.state] || ""));
     if (job?.status === "failed" && job.error) children.push(h("div", { class: "alert err" }, `The job failed: ${job.error}`));
     children.push(h("div", { class: "build-bar", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": total,
       "aria-valuenow": done }, h("span", { style: `width:${total ? (100 * done) / total : 0}%` })),
@@ -483,9 +488,7 @@ export class SetupPage {
       + "area, plus questions it should refuse. They run on the assistant the blueprint describes, before it goes "
       + "live. Evaluations never add pages to the knowledge base.");
     if (!e || e.status === "preparing") {
-      return wrap(intro, h("div", { class: "toolbar", style: "justify-content:flex-start;gap:10px" },
-        h("div", { class: "spinner" }), h("span", { class: "note" },
-          "Writing the questions: one model call per knowledge area…")));
+      return wrap(intro, waiting("Writing the questions…", "One model call per knowledge area."));
     }
     const prepare = h("button", { class: "btn btn-ghost", type: "button" }, "Write the questions again");
     prepare.addEventListener("click", () => this.act(async () => { await api.setupEvaluationPrepare(); return api.setup(); },
@@ -506,7 +509,8 @@ export class SetupPage {
       h("a", { href: "#/evaluations" }, "edit the questions on the Evaluations page")));
     children.push(this.renderEvaluationSet(e, names));
     if (running) {
-      children.push(h("div", { class: "build-bar", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": run.total,
+      children.push(waiting("Asking the questions…", "One at a time, each a full answer from the assistant."),
+        h("div", { class: "build-bar", role: "progressbar", "aria-valuemin": 0, "aria-valuemax": run.total,
         "aria-valuenow": run.completed }, h("span", { style: `width:${run.total ? (100 * run.completed) / run.total : 0}%` })),
       h("div", {}, h("strong", {}, `${run.completed} of ${run.total} questions answered`),
         h("span", { class: "note" }, " · one at a time, each a full answer")));
@@ -666,10 +670,8 @@ export class SetupPage {
     if (this.error) children.push(h("div", { class: "alert err" }, this.error));
     const running = sv.run?.status === "researching" || (v.state === "DISCOVERING_SOURCES" && !sv.run);
     if (running) {
-      children.push(h("div", { class: "toolbar", style: "justify-content:flex-start;gap:12px" }, h("div", { class: "spinner" }),
-        h("div", {}, h("strong", {}, "Looking for sources…"),
-          h("div", { class: "note" }, "Searching for the sites that cover each part of the blueprint. Nothing is read "
-            + "into the knowledge base yet."))));
+      children.push(waiting("Looking for sources…", "Searching for the sites that cover each part of the blueprint. "
+        + "Nothing is read into the knowledge base yet."));
       if (!sv.sources.length) return h("div", { class: "card" }, head, children);
     }
     if (sv.run?.status === "failed" && v.state === "DISCOVERING_SOURCES") {
@@ -776,11 +778,8 @@ export class SetupPage {
     const children = [];
     if (this.error) children.push(h("div", { class: "alert err" }, this.error));
     if (!b || b.status === "researching") {
-      children.push(h("div", { class: "toolbar", style: "justify-content:flex-start;gap:12px" },
-        h("div", { class: "spinner" }),
-        h("div", {}, h("strong", {}, b?.feedback ? "Revising the blueprint…" : "Researching the domain…"),
-          h("div", { class: "note" }, b?.feedback ? `Your change: ${b.feedback}`
-            : "Searching the web and reading the main pages. This takes a minute or two."))));
+      children.push(waiting(b?.feedback ? "Revising the blueprint…" : "Researching the domain…",
+        b?.feedback ? `Your change: ${b.feedback}` : "Searching the web and reading the main pages. This takes a minute or two."));
       return h("div", { class: "card" }, head, children);
     }
     if (b.status === "failed") {
