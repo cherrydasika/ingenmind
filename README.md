@@ -327,6 +327,14 @@ only learns that a passage was withheld. Researched pages like that are
 never added, and Knowledge base → Ingestion lists the knowledge base's
 withheld passages so an admin can remove their pages.
 
+**Tool calls** (`api_tools.check`, `agent._Run._guarded`): an agent can
+only call the tools it was offered (what is plugged into it in the flow);
+an API tool's arguments must match its schema and carry no personal data,
+links or instruction-like text; each tool may be called at most
+`max_calls` times per question; and a tool marked `side_effects` (one that
+books, sends or pays) is refused until a person can approve its calls.
+A refused call is in the trace with its reason.
+
 ### Retrieval and ingestion
 
 - **Hybrid search** — pgvector cosine plus PostgreSQL full text, fused by

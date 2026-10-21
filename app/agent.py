@@ -547,6 +547,7 @@ class _Run:
         # AgentCore Memory is kept per actor: one actor per browser session,
         # so an agent never recalls facts from another conversation.
         params["actorId"] = _actor_id(self.session_id)
+        run["offered"] = {t.get("name") for t in params["tools"]}   # the only tools it may call
         return params
 
     def _generic_params(self, run: dict, messages: list[dict]) -> dict:
@@ -571,6 +572,7 @@ class _Run:
         if self.user_id:
             params["runtimeUserId"] = self.user_id
         params["actorId"] = _actor_id(self.session_id)
+        run["offered"] = {t.get("name") for t in offered}   # the only tools it may call
         return params
 
     def _invoke(self, run: dict, params: dict) -> tuple[str | None, list[dict]]:
@@ -676,9 +678,9 @@ class _Run:
                         key = (self.session_id, role)   # still asking: abandon this session
                         _generations[key] = _generations.get(key, 0) + 1
                     break
-                tool = (self._generic_tool if role.startswith("agent:") else
-                        {"knowledge_base": self._search, "research": self._research_tool,
-                         "agent": self._agent_tool}.get(ROLE_ALIASES.get(role, role), self._call))
+                tool = self._guarded(run, role, self._generic_tool if role.startswith("agent:") else
+                                     {"knowledge_base": self._search, "research": self._research_tool,
+                                      "agent": self._agent_tool}.get(ROLE_ALIASES.get(role, role), self._call))
                 if len(uses) > 1:
                     # Each call runs in a copy of this thread's context, so its
                     # trace observation stays inside this agent's trace.
@@ -691,6 +693,28 @@ class _Run:
                 messages = [{"role": "user", "content": results}]
             run["answer"] = self.answer_of(run)
             return run
+
+    def _guarded(self, run: dict, role: str, tool):
+        """The tool guardrails (R13) in front of a role's tools: only the tools
+        this agent was offered, and API calls that pass api_tools.check()."""
+        def call(use: dict, delegation: int) -> dict:
+            name = str(use.get("name") or "")
+            offered = run.get("offered")
+            reason = None
+            if offered is not None and name not in offered:
+                reason = f"{name!r} isn't one of this agent's tools"
+            elif name in api_tools.TOOLS:
+                with self.lock:
+                    used = sum(1 for c in getattr(self, "calls", []) if c["tool"] == name)
+                reason = api_tools.check(name, _input(use), used)
+            if reason is None:
+                return tool(use, delegation)
+            with self.lock:
+                self.refusals = getattr(self, "refusals", []) + [{"tool": name, "role": role, "reason": reason,
+                                                                   "delegation": delegation}]
+            self.emit({"type": "tool_refused", "agent": role, "delegation": delegation, "tool": name, "reason": reason})
+            return _result(use, f"Refused by the tool guardrail: {reason}. Don't retry this call.", error=True)
+        return call
 
     @staticmethod
     def _traced_tool(tool, use: dict, delegation: int) -> dict:
