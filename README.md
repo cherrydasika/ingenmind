@@ -283,6 +283,15 @@ the classic one's 320–410k.
 
 ![An evaluation run on the Evaluations page: the summary (expectations met, answer check, scores, blocks, time, tokens) and the results per knowledge area](docs/images/flow-evaluation.png)
 
+### Streaming and cancelling
+
+Questions stream their progress as server-sent events: the first arrives
+within a tenth of a second, and a comment line every 15 seconds keeps
+tunnels and proxies from closing a quiet stream. **Cancel** on the Ask page
+closes the stream; the server then tells the run's agents to stop
+(`agent.CANCELLED`), so no further model or tool calls are made. The answer
+itself is shown only after the answer check passes it.
+
 ### Budgets and failing tools
 
 A flow's **Start** node sets the run's budget for one question: model

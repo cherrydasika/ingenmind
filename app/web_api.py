@@ -257,30 +257,45 @@ async def ask_stream(request: Request) -> Response:
         *parsed, body, lambda stage, state, **info: emit("stage", {"stage": stage, "state": state, **info})))
 
 
+HEARTBEAT_SECONDS = 15
+
+
 def _event_stream(work) -> StreamingResponse:
     """Run work(emit) in a thread and stream what it emits as server-sent
-    events, ending with `result` (its return value) or `error`."""
+    events, ending with `result` (its return value) or `error`. A comment
+    line every HEARTBEAT_SECONDS keeps tunnels and proxies from closing a
+    quiet stream. When the browser goes away (Cancel, a closed tab), the
+    run's agents are told to stop (agent.CANCELLED) and spend nothing more."""
     loop = asyncio.get_running_loop()
     events: asyncio.Queue = asyncio.Queue()
+    stop = threading.Event()
 
     def emit(event: str, data: dict) -> None:
         loop.call_soon_threadsafe(events.put_nowait, (event, data))
 
     def run() -> None:
+        token = agent.CANCELLED.set(stop)
         try:
             emit("result", work(emit))
         except Exception as exc:
             emit("error", {"error": "Unable to complete this request. Please try again."})
+        finally:
+            agent.CANCELLED.reset(token)
 
     async def stream():
         task = asyncio.ensure_future(run_in_threadpool(run))
         try:
             while True:
-                event, data = await events.get()
+                try:
+                    event, data = await asyncio.wait_for(events.get(), HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"
+                    continue
                 yield f"event: {event}\ndata: {json.dumps(data, default=_json_default)}\n\n"
                 if event in ("result", "error"):
                     break
         finally:
+            stop.set()     # finished, or the browser went away: either way nothing more to run
             await task
 
     return StreamingResponse(stream(), media_type="text/event-stream",

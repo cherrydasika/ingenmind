@@ -332,6 +332,12 @@ def _usage_in(value, depth: int = 0) -> dict:
     return {}
 
 
+# Set by the web API for a streamed question: a threading.Event the browser's
+# Cancel (or going away) sets; the run's agents and tools stop when it is (R18).
+CANCELLED: contextvars.ContextVar = contextvars.ContextVar("cancelled", default=None)
+CANCEL_REASON = "the question was cancelled"
+
+
 def _result(use: dict, text: str, error: bool = False) -> dict:
     return {"toolResult": {"toolUseId": use["toolUseId"], "status": "error" if error else "success",
                            "content": [{"text": text}]}}
@@ -466,6 +472,7 @@ class _Run:
         self.user_id = user_id
         self.limit = limit
         self.started = time.monotonic()
+        self.cancelled = CANCELLED.get()
         self.emit = on_event
         self.retrieval_view = retrieval_view
         self.lock = threading.Lock()
@@ -556,7 +563,11 @@ class _Run:
                 "max_seconds": round(time.monotonic() - getattr(self, "started", time.monotonic()), 1)}
 
     def over_budget(self) -> str | None:
-        """Which of the flow's budget limits (R15) has run out, or None."""
+        """Which of the flow's budget limits (R15) has run out, or None; also
+        when the person cancelled the question (R18)."""
+        cancelled = getattr(self, "cancelled", None)
+        if cancelled is not None and cancelled.is_set():
+            return CANCEL_REASON
         limits = (getattr(self, "settings", None) or {}).get("budget") or {}
         if not limits:
             return None
@@ -775,7 +786,7 @@ class _Run:
                     used = sum(1 for c in getattr(self, "calls", []) if c["tool"] == name)
                 reason = api_tools.check(name, _input(use), used)
             if reason is None and (hit := self.over_budget()):
-                reason = f"{hit} has run out: answer with what you have"
+                reason = hit if hit == CANCEL_REASON else f"{hit} has run out: answer with what you have"
             if reason is None:
                 with self.lock:
                     self.tool_calls = getattr(self, "tool_calls", 0) + 1

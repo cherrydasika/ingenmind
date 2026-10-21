@@ -30,11 +30,12 @@ const post = (path, body) => request(path, { method: "POST", body: JSON.stringif
 
 // POST that answers with server-sent events (see /api/ask/stream): calls
 // onStage for each `stage` event, resolves with the final `result`.
-async function postStream(path, body, onStage) {
+async function postStream(path, body, onStage, signal) {
   const resp = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
     body: JSON.stringify(body),
+    signal,   // aborting closes the stream; the server then stops the run
   });
   checkSignedIn(resp);
   if (!resp.ok) {
@@ -73,7 +74,7 @@ export const api = {
   ask: (payload) => post("/api/ask", payload),
   askStream: (payload, onStage) => postStream("/api/ask/stream", payload, onStage),
   agent: (force = false) => request(fresh("/api/agent", force)),
-  agentStream: (payload, onStep) => postStream("/api/agent/stream", payload, onStep),
+  agentStream: (payload, onStep, signal) => postStream("/api/agent/stream", payload, onStep, signal),
   agentResume: (payload, onStep) => postStream("/api/agent/resume", payload, onStep),
   flowList: () => request("/api/flows"),
   flowDetail: (id) => request(`/api/flows/${encodeURIComponent(id)}`),
