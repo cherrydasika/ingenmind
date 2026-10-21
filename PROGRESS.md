@@ -116,6 +116,14 @@ on #120 that isn't waiting on the user.
   in a browser: no CSP violations. Model and page text reach the page only
   through `markdown()`/`richText()`, which escape first.
 
+- **R06 (#84) done:** `app/usage_limits.py`: questions per minute and
+  tokens per day per user (role defaults, admins more; per-user overrides
+  on the Users page, which also shows today's questions and tokens), an
+  optional global daily cap ("busy"), 429 with Retry-After on the Ask,
+  playground and classic routes; a run's tokens are charged when it
+  finishes, even if it fails. Research runs aren't limited separately
+  (that belongs with per-run budgets, R15).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

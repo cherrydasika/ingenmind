@@ -1212,6 +1212,16 @@ site are refused (`ALLOWED_ORIGINS` adds origins, e.g. behind a proxy); and
 admins are signed out after `ADMIN_IDLE_MINUTES` (default 60) without using
 the app. The security model: [docs/security.md](docs/security.md).
 
+**Usage limits** (`app/usage_limits.py`): each person gets a number of
+questions per minute and model tokens per day (admins more), and a
+deployment can cap everyone's tokens per day together
+(`LIMIT_QUESTIONS_PER_MINUTE`, `LIMIT_TOKENS_PER_DAY`,
+`ADMIN_QUESTIONS_PER_MINUTE`, `ADMIN_TOKENS_PER_DAY`,
+`GLOBAL_TOKENS_PER_DAY`). Over a limit, a question is answered with how long
+to wait (HTTP 429, `Retry-After`). The Users page shows each person's
+questions and tokens today, and an admin can set someone's own limits.
+Counters are kept in PostgreSQL, so a restart doesn't reset them.
+
 **Sessions** are automatic: a question joins your current session when it
 was active in the last 30 minutes, else a new one starts; signing in starts
 fresh and signing out ends it. Every Retrieval-page question is kept with
