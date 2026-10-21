@@ -419,3 +419,4 @@
 /* Versions: red-team result per version (R14). */
 .fl-chip.is-ok { color: var(--ok); }
 .fl-chip.is-warn { color: var(--warn); border-color: rgba(245, 158, 11, 0.5); background: var(--warn-soft); }
+.fl-budget-hit { color: var(--warn); font-weight: 600; }

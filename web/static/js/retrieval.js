@@ -117,6 +117,10 @@ export class RetrievalPage {
     const verdict = ae ? h("span", { class: `ae-verdict ${ae.passed ? "pass" : "fail"}`,
       title: Object.entries(ae.scores).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(" · ") },
     ae.passed ? `✓ answer check passed · ${ae.overall.toFixed(2)}` : `✕ answer check failed on ${ae.failed_on.join(", ")}`) : null;
+    if (r.budget?.hit) {   // the flow's budget ran out (R15): the answer uses what was found by then
+      turn.append(h("div", { class: "privacy-note", role: "note" },
+        `Stopped early: ${r.budget.hit} ran out, so this answer uses what was found by then.`));
+    }
     const masked = r.privacy?.masked || r.privacy?.refused;
     if (masked?.length) {
       turn.append(h("div", { class: "privacy-note", role: "note" }, r.privacy.masked

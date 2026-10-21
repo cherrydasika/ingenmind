@@ -51,9 +51,9 @@ def _call(path: str, params: list[tuple[str, str]], ttl: int, shape) -> dict:
         summary, display = shape(data)
     except urllib.error.HTTPError as http_error:
         body = http_error.read(300).decode(errors="replace")
-        return failure(f"transport.opendata.ch returned HTTP {http_error.code}: {body}", time.monotonic() - started)
+        return failure(f"transport.opendata.ch returned HTTP {http_error.code}: {body}", time.monotonic() - started, service=True)
     except (urllib.error.URLError, TimeoutError, ValueError) as other:
-        return failure(f"transport.opendata.ch could not be read: {other}", time.monotonic() - started)
+        return failure(f"transport.opendata.ch could not be read: {other}", time.monotonic() - started, service=True)
     except LookupError as missing:
         return failure(str(missing.args[0]) if missing.args else "No results", time.monotonic() - started)
     return {"ok": True, "cached": cached, "error": None, "seconds": round(time.monotonic() - started, 3),

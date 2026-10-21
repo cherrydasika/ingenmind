@@ -181,6 +181,16 @@ on #120 that isn't waiting on the user.
   flow: 24 of 24 refused in about 45 s. Not done: writing red-team
   questions from each domain's blueprint (the generic set names the domain).
 
+- **R15 (#90) done:** a flow's Start node sets the run's budget (tokens,
+  seconds, model calls, tool calls; 0 none), checked before every agent
+  turn (looking one turn ahead for tokens) and tool call; when it runs out
+  the agents answer with what they have and the Ask page / Test panel say
+  so. A circuit breaker skips an API for 2 minutes after 3 service failures
+  in a row (not request errors). Real runs on the demo: 3,000 tokens
+  stopped early and said so (one turn alone used ~7,500: budgets are
+  checked between turns); 12,000 finished inside it. Provider fallback is
+  R16.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

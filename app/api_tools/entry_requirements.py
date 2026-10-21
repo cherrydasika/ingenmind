@@ -112,11 +112,11 @@ def run(args: dict) -> dict:
             if http_error.code == 429:
                 reset = quota()["reset"] or "midnight UTC"
                 return failure(f"The free canienter.com quota is used up for today (resets {reset}). "
-                               "Check the official authority instead.", time.monotonic() - started)
+                               "Check the official authority instead.", time.monotonic() - started, service=True)
             body = http_error.read(400).decode(errors="replace")
-            return failure(f"canienter.com returned HTTP {http_error.code}: {body}", time.monotonic() - started)
+            return failure(f"canienter.com returned HTTP {http_error.code}: {body}", time.monotonic() - started, service=True)
         except (urllib.error.URLError, TimeoutError, ValueError) as other:
-            return failure(f"canienter.com could not be reached: {other}", time.monotonic() - started)
+            return failure(f"canienter.com could not be reached: {other}", time.monotonic() - started, service=True)
         with _lock:
             _cache[key] = (time.time(), data)
         cached = False
