@@ -37,6 +37,7 @@ import agent_memory as memory_store   # web_api.agent_memory is a route handler
 import audit
 import auth
 import identity
+import injection
 import knowledge_system
 import research
 from initialization import (blueprint_run, build as setup_build, content as setup_content,
@@ -1303,6 +1304,11 @@ async def setup_relabel(request: Request) -> Response:
     return _json(await run_in_threadpool(supervisor.view))
 
 
+def knowledge_flagged(request: Request) -> Response:
+    """Passages that read like instructions to an AI (injection.py): withheld from the agents."""
+    return _json({"passages": injection.flagged_passages()})
+
+
 def knowledge_provenance(request: Request) -> Response:
     """Why is this page in the knowledge base? ?url=…"""
     url = (request.query_params.get("url") or "").strip()
@@ -1622,6 +1628,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/setup/relabel", setup_relabel, methods=["POST"]),
     Route("/api/setup/go-live", setup_go_live, methods=["POST"]),
     Route("/api/knowledge/provenance", knowledge_provenance),
+    Route("/api/knowledge/flagged", knowledge_flagged),
     Route("/api/setup/back-to-content", setup_back_to_content, methods=["POST"]),
     Route("/api/overview", overview),
     Route("/api/ingestion", ingestion),

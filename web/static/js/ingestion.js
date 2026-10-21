@@ -30,6 +30,7 @@ export class IngestionPage {
       this.root.replaceChildren(errorBox(`Couldn't load ingestion status: ${err.message}`));
       return;
     }
+    this.flagged = await api.knowledgeFlagged().then((r) => r.passages).catch(() => null);
     this.render();
     this.reports.load();   // its own card; a failure there leaves the rest of the page
   }
@@ -58,11 +59,28 @@ export class IngestionPage {
           ? h("div", { class: "alert info" }, `Table '${collection}' doesn't exist yet — queue an ingestion job first.`)
           : h("div", { class: "metrics-2" }, metric("Total chunks stored", fmtInt(count)), metric("Distinct URLs ingested", fmtInt(urls))),
       }),
+      this.renderFlagged(),
       this.renderResearch(),
       this.reports.el,
       this.data.jobs.map((job) => this.renderJob(job)),
     ));
     this.flash = null;
+  }
+
+  // Passages that read like instructions to an AI (app/injection.py): the
+  // agents never see them. Shown only when there are some.
+  renderFlagged() {
+    if (!this.flagged?.length) return null;
+    return card({
+      title: `Passages withheld from the agents (${this.flagged.length})`,
+      sub: "These read like instructions to an AI (possible prompt injection), so no agent is shown them. If a page "
+        + "doesn't belong, remove it below or under Sources.",
+      children: h("ul", { class: "flagged-list" }, this.flagged.map((p) => h("li", {},
+        h("div", {}, h("a", { href: p.source_url, target: "_blank", rel: "noopener" }, p.source_url),
+          h("span", { class: "faint" }, ` · passage ${p.chunk_index + 1}${p.table === "research_chunks" ? " · added by research" : ""}`)),
+        h("div", { class: "faint" }, `Why: it ${p.why}.`),
+        h("blockquote", { class: "flagged-excerpt" }, p.excerpt)))),
+    });
   }
 
   // Pages the research agent added to fill knowledge gaps (research_chunks).

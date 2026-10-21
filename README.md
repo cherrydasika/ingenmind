@@ -318,6 +318,15 @@ refuse such questions or allow them (`personal_data`); web searches and
 Langfuse traces are masked whatever the flow says. Postcodes, names and
 addresses are not masked: planning and travel questions need them.
 
+**Instructions hidden in content** (`app/injection.py`): every passage,
+search result and tool reply an agent is given is fenced as quoted data
+that must never be followed, and anything that reads like instructions to
+an AI ("ignore the previous instructions", "note to the AI", chat-model
+markup…) is withheld from every model, the evaluators included; the agent
+only learns that a passage was withheld. Researched pages like that are
+never added, and Knowledge base → Ingestion lists the knowledge base's
+withheld passages so an admin can remove their pages.
+
 ### Retrieval and ingestion
 
 - **Hybrid search** — pgvector cosine plus PostgreSQL full text, fused by
