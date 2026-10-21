@@ -1,0 +1,7 @@
+# Packages whose known vulnerabilities are triaged, one per line:
+#   <package> <below-version>  <reason>
+# A finding in a listed package passes only while the installed version is
+# below <below-version> (the version that would fix it but can't be installed
+# yet); everything else fails the check. Review when a reason changes.
+
+pillow 13.0.0  fastembed (local embeddings) requires pillow<13 in every release up to 0.9.0; IngenMind embeds text only and never decodes an image with Pillow (2026-10-21)

@@ -4,7 +4,7 @@ name: Security checks
 # image, secrets committed by mistake, and CodeQL's code scanning. Runs on
 # every pull request (so it can be required), on main, and weekly, since new
 # vulnerabilities are published against code that hasn't changed.
-# Triaged findings, each with its reason: .github/security/.
+# Triaged packages, each with its reason: .github/security/allowed.txt.
 on:
   pull_request:
   push:
@@ -30,9 +30,9 @@ jobs:
       - run: pip install pip-audit
       # The versions a fresh install resolves, as the image and CI install them.
       - name: pip-audit
-        run: >-
-          pip-audit --progress-spinner off -r requirements-web.txt
-          $(grep -oE '^[A-Z]+-[0-9A-Za-z-]+' .github/security/pip-audit-ignore.txt | sed 's/^/--ignore-vuln /')
+        run: |
+          pip-audit --progress-spinner off -r requirements-web.txt --format json -o pip-audit.json || true
+          python .github/security/check.py pip-audit pip-audit.json
       - name: npm audit (flow builder)
         run: npm ci --prefix web/flows-app && npm audit --prefix web/flows-app --audit-level=high
 
@@ -44,11 +44,10 @@ jobs:
       # Trivy from its pinned GHCR image (not the GitHub Action): fixable
       # high and critical findings fail the check.
       - name: Trivy image scan
-        run: >-
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
-          -v "$PWD/.github/security/trivyignore:/trivyignore:ro"
-          ghcr.io/aquasecurity/trivy:0.76.1 image --exit-code 1 --severity HIGH,CRITICAL
-          --ignore-unfixed --ignorefile /trivyignore ingenmind-web:scan
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/aquasecurity/trivy:0.76.1 \
+            image --quiet --severity HIGH,CRITICAL --ignore-unfixed --format json ingenmind-web:scan > trivy.json
+          python3 .github/security/check.py trivy trivy.json
 
   secrets:
     runs-on: ubuntu-latest
