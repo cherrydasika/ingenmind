@@ -205,6 +205,77 @@ class SigningIn(AuthDatabase):
                          {"session_id": f"{user['user_id']}:abc", "user_id": user["user_id"]})   # other routes
 
 
+class WebHardening(AuthDatabase):
+    """R05: security headers, cross-site requests refused, admins' idle timeout."""
+
+    def test_every_response_has_the_security_headers(self):
+        client = self.client()
+        for path in ("/", "/api/me", "/static/js/main.js", "/auth/dev"):
+            headers = client.get(path).headers
+            with self.subTest(path=path):
+                self.assertIn("script-src 'self'", headers["content-security-policy"])
+                self.assertIn("frame-ancestors 'none'", headers["content-security-policy"])
+                self.assertEqual(headers["x-content-type-options"], "nosniff")
+                self.assertEqual(headers["x-frame-options"], "DENY")
+                self.assertNotIn("strict-transport-security", headers)   # plain HTTP locally
+
+    def test_hsts_only_over_https(self):
+        import web_security
+        sent = []
+        async def app(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+        async def send(message):
+            sent.append(message)
+        import asyncio
+        asyncio.run(web_security.SecurityHeaders(app, https=True)({"type": "http"}, None, send))
+        self.assertIn(b"strict-transport-security", dict(sent[0]["headers"]))
+
+    def test_a_cross_site_post_is_refused(self):
+        user = identity.create_user("Csrf", f"csrf-{uuid.uuid4().hex[:6]}@example.com", "admin")
+        client = self.signed_in(user)
+        response = client.post("/auth/logout", headers={"Origin": "https://evil.example"})
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("another site", response.json()["error"])
+        self.assertEqual(client.get("/api/me").json()["user"]["user_id"], user["user_id"])   # still signed in
+        for headers in ({"Origin": "null"}, {"Sec-Fetch-Site": "cross-site"}):
+            with self.subTest(headers=headers):
+                self.assertEqual(client.post("/auth/logout", headers=headers).status_code, 403)
+
+    def test_same_origin_and_non_browser_requests_pass(self):
+        import web_security
+        same = {"origin": "http://localhost:28000", "host": "localhost:28000"}
+        self.assertIsNone(web_security.cross_site("POST", same))
+        self.assertIsNone(web_security.cross_site("POST", {}))   # curl: no browser headers
+        self.assertIsNone(web_security.cross_site("POST", {"sec-fetch-site": "same-origin"}))
+        self.assertIsNone(web_security.cross_site("GET", {"origin": "https://evil.example", "host": "x"}))
+        self.assertIsNotNone(web_security.cross_site("PUT", {"origin": "https://evil.example", "host": "x"}))
+        self.assertIsNone(web_security.cross_site("POST", {"origin": "https://app.example", "host": "internal:8000"},
+                                                  extra={"https://app.example"}))
+        user = identity.create_user("Same", f"same-{uuid.uuid4().hex[:6]}@example.com", "user")
+        client = self.signed_in(user)
+        self.assertEqual(client.post("/auth/logout", headers={"Origin": "http://localhost"}).status_code, 200)
+
+    def test_an_idle_admin_is_signed_out(self):
+        admin = {"user_id": "a", "role": "admin"}
+        session = {"user_id": "a", "seen": 1000.0}
+        self.assertIsNone(auth._still_active(session, admin, "/api/flows", now=1000.0 + auth.ADMIN_IDLE_SECONDS + 1))
+        self.assertEqual(session, {})
+
+    def test_others_and_active_admins_stay_signed_in(self):
+        admin = {"user_id": "a", "role": "admin"}
+        session = {"user_id": "a", "seen": 1000.0}
+        self.assertIs(auth._still_active(session, admin, "/api/flows", now=1000.0 + auth.ADMIN_IDLE_SECONDS - 1), admin)
+        self.assertEqual(session["seen"], 1000.0 + auth.ADMIN_IDLE_SECONDS - 1)
+        user = {"user_id": "u", "role": "user"}
+        self.assertIs(auth._still_active({"seen": 1.0}, user, "/api/ask", now=1.0 + 10 * auth.ADMIN_IDLE_SECONDS), user)
+
+    def test_background_polls_do_not_keep_an_admin_signed_in(self):
+        admin = {"user_id": "a", "role": "admin"}
+        session = {"user_id": "a", "seen": 1000.0}
+        auth._still_active(session, admin, "/api/status", now=1000.0 + 600)
+        self.assertEqual(session["seen"], 1000.0)
+
+
 class ConfirmingItsYou(AuthDatabase):
     """Signing in again before a reset (auth.confirmed)."""
 

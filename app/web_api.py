@@ -42,6 +42,7 @@ from initialization import (blueprint_run, build as setup_build, content as setu
                             state as setup_state, supervisor)
 import sessions
 import source_profiles
+import web_security
 import evaluation_archive as evaluation
 import embedding_viz
 import flows
@@ -1445,7 +1446,11 @@ async def _lifespan(app):
 
 
 app = Starlette(lifespan=_lifespan, middleware=[
-    # Outer to inner: the signed cookie, then the permission check per /api request.
+    # Outer to inner: security headers on every response, cross-site
+    # state-changing requests refused (web_security.py), the signed cookie,
+    # then the permission check per /api request.
+    Middleware(web_security.SecurityHeaders, https=auth.COOKIE_SECURE),
+    Middleware(web_security.SameOrigin),
     Middleware(SessionMiddleware, secret_key=auth.session_secret(), session_cookie="rag_session",
                max_age=auth.SESSION_MAX_AGE, same_site="lax", https_only=auth.COOKIE_SECURE),
     Middleware(auth.AuthMiddleware),

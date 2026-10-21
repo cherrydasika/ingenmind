@@ -108,6 +108,13 @@ on #120 that isn't waiting on the user.
   (its vendored urllib3, msgpack, setuptools). Triaged with reasons in
   `.github/security/`: Pillow < 13, held back by fastembed. Also fixed a
   flaky auth test (a tampered cookie was added beside the valid one).
+- **R05 (#83) done:** `app/web_security.py`: a strict CSP and the
+  standard headers on every response (HSTS over HTTPS), cross-site
+  state-changing requests refused (Origin / Sec-Fetch-Site;
+  `ALLOWED_ORIGINS`), admins signed out after `ADMIN_IDLE_MINUTES` (60)
+  idle, background polls excluded. Every page and a Plotly chart checked
+  in a browser: no CSP violations. Model and page text reach the page only
+  through `markdown()`/`richText()`, which escape first.
 
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
