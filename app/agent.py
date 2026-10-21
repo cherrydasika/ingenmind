@@ -316,6 +316,22 @@ def _session() -> boto3.Session:
     return boto3.Session(region_name=REGION)
 
 
+# AGENTCORE_STREAM_LOG=1 logs each harness event's type and any usage it carries (#27).
+STREAM_LOG = os.environ.get("AGENTCORE_STREAM_LOG", "").strip().lower() in ("1", "true", "yes")
+
+
+def _usage_in(value, depth: int = 0) -> dict:
+    """The first "usage" object anywhere in a stream event (for the stream log)."""
+    if depth > 4 or not isinstance(value, dict):
+        return {}
+    if isinstance(value.get("usage"), dict):
+        return value["usage"]
+    for child in value.values():
+        if found := _usage_in(child, depth + 1):
+            return found
+    return {}
+
+
 def _result(use: dict, text: str, error: bool = False) -> dict:
     return {"toolResult": {"toolUseId": use["toolUseId"], "status": "error" if error else "success",
                            "content": [{"text": text}]}}
@@ -507,6 +523,8 @@ class _Run:
         and tokens (the full detail the browser never sees)."""
         params = self._params(run, messages)
         before = (run.get("turns", 0), run.get("input_tokens", 0), run.get("output_tokens", 0))
+        run["_sent_chars"] = len(json.dumps({"s": params.get("systemPrompt"), "m": messages, "t": params.get("tools")},
+                                            ensure_ascii=False, default=str))
         chosen = params.get("chatModel") or {}   # the flow's LLM node's model, on the local runtime (R16)
         with observation(as_type="generation", name=f"{run['role']}_agent",
                          model=(chosen.get("model") or llm.DEFAULT_MODELS.get(chosen.get("provider"), "")) or _model_id()
@@ -630,7 +648,10 @@ class _Run:
         role = run["role"]
         uses, blocks, speaker, stop_reason = [], {}, None, None
         started = time.monotonic()
+        counted = (run["input_tokens"], run["output_tokens"])
         for event in stream:
+            if STREAM_LOG:   # which events arrive, and any usage they carry (#27); never their text
+                log.info("harness event %s %s", sorted(event), json.dumps(_usage_in(event)) if _usage_in(event) else "")
             if "messageStart" in event:
                 speaker = event["messageStart"].get("role")
                 blocks = {}
@@ -670,6 +691,16 @@ class _Run:
                 name = next((n for n in ERROR_EVENTS if n in event), None)
                 if name:
                     raise RuntimeError(f"{ROLES[role]['name']}: {name}: {event[name].get('message')}")
+        if (run["input_tokens"], run["output_tokens"]) == counted and run["turns"]:
+            # The AgentCore harness reports usage only on an agent's final turn, not on turns that
+            # stop for a tool call (#27): estimate those (about 4 characters a token) so totals,
+            # budgets and costs aren't low, and say so.
+            replied = sum(len(t) for turn, t in run["texts"].items() if turn > 0) - run.get("_replied_chars", 0)
+            replied += sum(len(json.dumps(u.get("input"), default=str)) for u in uses)
+            run["input_tokens"] += run.get("_sent_chars", 0) // 4
+            run["output_tokens"] += max(replied, 0) // 4
+            run["estimated_turns"] = run.get("estimated_turns", 0) + 1
+        run["_replied_chars"] = sum(len(t) for t in run["texts"].values())
         return stop_reason, uses
 
     def new_run(self, role: str, delegation: int | None = None) -> dict:
@@ -2510,7 +2541,9 @@ def _result_of(run: "_Run", final: dict, question: str, total: float) -> dict:
         "usage": {"input_tokens": sum(a["input_tokens"] for a in agents.values())
                   + sum(e["usage"]["input_tokens"] for e in extra_usage),
                   "output_tokens": sum(a["output_tokens"] for a in agents.values())
-                  + sum(e["usage"]["output_tokens"] for e in extra_usage)},
+                  + sum(e["usage"]["output_tokens"] for e in extra_usage),
+                  # turns whose usage the runtime didn't report, estimated from their text (#27)
+                  "estimated_turns": sum(r.get("estimated_turns", 0) for r in getattr(run, "runs", []))},
         "model_seconds": round(sum(a["model_seconds"] for a in agents.values()), 3),
         "search_seconds": round(sum(s["seconds"] for s in searches), 3),
         "api_seconds": round(sum(c.get("seconds") or 0 for c in run.calls), 3),

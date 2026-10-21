@@ -201,6 +201,14 @@ on #120 that isn't waiting on the user.
   up). Monitoring → Overview → Models lists them with list prices
   (`app/model_prices.json`).
 
+- **R17 (#27) code done, check on EC2 left:** a harness turn whose stream
+  carries no usage (AgentCore reports usage only on an agent's final
+  turn) is estimated from the text sent and received (~4 characters a
+  token) and counted in `usage.estimated_turns`, so totals, budgets (R15)
+  and costs aren't low. `AGENTCORE_STREAM_LOG=1` logs each harness event's
+  type and any usage it carries (never text), to find where AgentCore puts
+  the real numbers: needs EC2 running.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
