@@ -51,7 +51,7 @@ jobs:
         run: |
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "Not a full commit SHA: $SHA" >&2; exit 1; }
           printf 'Deploying %s\n' "$SHA" >> "$GITHUB_STEP_SUMMARY"
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
           aws-region: eu-west-2

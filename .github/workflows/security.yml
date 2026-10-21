@@ -1,0 +1,85 @@
+name: Security checks
+
+# Known vulnerabilities in the Python and npm dependencies and in the web
+# image, secrets committed by mistake, and CodeQL's code scanning. Runs on
+# every pull request (so it can be required), on main, and weekly, since new
+# vulnerabilities are published against code that hasn't changed.
+# Triaged findings, each with its reason: .github/security/.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+      - run: pip install pip-audit
+      # The versions a fresh install resolves, as the image and CI install them.
+      - name: pip-audit
+        run: >-
+          pip-audit --progress-spinner off -r requirements-web.txt
+          $(grep -oE '^[A-Z]+-[0-9A-Za-z-]+' .github/security/pip-audit-ignore.txt | sed 's/^/--ignore-vuln /')
+      - name: npm audit (flow builder)
+        run: npm ci --prefix web/flows-app && npm audit --prefix web/flows-app --audit-level=high
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: docker build -f Dockerfile.web -t ingenmind-web:scan .
+      # Trivy from its pinned GHCR image (not the GitHub Action): fixable
+      # high and critical findings fail the check.
+      - name: Trivy image scan
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+          -v "$PWD/.github/security/trivyignore:/trivyignore:ro"
+          ghcr.io/aquasecurity/trivy:0.76.1 image --exit-code 1 --severity HIGH,CRITICAL
+          --ignore-unfixed --ignorefile /trivyignore ingenmind-web:scan
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        run: >-
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.30.1
+          git /repo --redact --no-banner --exit-code 1
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript-typescript, actions]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: github/codeql-action/init@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3.39.1
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - web/static/flows
+              - "**/node_modules"
+      - uses: github/codeql-action/analyze@4bfa242aa49c5f7c6770b98670d354a7dfac05f8 # v3.39.1
+        with:
+          category: /language:${{ matrix.language }}

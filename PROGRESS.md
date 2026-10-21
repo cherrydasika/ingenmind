@@ -99,6 +99,16 @@ on #120 that isn't waiting on the user.
   only public addresses and checks each redirect
   (`FETCH_ALLOW_PRIVATE=true` for an intranet).
 
+- **R03 (#21) waits on the user:** rotating the EC2 Langfuse secrets
+  changes the SSM parameter and needs EC2 running (AWS approval).
+- **R04 (#82) done:** `.github/workflows/security.yml` (every PR, main,
+  weekly): pip-audit, npm audit, Trivy on the web image, gitleaks over the
+  history, CodeQL; every Action pinned by SHA; Dependabot. Fixed: Vite
+  (npm audit), Debian security updates in the image, pip removed from it
+  (its vendored urllib3, msgpack, setuptools). Triaged with reasons in
+  `.github/security/`: Pillow < 13, held back by fastembed. Also fixed a
+  flaky auth test (a tampered cookie was added beside the valid one).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
