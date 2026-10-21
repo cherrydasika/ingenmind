@@ -50,6 +50,7 @@ import evaluation_archive as evaluation
 import embedding_viz
 import flows
 from flows import golden as golden_sets
+import pii
 import pipeline_flow
 from common import config, storage
 from ingestion_info import JOB_INFO, STATUS_LABELS
@@ -289,6 +290,7 @@ def _answer(question: str, selections: list, session_id: str, body: dict) -> Res
 
 def _answer_payload(question: str, selections: list, session_id: str, body: dict,
                     on_stage=ignore_stage) -> dict:
+    question = pii.mask(question)   # the model comparison has no flow: always masked
     result = answer_question(
         question,
         [sel for sel in selections if sel],
@@ -762,7 +764,8 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
     trace_id = result.pop("trace_id", None)   # server-side only
     if record:
         try:
-            sessions.record_turn(session_id, body["user_id"], question, result, trace_id)
+            # The question as the agents saw it: personal data masked (pii.py).
+            sessions.record_turn(session_id, body["user_id"], result.get("question") or question, result, trace_id)
         except Exception as error:   # the user still gets the answer
             print(f"could not record the session turn: {error}", file=sys.stderr)
     return _shape_agent_result(result)

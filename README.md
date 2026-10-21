@@ -310,6 +310,14 @@ rules around it are fixed. Only reviewed answers and
 safe progress metadata reach the browser. Details:
 [Guardrail Scope](#guardrail-scope).
 
+**Personal data** (`app/pii.py`): a question with an email address, phone
+number, card number, National Insurance number, IBAN or IP address is
+masked (`[email]`, `[phone]`…) before any model, tool, session or trace sees
+it, and the Ask page says so. Each flow's input guardrail can instead
+refuse such questions or allow them (`personal_data`); web searches and
+Langfuse traces are masked whatever the flow says. Postcodes, names and
+addresses are not masked: planning and travel questions need them.
+
 ### Retrieval and ingestion
 
 - **Hybrid search** — pgvector cosine plus PostgreSQL full text, fused by

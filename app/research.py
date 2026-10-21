@@ -37,6 +37,7 @@ import boto3
 from pydantic import BaseModel, Field, field_validator
 
 import llm
+import pii
 import structured
 from common import scraping
 from tracing import observation
@@ -87,7 +88,8 @@ def web_search(query: str, max_results: int = MAX_RESULTS, country: str | None =
     """Tavily search: [{"title", "url", "snippet", "score", "published"}].
     country (an English name, such as "united kingdom"): Tavily favours pages
     from it; a name Tavily rejects searches worldwide instead."""
-    payload = {"query": query[:400], "max_results": max(1, min(max_results, 8)),
+    # Never send personal data to the search provider, whatever the flow allows.
+    payload = {"query": pii.mask(query)[:400], "max_results": max(1, min(max_results, 8)),
                "search_depth": "basic", "include_answer": False}
     if country:
         payload.update(topic="general", country=country.strip().lower())

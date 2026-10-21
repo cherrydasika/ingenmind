@@ -1,9 +1,30 @@
 """Fail-soft Langfuse helpers shared by the retrieval and summarisation
 stages: tracing must never break the actual RAG pipeline."""
 
+import threading
 from contextlib import contextmanager
 
-from langfuse import get_client as get_langfuse_client
+from langfuse import Langfuse
+from langfuse import get_client as _get_client
+
+import pii
+
+_client_lock = threading.Lock()
+_masked = False
+
+
+def get_langfuse_client():
+    """The Langfuse client, made once with pii.mask_value as its mask: every
+    input, output and metadata value sent to Langfuse is masked first."""
+    global _masked
+    if not _masked:
+        with _client_lock:
+            if not _masked:
+                try:
+                    Langfuse(mask=pii.mask_value)
+                finally:
+                    _masked = True
+    return _get_client()
 
 
 class _NoOpObservation:

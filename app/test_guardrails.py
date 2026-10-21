@@ -272,3 +272,82 @@ class ExecutionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class PersonalData(unittest.TestCase):
+    """R11: personal data in questions is masked, refused or allowed, per flow."""
+
+    def spec(self, policy=None):
+        import flows
+        spec = flows.FlowSpec.model_validate(json.loads(flows.DEFAULT_FLOW_PATH.read_text()))
+        if policy:
+            gate = next(n for n in spec.nodes if n.type == "input_guardrail")
+            gate.config = {**gate.config, "personal_data": policy, "personal_data_message": "No personal details, please."}
+        return spec
+
+    def run_answer(self, question, policy=None):
+        seen = {}
+
+        def fake(question, *args):
+            seen["question"] = question
+            return {**agent._public_result(question, "ok", {}), "flow": {}}
+        with patch.object(agent, "_answer", side_effect=fake) as inner, patch.object(agent, "_record_run"):
+            result = agent.answer(question, "s", "u", None, lambda e: None, None, (self.spec(policy), 1))
+        return result, seen.get("question"), inner.called
+
+    def test_what_is_found(self):
+        import pii
+        cases = {
+            "write to a.b-c@example.co.uk": ["email"], "my mobile is 07700 900123": ["phone"],
+            "call +44 20 7946 0958": ["phone"], "(020) 7946 0958": ["phone"],
+            "card 4111 1111 1111 1111": ["card"], "NI AB 12 34 56 C": ["ni_number"],
+            "IBAN GB82 WEST 1234 5698 7654 32": ["iban"], "from 10.0.0.1": ["ip"],
+            "card 4111 1111 1111 1112": [],   # fails the Luhn check
+            "trains at 10:30 on 2026-10-21 for £1234.56": [], "postcode EN8 9XQ": [], "booking 1234 5678": [],
+        }
+        for text, kinds in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(pii.kinds(text), kinds)
+        self.assertEqual(pii.mask("mail x@y.com or 07700 900123"), "mail [email] or [phone]")
+
+    def test_masked_by_default_before_anything_sees_it(self):
+        result, asked, _ = self.run_answer("Refund to jo@example.com for 07700 900123?")
+        self.assertEqual(asked, "Refund to [email] for [phone]?")
+        self.assertEqual(result["privacy"], {"masked": ["email", "phone"]})
+
+    def test_refused_without_any_model_call(self):
+        result, _, called = self.run_answer("Refund to jo@example.com?", "refuse")
+        self.assertFalse(called)
+        self.assertEqual(result["answer"], "No personal details, please.")
+        self.assertEqual(result["question"], "Refund to [email]?")   # what the session keeps
+        self.assertEqual(result["privacy"], {"refused": ["email"]})
+
+    def test_allowed_when_the_flow_says_so(self):
+        result, asked, _ = self.run_answer("Refund to jo@example.com?", "allow")
+        self.assertEqual(asked, "Refund to jo@example.com?")
+        self.assertEqual(result["privacy"], {"allowed": ["email"]})
+
+    def test_no_personal_data_no_note(self):
+        result, asked, _ = self.run_answer("When is the next train?")
+        self.assertEqual(asked, "When is the next train?")
+        self.assertNotIn("privacy", result)
+
+    def test_web_search_and_traces_are_always_masked(self):
+        import pii
+        import research
+        sent = {}
+
+        class Response:
+            def __init__(self, request):
+                sent["body"] = json.loads(request.data)
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+            def read(self):
+                return b'{"results": []}'
+        with patch.object(research, "_api_key", return_value="k"), \
+                patch("urllib.request.urlopen", side_effect=lambda request, timeout: Response(request)):
+            research.web_search("refund for jo@example.com")
+        self.assertEqual(sent["body"]["query"], "refund for [email]")
+        self.assertEqual(pii.mask_value({"input": {"question": "jo@example.com"}, "n": 2, "l": ["07700 900123"]}),
+                         {"input": {"question": "[email]"}, "n": 2, "l": ["[phone]"]})

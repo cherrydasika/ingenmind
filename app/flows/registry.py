@@ -139,6 +139,13 @@ class InputGuardrailConfig(BaseModel):
                                 description="Shown when an answer is blocked")
     unavailable_message: str = Field(guardrails.UNAVAILABLE_MESSAGE, max_length=400,
                                      description="Shown when the checks cannot run")
+    personal_data: Literal["mask", "refuse", "allow"] = Field(
+        "mask", description="A question with personal data (email, phone, card, NI number, IBAN, IP address): mask "
+                            "it before any model, tool or log sees it, refuse the question, or allow it. Web "
+                            "searches and traces are always masked (app/pii.py)")
+    personal_data_message: str = Field(
+        "Please ask without personal details such as email addresses, phone numbers or card numbers.",
+        max_length=400, description="Shown when a question with personal data is refused")
 
     @field_validator("scope")
     @classmethod
@@ -322,7 +329,8 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
               "Scope check on the question, before the graph runs (guardrails.py). Its scope applies to every "
               "guardrail in the flow; a blocked question never reaches the agents.", InputGuardrailConfig,
               impl="input_guardrail", outcomes=("ALLOW", "BLOCK"),
-              applied=("stage", "scope", "block_message", "clarify_message", "output_message", "unavailable_message")),
+              applied=("stage", "scope", "block_message", "clarify_message", "output_message", "unavailable_message",
+                       "personal_data", "personal_data_message")),
     # agents and steps
     Component("supervisor", "Supervisor agent", "flow", "agent",
               "Reads the question, assigns tasks to specialists in parallel, joins their findings and writes "
