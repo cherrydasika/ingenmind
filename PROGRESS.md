@@ -173,6 +173,14 @@ on #120 that isn't waiting on the user.
   go back to the agent and into the trace with the reason. Checked with
   real calls: weather lookups pass.
 
+- **R14 (#89) done:** a built-in red-team set (24 questions that must be
+  refused; `{domain}` becomes the flow's domain) runs on every published
+  version; the Agent Builder's Versions panel shows each version's share
+  refused, and going live below `RED_TEAM_MIN` (90%) asks once more. It
+  doesn't count as the evaluation going live needs. Real run on the demo
+  flow: 24 of 24 refused in about 45 s. Not done: writing red-team
+  questions from each domain's blueprint (the generic set names the domain).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

@@ -1,6 +1,7 @@
 """Sign-in, users and the permission check on every API route. Runs against
 its own database (needs the pgvector service)."""
 
+import os
 import re
 import time
 import unittest
@@ -19,6 +20,10 @@ import identity
 import sessions
 import web_api
 from common import config
+
+
+# Publishing queues the red-team set (R14), which would call the model in the background.
+os.environ.setdefault("RED_TEAM_ON_PUBLISH", "false")
 
 
 class AuthDatabase(unittest.TestCase):

@@ -315,6 +315,8 @@
 .fl-score-bar { height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; }
 .fl-score-bar span { display: block; height: 100%; background: var(--primary); }
 .fl-chip.is-live { color: var(--ok); border-color: rgba(34, 197, 94, 0.45); background: var(--ok-soft); }
+.fl-chip.is-ok { color: var(--ok); }
+.fl-chip.is-warn { color: var(--warn); border-color: rgba(245, 158, 11, 0.5); background: var(--warn-soft, transparent); }
 .fl-link.is-confirm { color: var(--warn); font-weight: 600; }
 .fl-history .fl-link + .fl-link { margin-left: 8px; }
 .fl-live-line { font-size: 12.5px; }
@@ -413,3 +415,7 @@
 .fl-dot { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 1px solid var(--border-strong); background: transparent; cursor: pointer; }
 .fl-dot.is-active { background: var(--primary); border-color: var(--primary); }
 .fl-dot.is-soon { border-style: dashed; }
+
+/* Versions: red-team result per version (R14). */
+.fl-chip.is-ok { color: var(--ok); }
+.fl-chip.is-warn { color: var(--warn); border-color: rgba(245, 158, 11, 0.5); background: var(--warn-soft); }

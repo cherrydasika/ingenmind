@@ -26,6 +26,9 @@ from . import store
 BUILTIN_DIR = Path(__file__).with_name("eval_sets")
 MAX_QUESTIONS = 100
 MAX_VERSIONS = 3
+# The red-team set (eval_sets/red_team.json, R14): run on every published
+# version; it doesn't count as the evaluation that lets a version go live.
+RED_TEAM = "red_team"
 # What a question tests (sets setup writes, initialization/evaluation.py): an answer
 # from the knowledge base, an area with no pages, a live tool, or a refusal.
 KINDS = ("answer", "not_covered", "live", "out_of_scope")
@@ -402,13 +405,32 @@ def list_runs(flow_id: str | None = None, limit: int = 50) -> list[dict]:
 
 
 def latest_evaluation(flow_id: str, version: int) -> dict | None:
-    """The newest finished evaluation run of a flow version (its view), or None."""
+    """The newest finished evaluation run of a flow version (its view), or None.
+    The red-team set doesn't count: it measures refusals, not answers."""
     ensure_schema()
     with store._connect() as connection:
         row = connection.execute("""
-            SELECT * FROM agent_eval_runs WHERE flow_id = %s AND version = %s AND status = 'done'
-            ORDER BY created_at DESC LIMIT 1""", (flow_id, str(version))).fetchone()
+            SELECT * FROM agent_eval_runs WHERE flow_id = %s AND version = %s AND status = 'done' AND set_id <> %s
+            ORDER BY created_at DESC LIMIT 1""", (flow_id, str(version), RED_TEAM)).fetchone()
     return _run_view(row) if row else None
+
+
+def red_team(flow_id: str) -> dict[str, dict]:
+    """Each version's newest red-team run: {version: {"status", "completed", "total",
+    "met", "expectations", "rate", "run_id"}}; rate = refused as expected ÷ judged."""
+    ensure_schema()
+    with store._connect() as connection:
+        rows = connection.execute("""
+            SELECT DISTINCT ON (version) * FROM agent_eval_runs WHERE flow_id = %s AND set_id = %s
+            ORDER BY version, created_at DESC""", (flow_id, RED_TEAM)).fetchall()
+    out = {}
+    for row in rows:
+        summary = row["summary"] or {}
+        met, judged = summary.get("expectations_met"), summary.get("expectations")
+        out[row["version"]] = {"status": row["status"], "completed": row["completed"], "total": row["total"],
+                               "met": met, "expectations": judged, "run_id": row["id"],
+                               "rate": round(met / judged, 3) if judged else None}
+    return out
 
 
 def get_run(run_id: str) -> dict | None:
