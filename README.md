@@ -749,6 +749,13 @@ each site's `robots.txt` (`initialization/site_map.py`), and so does a
 setup build, page by page (`initialization/build.py`); the `ingest_urls`
 job over a configured URL list does not.
 
+The scraper only fetches public addresses, and checks every redirect, so a
+URL from an admin, web search or a page's links can't reach inside the
+deployment (the database, Langfuse, the cloud metadata service).
+`FETCH_ALLOW_PRIVATE=true` allows private networks for an intranet knowledge
+base; loopback and link-local addresses are never fetched. The security
+model is in [docs/security.md](docs/security.md).
+
 ### Paragraph dedup (before chunking)
 
 SEO pages repeat the same paragraphs (railcard blurbs, route conditions,
