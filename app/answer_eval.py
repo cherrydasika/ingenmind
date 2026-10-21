@@ -22,6 +22,7 @@ from typing import Annotated, Callable, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+import injection
 import structured
 import llm
 from tracing import observation
@@ -154,7 +155,8 @@ def _prompt(question: str, answer: str, chunks: list[dict], api_results: list[di
         lines += ["ASIDES AND HEDGED STATEMENTS IN THE ANSWER (check each against the evidence; list any it does "
                   "not support as an unsupported claim):"] + [f"- {x}" for x in statements] + [""]
     lines += ["KNOWLEDGE-BASE EVIDENCE:"]
-    lines += [f"[{c['n']}] {c['source_url']}\n{c['text'].strip().replace(chr(10), ' ')[:MAX_CHUNK_CHARS]}" for c in chunks] \
+    lines += [injection.quote(f"[{c['n']}] {c['source_url']}", c['text'].strip().replace(chr(10), ' ')[:MAX_CHUNK_CHARS])
+              for c in chunks] \
         or ["(none)"]
     lines += ["", "EXTERNAL API RESULTS:"]
     lines += [f"- {r['tool']}({json.dumps(r['input'], ensure_ascii=False)}): "

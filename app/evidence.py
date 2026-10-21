@@ -29,6 +29,7 @@ from typing import Annotated, Callable, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+import injection
 import structured
 import llm
 from tracing import observation
@@ -192,8 +193,8 @@ def _evidence_text(task: str, searches: list[dict], draft: str) -> str:
     lines += ["", "EVIDENCE:"]
     for s in searches:
         for i, chunk in enumerate(s["retrieval"]["chunks"]):
-            text = chunk["text"].strip().replace("\n", " ")[:MAX_EVIDENCE_CHARS]
-            lines.append(f"[{s['first'] + i}] {chunk['source_url']} (ingested {chunk.get('ingested_at') or 'unknown'})\n{text}")
+            label = f"[{s['first'] + i}] {chunk['source_url']} (ingested {chunk.get('ingested_at') or 'unknown'})"
+            lines.append(injection.quote(label, chunk["text"].strip().replace("\n", " ")[:MAX_EVIDENCE_CHARS]))
     lines += ["", "DRAFT FINDINGS FROM THE RETRIEVAL AGENT (to check for entailment, not to repeat):", draft or "(none)"]
     return "\n".join(lines)
 

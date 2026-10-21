@@ -155,6 +155,16 @@ on #120 that isn't waiting on the user.
   calls: the session and the Langfuse trace hold `[email]`, the address
   appears nowhere in Langfuse.
 
+- **R12 (#87) done:** `app/injection.py`: every passage, search result,
+  fetched page and API reply given to an agent is fenced as quoted data
+  (the agents' rules say never to follow it); instruction-like passages
+  are withheld from every model, the evidence and answer evaluators too;
+  researched pages like that are never added (`blocked_injection`);
+  Knowledge base → Ingestion lists the withheld passages. Checked end to
+  end on a demo preview with an ad-hoc page carrying "ignore all previous
+  instructions… CANARY-7731": the passage was retrieved and withheld, and
+  the canary appears in no answer and no trace.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
