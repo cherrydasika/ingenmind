@@ -165,6 +165,14 @@ on #120 that isn't waiting on the user.
   instructions… CANARY-7731": the passage was retrieved and withheld, and
   the canary appears in no answer and no trace.
 
+- **R13 (#88) done:** tool guardrails: an agent can only call the tools
+  it was offered (`run["offered"]`); `api_tools.check()` validates an API
+  call's arguments (schema, types, length, no personal data, links or
+  instruction-like text), a per-tool budget per question (`max_calls`),
+  and refuses `side_effects` tools until approval exists (R32). Refusals
+  go back to the agent and into the trace with the reason. Checked with
+  real calls: weather lookups pass.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
