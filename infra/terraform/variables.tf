@@ -29,3 +29,31 @@ variable "agentcore_endpoints_enabled" {
   type        = bool
   default     = false
 }
+
+variable "backups_enabled" {
+  description = "Take the daily snapshots of the data volume (backup.tf)."
+  type        = bool
+  default     = true
+}
+
+variable "backup_time_utc" {
+  description = "When the daily snapshot starts, HH:MM in UTC."
+  type        = string
+  default     = "03:00"
+
+  validation {
+    condition     = can(regex("^([01][0-9]|2[0-3]):[0-5][0-9]$", var.backup_time_utc))
+    error_message = "Use HH:MM, 24-hour, UTC."
+  }
+}
+
+variable "backup_retain_count" {
+  description = "How many daily snapshots to keep (the oldest is deleted when a new one is taken)."
+  type        = number
+  default     = 14
+
+  validation {
+    condition     = var.backup_retain_count >= 1 && var.backup_retain_count <= 1000
+    error_message = "Keep between 1 and 1000 snapshots."
+  }
+}

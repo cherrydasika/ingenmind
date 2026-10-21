@@ -85,7 +85,7 @@ knowledge base.
 | **Network** | EC2 has no inbound access; people reach it through SSM port forwarding; the web app binds to 127.0.0.1 | Public access with HTTPS and a WAF: **R09 (#23)** |
 | **Secrets** | On EC2 the release's `.env` comes from an SSM parameter; `DEPLOYMENT.local.md` and `.env` are git-ignored; gitleaks checks every PR and the whole history (R04; none found on 2026-10-21) | Langfuse secrets match the local development `.env`: **R03 (#21)** |
 | **Deploys** | Only merged `main`, through GitHub OIDC roles that trust only the `production` environment and may run one SSM document | — |
-| **Backups** | Data on a separate EBS volume | Snapshots, a schedule and a restore test: **R08 (#22)** |
+| **Backups** | Data on a separate EBS volume; **since R08** daily snapshots by Data Lifecycle Manager, 14 kept (`infra/terraform/backup.tf`), and `scripts/aws/restore-test.sh` to prove one restores | Applying the policy and the first restore test wait on approval: **R08 (#22)** |
 | **Monitoring** | Langfuse traces; per-flow metrics | Alerts on errors, cost and quality; CloudWatch alarms: **R55 (#113)** |
 
 ## Reviewing a change

@@ -134,8 +134,12 @@ on #120 that isn't waiting on the user.
   and CI's tests start PostgreSQL in a step, signing in to Docker Hub only
   when the secret exists, so Dependabot's PRs (which get no secrets) run.
 
-- **R08 (#22) and R09 (#23) wait on the user:** both change AWS
-  (snapshots and a restore test; a domain, HTTPS and inbound access).
+- **R08 (#22) code done, waiting on the user to apply:** daily snapshots
+  by Data Lifecycle Manager (`infra/terraform/backup.tf`: 03:00 UTC, 14
+  kept) and `scripts/aws/restore-test.sh` (a new volume from a snapshot,
+  a throwaway database on it, row counts compared with production, all
+  removed after). Needs approval for `terraform apply` and the test run.
+- **R09 (#23) waits on the user:** a domain, HTTPS and inbound access.
 - **R10 (#20) done:** a signed-in question's Langfuse trace carries the
   app's session and user IDs, and a session's questions group together
   (checked locally on a demo preview; the identity plan is done). Fixed on

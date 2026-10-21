@@ -223,24 +223,34 @@ past the grace period and is then killed (exit 137); it keeps no local state.
 sets Docker log rotation (`json-file`, 10 MB × 5) for containers created
 after it runs.
 
-### Backup (Not Yet Tested On AWS)
+### Backup
 
-For a consistent backup of **both** pgvector and Langfuse state, run
-`stack.sh stop`, stop EC2, and take an EBS snapshot of the
-`data_volume_id` while the instance is stopped. Wait for snapshot completion
-before treating it as a backup. From the workstation,
-`scripts/aws/snapshot.sh create "<note>"` snapshots the volume tagged
-`rag-systems-data` and waits until it completes (crash-consistent if the
-stack is still running); `scripts/aws/snapshot.sh list` lists them. Take
-one before resetting the knowledge system on EC2. Keep the instance stopped between work
-sessions; EBS and snapshot charges continue. To test a
-restore, create a **new** EBS volume from the snapshot in the instance's
-Availability Zone, attach it to an isolated host, and verify pgvector chunk
-counts and Langfuse traces. Do not restore over the production volume.
+**Daily snapshots** (`backup.tf`): Data Lifecycle Manager snapshots the
+volume tagged `rag-systems-data` (pgvector and Langfuse) every day at
+`backup_time_utc` (03:00) and keeps the newest `backup_retain_count` (14);
+`backups_enabled = false` pauses it. Snapshots are incremental, so days the
+instance was stopped cost almost nothing. A snapshot of a running stack is
+crash-consistent: PostgreSQL recovers from its write-ahead log on restore,
+as after a power cut. For a quiet copy, stop the stack first.
 
-The existing local `pg_dump`/`pg_restore` and disposable container restart
-tests do not verify this AWS snapshot and mount procedure. No AWS snapshot
-or restore has been performed.
+**By hand:** `scripts/aws/snapshot.sh create "<note>"` takes one and waits
+until it completes; `scripts/aws/snapshot.sh list` lists them. Take one
+before starting over on EC2.
+
+**Restore test:** `scripts/aws/restore-test.sh [snap-…]` (EC2 running)
+makes a new volume from the newest (or given) snapshot, attaches it beside
+the real one, mounts it at `/mnt/restore-test`, starts a throwaway pgvector
+container on its copy of the database with no network, compares row counts
+(knowledge base, research, users, sessions) with production, and removes
+the container, mount and volume again. The production volume is never
+detached or written. Run it after changing the backup set-up, and every few
+months.
+
+**Restoring for real:** stop the stack and the instance, create a volume
+from the snapshot in the instance's Availability Zone, detach the old data
+volume, attach the new one as `/dev/sdf` and start the instance; then
+import the new volume into Terraform's state in place of the old one. Keep
+the old volume until the restore is checked.
 
 ## GitHub Workflow
 
