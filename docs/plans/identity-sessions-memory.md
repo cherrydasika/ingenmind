@@ -1,7 +1,8 @@
 # Plan: identity, permissions, sessions and memory
 
-Status: **Phase 7 — deployed to EC2 (`618012d`), sign-in and sign-out**
-checked; only the Langfuse session-ID check is left.
+Status: **done** (2026-10-21): Phase 7 deployed to EC2 (`618012d`), sign-in
+and sign-out checked there, and the Langfuse session-ID check passed locally
+(R10, #20).
 **Do not deploy to EC2 until Phase 7**: EC2 is fixed to AUTH_MODE=oidc
 and has no provider settings yet, so nobody could sign in. Update this file at the end of every step: tick what is
 done, note what was found, and say what comes next.
@@ -239,9 +240,16 @@ Checkpoint 6: both themes on every page.
   page. Sign-out ends the Cognito session too: `/auth/logout` returns
   Cognito's `/logout?client_id=…&logout_uri=http://localhost:28000/`, which
   302s back to the app, and the next "Sign in" asked for the password again
-- [ ] Check that a Langfuse trace carries the server's session ID (left over
-  from Phase 3): deferred, the user will check it in the Langfuse UI
-  later; see docs/BACKLOG.md for what was tried
+- [x] A Langfuse trace carries the server's session ID (left over from
+  Phase 3; checked 2026-10-21, R10 #20, on a local preview with the demo):
+  a signed-in question's `question` trace has `session_id` = the app's
+  session (`s_…`, as in `app_sessions`) and `user_id` = the user; two
+  questions in one sign-in are two traces in that one session, so
+  Langfuse's Sessions view groups them. Found on the way: local Langfuse had
+  stopped storing traces since 2026-10-13 (the app logged "Failed to export
+  spans batch code: 500") because its `minio` container was running on no
+  network after the port clash with another project; recreating it fixed
+  ingestion. EC2's traces go through the same code; not re-checked there
 
 ## Decisions
 

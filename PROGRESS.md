@@ -134,6 +134,14 @@ on #120 that isn't waiting on the user.
   and CI's tests start PostgreSQL in a step, signing in to Docker Hub only
   when the secret exists, so Dependabot's PRs (which get no secrets) run.
 
+- **R08 (#22) and R09 (#23) wait on the user:** both change AWS
+  (snapshots and a restore test; a domain, HTTPS and inbound access).
+- **R10 (#20) done:** a signed-in question's Langfuse trace carries the
+  app's session and user IDs, and a session's questions group together
+  (checked locally on a demo preview; the identity plan is done). Fixed on
+  the way: local Langfuse had stored no traces since 2026-10-13 because
+  its `minio` container was on no network (recreated).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
