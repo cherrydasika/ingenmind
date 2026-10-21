@@ -1427,3 +1427,32 @@ class Budgets(unittest.TestCase):
             self.assertIsNone(api_tools.breaker("get_weather"))
         finally:
             api_tools._failures.clear()
+
+
+class HarnessUsage(unittest.TestCase):
+    """#27: a turn the harness reports no usage for is estimated, not counted as zero."""
+
+    def read(self, events):
+        run = agent._Run.__new__(agent._Run)
+        run.lock, run.runs, run.emit = threading.Lock(), [], (lambda e: None)
+        record = {"role": "knowledge_base", "delegation": 1, "turn_log": [], "texts": {}, "input_tokens": 0,
+                  "output_tokens": 0, "model_seconds": 0.0, "turns": 0, "_sent_chars": 4000}
+        run._read(record, iter(events))
+        return record
+
+    TOOL_TURN = [{"messageStart": {"role": "assistant"}},
+                 {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "Let me search for that."}}},
+                 {"contentBlockStart": {"contentBlockIndex": 1, "start": {"toolUse": {"toolUseId": "t", "name": "search_knowledge_base"}}}},
+                 {"contentBlockDelta": {"contentBlockIndex": 1, "delta": {"toolUse": {"input": "{\"query\": \"fares\"}"}}}},
+                 {"messageStop": {"stopReason": "tool_use"}}]
+
+    def test_a_tool_turn_without_usage_is_estimated(self):
+        record = self.read(self.TOOL_TURN)
+        self.assertEqual(record["input_tokens"], 1000)          # 4,000 characters sent
+        self.assertGreater(record["output_tokens"], 0)
+        self.assertEqual(record["estimated_turns"], 1)
+
+    def test_reported_usage_is_used_as_it_is(self):
+        record = self.read(self.TOOL_TURN + [{"metadata": {"usage": {"inputTokens": 1234, "outputTokens": 56}}}])
+        self.assertEqual((record["input_tokens"], record["output_tokens"]), (1234, 56))
+        self.assertNotIn("estimated_turns", record)
