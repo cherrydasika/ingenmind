@@ -117,6 +117,12 @@ export class RetrievalPage {
     const verdict = ae ? h("span", { class: `ae-verdict ${ae.passed ? "pass" : "fail"}`,
       title: Object.entries(ae.scores).map(([k, v]) => `${k} ${v.toFixed(2)}`).join(" · ") },
     ae.passed ? `✓ answer check passed · ${ae.overall.toFixed(2)}` : `✕ answer check failed on ${ae.failed_on.join(", ")}`) : null;
+    const masked = r.privacy?.masked || r.privacy?.refused;
+    if (masked?.length) {
+      turn.append(h("div", { class: "privacy-note", role: "note" }, r.privacy.masked
+        ? `Your question had ${personalData(masked)}: it was removed before anything else saw it.`
+        : `Your question had ${personalData(masked)}, so it wasn't sent on.`));
+    }
     turn.append(h("div", { class: `reply ${ae && !ae.passed ? "withheld" : ""}` },
       h("div", { class: "reply-role" }, "◆ Answer", verdict),
       h("div", { class: "reply-body", html: markdown(r.answer) }),
@@ -175,4 +181,12 @@ export class RetrievalPage {
     else return;
     this.root.querySelector(`[data-turn="${msg.interaction_id}"]`)?.replaceWith(this.renderTurn(msg));
   }
+}
+
+// app/pii.py's kinds, in words: "an email address and a phone number".
+const PERSONAL = { email: "an email address", card: "a card number", iban: "a bank account number",
+  ni_number: "a National Insurance number", phone: "a phone number", ip: "an IP address" };
+function personalData(kinds) {
+  const words = kinds.map((k) => PERSONAL[k] || k);
+  return words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}` : words[0];
 }

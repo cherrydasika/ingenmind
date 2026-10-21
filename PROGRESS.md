@@ -142,6 +142,15 @@ on #120 that isn't waiting on the user.
   the way: local Langfuse had stored no traces since 2026-10-13 because
   its `minio` container was on no network (recreated).
 
+- **R11 (#86) done:** `app/pii.py`: emails, phone numbers, card numbers
+  (Luhn), NI numbers, IBANs and IP addresses in a question are masked
+  before any model, tool, session or trace sees it; the flow's input
+  guardrail can refuse or allow instead (`personal_data`); web searches
+  and everything sent to Langfuse are masked always (Langfuse's `mask`
+  hook). The Ask page says what was removed. Checked end to end with real
+  calls: the session and the Langfuse trace hold `[email]`, the address
+  appears nowhere in Langfuse.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

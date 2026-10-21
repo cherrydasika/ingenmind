@@ -76,6 +76,7 @@ import api_tools
 import evidence
 import flows
 import guardrails
+import pii
 import llm
 import research
 import source_profiles
@@ -2145,6 +2146,20 @@ def answer(question: str, session_id: str, user_id: str | None, max_iterations: 
     scores and labels, and the URLs of the pages retrieved and cited — never
     their text), for flow evaluations."""
     spec, version = flow or live_flow()
+    # Personal data first (pii.py): masked or refused before any model, tool,
+    # session or trace sees the question.
+    found = pii.kinds(question)
+    policy = (_flow_settings(spec).get("guardrail") or {}).get("personal_data", "mask")
+    if found and policy == "refuse":
+        message = (_flow_settings(spec).get("guardrail") or {}).get("personal_data_message") \
+            or "Please ask without personal details."
+        _record_run(spec, version, source, {"input_blocked": True})
+        if on_metrics:
+            on_metrics({"input_blocked": True})
+        return {**_public_result(pii.mask(question), message, {"input": {"decision": "BLOCK"}}),
+                "flow": {"id": spec.id, "version": version}, "privacy": {"refused": found}, "trace_id": None}
+    if found and policy == "mask":
+        question = pii.mask(question)
     # One Langfuse trace per question: the input check, every agent turn and
     # tool call, the evaluators, and the scores they gave.
     with observation(as_type="agent", name="question", input={"question": question}) as root:
@@ -2161,6 +2176,8 @@ def answer(question: str, session_id: str, user_id: str | None, max_iterations: 
         root.update(output={"answer": result["answer"],
                             "guardrails": {k: v["decision"] for k, v in (result.get("guardrails") or {}).items()},
                             "answer_check": result.get("answer_check")})
+        if found:
+            result["privacy"] = {"masked" if policy == "mask" else "allowed": found}
         # For the session history (server-side only: the web API removes it).
         return {**result, "trace_id": trace_id}
 
