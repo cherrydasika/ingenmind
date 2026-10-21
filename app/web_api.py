@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import threading
+import time
 from datetime import date, datetime
 from pathlib import Path
 
@@ -20,7 +21,7 @@ sys.path.insert(0, "/app/dags")
 
 import numpy as np
 import plotly
-from psycopg.errors import UniqueViolation
+from psycopg.errors import DataError, UniqueViolation
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
@@ -33,6 +34,7 @@ from starlette.staticfiles import StaticFiles
 import adhoc_ingest
 import agent
 import agent_memory as memory_store   # web_api.agent_memory is a route handler
+import audit
 import auth
 import identity
 import knowledge_system
@@ -827,6 +829,41 @@ async def user_update(request: Request) -> Response:
     return _json({"user": identity.public(user)})
 
 
+# ---------- Audit log (audit.py; manage_users or manage_settings) ----------
+
+def _audit_filters(request: Request) -> dict:
+    q = request.query_params
+    return {"user_id": q.get("user") or None, "action": q.get("action") or None, "since": q.get("since") or None,
+            "until": q.get("until") or None, "text": (q.get("q") or "").strip()[:100] or None}
+
+
+def audit_list(request: Request) -> Response:
+    try:
+        filters = _audit_filters(request)
+        rows, actions = audit.entries(**filters, limit=int(request.query_params.get("limit") or 500))
+    except (ValueError, DataError) as error:
+        return _json({"error": f"bad filter: {error}"}, 400)
+    return _json({"entries": rows, "actions": actions, "users": [
+        {"user_id": u["user_id"], "first_name": u["first_name"]} for u in identity.list_users()]})
+
+
+def audit_csv(request: Request) -> Response:
+    import csv
+    import io
+    try:
+        rows, _ = audit.entries(**_audit_filters(request), limit=5000)
+    except (ValueError, DataError) as error:
+        return _json({"error": f"bad filter: {error}"}, 400)
+    out = io.StringIO()
+    columns = ["at", "user_name", "user_id", "action", "method", "path", "target", "status", "details", "ip", "request_id"]
+    writer = csv.writer(out)
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([json.dumps(row[c]) if c == "details" else ("" if row[c] is None else row[c]) for c in columns])
+    return Response(out.getvalue(), media_type="text/csv", headers={
+        "Content-Disposition": f'attachment; filename="audit-log-{time.strftime("%Y%m%d-%H%M")}.csv"'})
+
+
 # ---------- Agent memory (agent_memory.py) ----------
 
 def agent_memory_view(request: Request) -> Response:
@@ -1499,6 +1536,8 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Middleware(web_security.SameOrigin),
     Middleware(SessionMiddleware, secret_key=auth.session_secret(), session_cookie="rag_session",
                max_age=auth.SESSION_MAX_AGE, same_site="lax", https_only=auth.COOKIE_SECURE),
+    # Outside the permission check, so refused attempts are recorded too.
+    Middleware(audit.AuditMiddleware),
     Middleware(auth.AuthMiddleware),
 ], routes=[
     *auth.ROUTES,
@@ -1517,6 +1556,8 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/users", user_list),
     Route("/api/users", user_create, methods=["POST"]),
     Route("/api/users/{user_id}", user_update, methods=["PUT"]),
+    Route("/api/audit", audit_list),
+    Route("/api/audit.csv", audit_csv),
     Route("/api/agent/session", agent_session),
     Route("/api/flows", flow_list),
     Route("/api/flows", flow_create, methods=["POST"]),

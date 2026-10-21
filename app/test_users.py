@@ -9,6 +9,8 @@ from psycopg import sql
 from starlette.testclient import TestClient
 
 import agent_memory
+import audit
+import auth
 import flows
 import identity
 import sessions
@@ -42,7 +44,7 @@ class UsersDatabase(unittest.TestCase):
 
     @staticmethod
     def reset_caches():
-        for module in (identity, sessions, agent_memory, flows.store, flows.evals, usage_limits):
+        for module in (identity, sessions, agent_memory, flows.store, flows.evals, usage_limits, audit):
             module.reset_schema_cache()
 
     def make(self, role="user", name="Pat"):
@@ -199,3 +201,85 @@ class UsageLimits(UsersDatabase):
         client.put(f"/api/users/{user['user_id']}", json={"limits": None})
         listed = {u["user_id"]: u for u in client.get("/api/users").json()["users"]}
         self.assertIsNone(listed[user["user_id"]]["usage"]["override"])
+
+
+class AuditLog(UsersDatabase):
+    """R07: who changed what, append-only."""
+
+    def latest(self, **filters):
+        rows, _ = audit.entries(**filters, limit=50)
+        return rows
+
+    def test_every_state_changing_route_is_audited_unless_it_only_asks(self):
+        import re
+        from starlette.routing import Route
+        skipped = set()
+        for route in web_api.app.routes:
+            if not isinstance(route, Route) or not route.path.startswith("/api/"):
+                continue
+            path = re.sub(r"\{[^}]+\}", "1", route.path)
+            for method in (route.methods or set()) - audit.SAFE_METHODS:
+                if path in audit.READ_ONLY or auth.required_permission(method, path) in audit.NOT_AUDITED:
+                    skipped.add(f"{method} {route.path}")
+        # Only asking questions, one's own theme and read-only checks stay out; anything new is audited.
+        self.assertEqual(skipped, {"POST /api/ask", "POST /api/ask/stream", "POST /api/agent/stream",
+                                   "POST /api/agent/resume", "POST /api/session/reset", "PUT /api/me/theme",
+                                   "POST /api/flows/validate", "POST /api/flows/diff", "POST /api/adhoc/preview"})
+
+    def test_a_change_is_recorded_with_who_what_and_fields(self):
+        admin = self.make("admin", "Ada")
+        client = self.signed_in(admin)
+        email = f"new-{uuid.uuid4().hex[:6]}@example.com"
+        response = client.post("/api/users", json={"first_name": "Neo", "email": email, "role": "user",
+                                                    "api_key": "sk-secret", "password": "hunter2"})
+        self.assertEqual(response.status_code, 201)
+        entry = next(e for e in self.latest(user_id=admin["user_id"]) if e["action"] == "user_create")
+        self.assertEqual((entry["user_name"], entry["method"], entry["status"]), ("Ada", "POST", 201))
+        self.assertEqual(entry["details"]["values"]["email"], email)
+        self.assertIn("password", entry["details"]["fields"])
+        self.assertNotIn("password", entry["details"]["values"])
+        self.assertNotIn("sk-secret", str(entry["details"]))
+        self.assertEqual(response.headers["x-request-id"], entry["request_id"])
+        changed = client.put(f"/api/users/{response.json()['user']['user_id']}", json={"role": "developer"})
+        self.assertEqual(changed.status_code, 200)
+        entry = self.latest(action="user_update")[0]
+        self.assertTrue(entry["target"].startswith("user_id="))
+
+    def test_refused_attempts_and_sign_ins_are_recorded(self):
+        developer = self.make("developer", "Dev")
+        client = self.signed_in(developer)
+        self.assertEqual(client.post("/api/users", json={"first_name": "X"}).status_code, 403)
+        mine = self.latest(user_id=developer["user_id"])
+        self.assertIn(("refused", 403), {(e["action"], e["status"]) for e in mine})
+        self.assertIn("sign_in", {e["action"] for e in mine})
+        client.post("/auth/logout")
+        self.assertIn("sign_out", {e["action"] for e in self.latest(user_id=developer["user_id"])})
+
+    def test_questions_are_not_in_the_audit_log(self):
+        user = self.make()
+        client = self.signed_in(user)
+        client.post("/api/agent/stream", json={"question": ""})
+        self.assertNotIn("agent_stream", {e["action"] for e in self.latest(user_id=user["user_id"])})
+
+    def test_the_log_is_append_only(self):
+        audit.record("test_entry", None, details={"n": 1})
+        with audit._connect() as connection:
+            for statement in ("UPDATE audit_log SET action = 'x'", "DELETE FROM audit_log", "TRUNCATE audit_log"):
+                with self.subTest(statement=statement), self.assertRaises(psycopg.Error):
+                    with connection.transaction():
+                        connection.execute(statement)
+        self.assertTrue(self.latest(action="test_entry"))
+
+    def test_admins_list_filter_and_download(self):
+        admin, developer = self.make("admin", "Ada"), self.make("developer", "Dev")
+        self.signed_in(developer).post("/api/users", json={})
+        client = self.signed_in(admin)
+        body = client.get(f"/api/audit?user={developer['user_id']}").json()
+        self.assertTrue(body["entries"])
+        self.assertTrue(all(e["user_id"] == developer["user_id"] for e in body["entries"]))
+        self.assertIn("refused", body["actions"])
+        csv = client.get(f"/api/audit.csv?user={developer['user_id']}")
+        self.assertEqual(csv.headers["content-type"].split(";")[0], "text/csv")
+        self.assertIn("refused", csv.text)
+        self.assertEqual(client.get("/api/audit?since=not-a-date").status_code, 400)
+        self.assertEqual(self.signed_in(developer).get("/api/audit").status_code, 403)

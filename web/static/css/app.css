@@ -912,3 +912,13 @@ tr.user-edit-row > td { background: var(--surface-2); }
 .golden-name { font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2); min-width: 240px;
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 9px; }
 
+
+/* Admin → Audit log (audit.js). */
+.audit-filters { justify-content: flex-start; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.audit-filters select, .audit-filters input { font: inherit; font-size: 13px; color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 5px 8px; }
+.audit-search { flex: 1 1 220px; min-width: 180px; }
+table.audit { font-size: 13px; }
+table.audit td { vertical-align: top; }
+.audit-details { max-width: 420px; overflow-wrap: anywhere; color: var(--muted, inherit); }
+.nowrap { white-space: nowrap; }

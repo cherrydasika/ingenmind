@@ -5,6 +5,8 @@ updates:
   - package-ecosystem: pip
     directory: /
     schedule: { interval: weekly }
+    # Only when the range doesn't allow the new version (not to raise minimums).
+    versioning-strategy: increase-if-necessary
     open-pull-requests-limit: 5
   - package-ecosystem: npm
     directory: /web/flows-app

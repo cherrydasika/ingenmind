@@ -91,6 +91,7 @@ export const api = {
   currentSession: () => request("/api/sessions/current"),
   agentMemory: () => request("/api/agent-memory"),
   users: () => request("/api/users"),
+  audit: (query) => request(`/api/audit${query ? `?${query}` : ""}`),
   addUser: (user) => post("/api/users", user),
   updateUser: (id, changes) => request(`/api/users/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(changes) }),
   sessions: (user = "me") => request(`/api/sessions?user=${encodeURIComponent(user)}`),

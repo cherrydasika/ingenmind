@@ -124,6 +124,24 @@ on #120 that isn't waiting on the user.
   finishes, even if it fails. Research runs aren't limited separately
   (that belongs with per-run budgets, R15).
 
+- **R07 (#85) done:** `app/audit.py`: middleware records every
+  state-changing request whose route needs more than `query_rag` (a test
+  lists the few exceptions, so new routes are audited by default), plus
+  sign-ins, sign-outs, refused attempts and confirmations; field names and
+  short non-secret values only; `X-Request-ID`; append-only by trigger.
+  Admin → Audit log (filters, CSV). Also: Dependabot raises pip versions
+  only when the range doesn't allow them (four minimum-bump PRs closed),
+  and CI's tests start PostgreSQL in a step, signing in to Docker Hub only
+  when the secret exists, so Dependabot's PRs (which get no secrets) run.
+
+- **R08 (#22) and R09 (#23) wait on the user:** both change AWS
+  (snapshots and a restore test; a domain, HTTPS and inbound access).
+- **R10 (#20) done:** a signed-in question's Langfuse trace carries the
+  app's session and user IDs, and a session's questions group together
+  (checked locally on a demo preview; the identity plan is done). Fixed on
+  the way: local Langfuse had stored no traces since 2026-10-13 because
+  its `minio` container was on no network (recreated).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

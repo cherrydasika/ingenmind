@@ -122,6 +122,7 @@ RULES = [
     ({"POST"}, r"/api/(ingestion/trigger|sources/remove|source-reports/remove)", "manage_knowledge"),
     ({"GET", "POST"}, r"/api/adhoc(/.*)?", "upload_documents"),
     ({"GET", "POST", "PUT"}, r"/api/users(/.*)?", "manage_users"),
+    ({"GET"}, r"/api/audit(\.csv)?", ("manage_users", "manage_settings")),
     # Own sessions: anyone signed in; others' need view_sessions (checked in web_api).
     ({"GET"}, r"/api/sessions(/[^/]+)?", ANY),
 ]
@@ -218,6 +219,14 @@ def _client():
     return _oauth.oidc
 
 
+async def _audit(action: str, request_or_scope, user: dict | None, **details) -> None:
+    """Sign-in events in the audit log (audit.py imports this module, hence the late import)."""
+    import audit
+    scope = getattr(request_or_scope, "scope", request_or_scope)
+    await run_in_threadpool(audit.record, action, user, method=scope.get("method"), path=scope.get("path"),
+                            details=details, ip=audit.client_ip(scope))
+
+
 def _fail(reason: str) -> RedirectResponse:
     return RedirectResponse(f"/?{urlencode({'auth_error': reason})}", 303)
 
@@ -244,14 +253,18 @@ async def callback(request: Request) -> Response:
     try:
         user = await run_in_threadpool(identity.sign_in, ISSUER, claims["sub"], claims.get("email"),
                                        claims.get("given_name") or claims.get("name"))
-    except identity.NotInvited:
-        return _fail("not_invited")
-    except identity.Disabled:
-        return _fail("disabled")
+    except (identity.NotInvited, identity.Disabled) as refused:
+        reason = "not_invited" if isinstance(refused, identity.NotInvited) else "disabled"
+        await _audit("sign_in_refused", request, None, email=claims.get("email"), reason=reason)
+        return _fail(reason)
     if request.session.get("confirm_next"):
-        return _confirmed(request, user["user_id"], claims.get("auth_time"))
+        response = _confirmed(request, user["user_id"], claims.get("auth_time"))
+        await _audit("identity_not_confirmed" if request.session.get("confirm_error") else "identity_confirmed",
+                     request, user)
+        return response
     request.session.clear()
     request.session.update({"user_id": user["user_id"], "id_token": token.get("id_token", "")})
+    await _audit("sign_in", request, user, provider=PROVIDER_NAME)
     return RedirectResponse("/", 303)
 
 
@@ -262,6 +275,7 @@ async def logout(request: Request) -> Response:
     user = current_user(request) or ({"user_id": request.session["user_id"]} if request.session.get("user_id") else None)
     if user:
         await run_in_threadpool(sessions.end, user["user_id"], request.session.get("sid"))
+        await _audit("sign_out", request, user)
     request.session.clear()
     provider_logout = None
     if MODE == "oidc":
@@ -333,7 +347,11 @@ async def confirm_identity_dev(request: Request) -> Response:
     if not _dev_allowed(request) or not request.session.get("confirm_next"):
         return HTMLResponse("Development sign-in is off.", 404)
     form = {key: values[0] for key, values in parse_qs((await request.body()).decode(errors="replace")).items()}
-    return _confirmed(request, form.get("user_id", ""))
+    response = _confirmed(request, form.get("user_id", ""))
+    who = await run_in_threadpool(identity.get_user, request.session.get("user_id") or "")
+    await _audit("identity_not_confirmed" if request.session.get("confirm_error") else "identity_confirmed",
+                 request, who)
+    return response
 
 
 def _session(request) -> dict:
@@ -413,12 +431,14 @@ async def dev_sign_in(request: Request) -> Response:
     else:
         user = next((u for u in users if u["user_id"] == form.get("user_id") and u["status"] == "active"), None)
         if not user:
+            await _audit("sign_in_refused", request, None, user_id=form.get("user_id"), reason="not_invited")
             return _fail("not_invited")
     # No provider identity is linked, so the same person can later sign in
     # through a real provider by email.
     await run_in_threadpool(identity.record_login, user["user_id"])
     request.session.clear()
     request.session["user_id"] = user["user_id"]
+    await _audit("sign_in", request, user, provider="development sign-in")
     return RedirectResponse("/", 303)
 
 

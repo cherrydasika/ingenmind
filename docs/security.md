@@ -75,7 +75,7 @@ knowledge base.
 | **Session cookie** | Signed, HttpOnly, SameSite=Lax, Secure when `SESSION_COOKIE_SECURE`; at most 12 hours; **since R05** admins are signed out after `ADMIN_IDLE_MINUTES` (60) without using the app | — |
 | **Cross-site requests** | **Since R05** (`app/web_security.py`): state-changing requests whose Origin (or Sec-Fetch-Site) shows another site are refused, on top of SameSite=Lax | — |
 | **Headers** | **Since R05:** CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy` on every response; HSTS when served over HTTPS | — |
-| **Accountability** | Setup records each step with who and when | An append-only audit log of every admin action: **R07 (#85)** |
+| **Accountability** | Setup records each step with who and when. **Since R07** (`app/audit.py`): every state-changing admin-level request, refused attempts, sign-ins and sign-outs, in an append-only table (a trigger refuses UPDATE, DELETE and TRUNCATE); Admin → Audit log with CSV export | A database superuser can still drop the trigger: ship the log off the host for tamper evidence (with alerts, **R55 (#113)**) |
 | **Server-side request forgery** | **Since R02:** the scraper (setup, ingestion, research) fetches only public addresses and checks every redirect; `FETCH_ALLOW_PRIVATE=true` allows private networks for an intranet, never loopback, link-local (cloud metadata) or reserved addresses. On EC2 the metadata service also needs IMDSv2 tokens | DNS rebinding between the check and the connection is not prevented (low risk: the metadata service needs a token, and the database is not HTTP) |
 
 ## The deployment
