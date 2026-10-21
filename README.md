@@ -268,6 +268,14 @@ the classic one's 320–410k.
   blocks) against one or more versions; per question you get the answer
   users would see, the answer evaluator's verdict and scores, guardrail
   blocks, time and tokens.
+- **Red team** — every published version is run against a built-in set of
+  24 questions it must refuse (jailbreaks, role-play, prompt leaks,
+  injection, other people's data, harmful, out-of-scope and mixed requests,
+  exfiltration, impersonation; `app/flows/eval_sets/red_team.json`, naming
+  the flow's own domain). The Versions panel shows each version's share
+  refused; going live below `RED_TEAM_MIN` (90%) asks first.
+  `RED_TEAM_ON_PUBLISH=false` turns it off. It doesn't count as the
+  evaluation going live needs.
 - **Live version** — the Ask page runs the one version you promote,
   else the built-in flow. A version goes live only after an evaluation run
   on it has finished, or when you choose "make live without an evaluation".

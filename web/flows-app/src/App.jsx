@@ -292,10 +292,12 @@ function FlowDetails({ meta, setMeta, record, onLoadVersion, onViewVersion, conf
           const live = record.live.flow_id === flowId && record.live.version === v.version;
           const asking = confirm === `live:${v.version}`;
           const anyway = confirm === `live-anyway:${v.version}`;
+          const despite = confirm === `live-red:${v.version}`;
           return (
             <li key={v.version}>
               <span className="fl-chip">v{v.version}</span>
               {live && <span className="fl-chip is-live">live</span>}
+              <RedTeam result={record.red_team?.[String(v.version)]} min={record.red_team_min} />
               <span className="fl-history-note">{v.note || (v.published_at ? new Date(v.published_at).toLocaleString() : "")}</span>
               <button type="button" className="fl-link" onClick={() => onViewVersion(v.version)}
                 title="Look at this version read-only; the editor keeps your changes">view</button>
@@ -304,9 +306,10 @@ function FlowDetails({ meta, setMeta, record, onLoadVersion, onViewVersion, conf
               <button type="button" className="fl-link" onClick={() => onDiff(v.version)} title="Compare with what the editor shows">diff</button>
               <button type="button" className="fl-link" onClick={() => onDuplicate(v.version)} title="Start a new flow from this version">duplicate</button>
               {!live && (
-                <button type="button" className={`fl-link ${asking || anyway ? "is-confirm" : ""}`} onClick={() => onMakeLive(v.version)}
+                <button type="button" className={`fl-link ${asking || anyway || despite ? "is-confirm" : ""}`} onClick={() => onMakeLive(v.version)}
                   title="Users on the Ask page get this version">
-                  {anyway ? "make live without an evaluation" : asking ? "confirm: users get this" : "make live"}</button>
+                  {despite ? "make live despite the red team" : anyway ? "make live without an evaluation"
+                    : asking ? "confirm: users get this" : "make live"}</button>
               )}
             </li>
           );
@@ -579,6 +582,23 @@ function AnswerText({ text }) {
 }
 
 // ---------- metrics ----------
+
+// A version's red-team result (R14): the share of refuse-me questions it refused.
+function RedTeam({ result, min }) {
+  if (!result) return null;
+  if (result.status !== "done") {
+    return <span className="fl-chip" title="The red-team questions run on every published version">
+      red team {result.completed}/{result.total}…</span>;
+  }
+  if (result.rate === null) return null;
+  const ok = result.rate >= (min ?? 0.9);
+  return (
+    <span className={`fl-chip ${ok ? "is-ok" : "is-warn"}`}
+      title={`Refused ${result.met} of ${result.expectations} red-team questions (jailbreaks, prompt leaks, injection, `
+        + `other people's data, harmful and out-of-scope requests). Going live needs ${Math.round((min ?? 0.9) * 100)}%.`}>
+      red team {Math.round(result.rate * 100)}%</span>
+  );
+}
 
 function Metrics({ metrics }) {
   if (!metrics) return null;
@@ -1062,22 +1082,32 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
   };
 
   // Make live: confirm, then the server checks the version was evaluated; if not, a
-  // third click makes it live anyway (#62).
+  // third click makes it live anyway (#62). A version that refused too few red-team
+  // questions (R14) asks once more first.
+  const redTeamOk = useRef(null);
   const makeLive = (version) => {
     const anyway = confirm === `live-anyway:${version}`;
-    if (confirm !== `live:${version}` && !anyway) {
+    const despite = confirm === `live-red:${version}`;
+    if (confirm !== `live:${version}` && !anyway && !despite) {
       setConfirm(`live:${version}`);
       return;
     }
     guard(async () => {
       try {
-        const { live } = await flowsApi.setLive(spec.id, version, anyway);
+        const { live } = await flowsApi.setLive(spec.id, version, anyway, despite || redTeamOk.current === version);
+        redTeamOk.current = null;
         setRecord((r) => ({ ...r, live }));
         setConfirm(null);
         refreshList();
         say(`Users now get ${live.flow_id} v${live.version}`);
       } catch (err) {
+        if (err.data?.red_team) {   // refused too few red-team questions (R14): a further click overrides
+          setConfirm(`live-red:${version}`);
+          say(err.message, "error");
+          return;
+        }
         if (!err.data?.unevaluated) throw err;
+        if (despite) redTeamOk.current = version;   // keep the override for the unevaluated step
         setConfirm(`live-anyway:${version}`);
         say(err.message, "error");
       }

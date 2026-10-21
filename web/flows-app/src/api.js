@@ -65,8 +65,8 @@ export const flowsApi = {
   discardDraft: (id) => call("DELETE", `${at(id)}/draft`),
   publish: (id, note) => call("POST", `${at(id)}/publish`, { note }),
   validate: (flow) => call("POST", "/api/flows/validate", { flow }),
-  setLive: (id, version, unevaluatedOk = false) =>
-    call("POST", `${at(id)}/live`, { version, unevaluated_ok: unevaluatedOk }),
+  setLive: (id, version, unevaluatedOk = false, redTeamOk = false) =>
+    call("POST", `${at(id)}/live`, { version, unevaluated_ok: unevaluatedOk, red_team_ok: redTeamOk }),
   templates: () => call("GET", "/api/flows/templates"),
   architectures: () => call("GET", "/api/flows/architectures"),
   diff: (old, current) => call("POST", "/api/flows/diff", { old, new: current }),
