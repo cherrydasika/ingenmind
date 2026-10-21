@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-12 (end of day)
+Last updated: 2026-10-21
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -75,13 +75,50 @@ local database. Starting locally, other projects' containers
 (`rag_systems-*` Langfuse, MWAA runner) restarted with Rancher Desktop and
 held port 5432; stopping them let local Langfuse start.
 
-**Where to pick up (no active work; the user chooses):** measure the
-architectures (#69) on real questions (only Supervisor–worker's shape is
-measured: 12/16 locally); run a generic flow on EC2 (AgentCore); #39
-(guided setup on EC2 for real) with #22 (backups) first; #18 (learning from
-live use, the gallery's "self-learning"); human-in-the-loop and blackboard
-need runtime support before their architectures can run. Local test flows
-`starter_check` and `generic_check` are in the local database (not live).
+**Roadmap to v1.0 (since 2026-10-21):** every open issue is numbered
+R01–R63 in the order to pick it up (tracker
+[#120](https://github.com/cherrydasika/ingenmind/issues/120), pinned): 39
+new issues (#81–#119) and the 24 older ones renamed into the same
+sequence, in nine phases (foundations, guardrails, reliability and models,
+retrieval quality, memory, agents and orchestration, tools and
+integrations, dashboards and alerts, ship). The agent works through them
+in order on its own, merging each when CI passes, and asks only for what
+needs a person (signing in, AWS changes that cost money or touch security,
+third-party accounts); a blocked issue gets a comment saying what is
+needed, and work moves on. **Where to pick up:** the lowest open R-number
+on #120 that isn't waiting on the user.
+
+- **R01 (#39) waits on the user:** guided setup on EC2 needs them signed
+  in (Cognito; "Forgot your password?" if theirs is lost).
+- **R02 (#81) done:** [docs/security.md](docs/security.md) (assets,
+  attackers, trust boundaries, the OWASP Top 10 for LLM applications and
+  the web app and deployment, each gap mapped to its R-issue) and
+  [SECURITY.md](SECURITY.md). Fixed on the way: the scraper (setup,
+  ingestion, research) could fetch internal addresses (server-side request
+  forgery: the database, Langfuse, the metadata service); it now fetches
+  only public addresses and checks each redirect
+  (`FETCH_ALLOW_PRIVATE=true` for an intranet).
+
+**Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
+`6160793`):
+- **#75, #78 Start over with a new domain:** in Setup, confirmed by
+  signing in again (`/auth/confirm`, the password asked again, valid once
+  for 5 minutes). The current domain is **set aside** (schema `ks_aside`),
+  not deleted: until the new domain goes live you can go back to it; going
+  live deletes it after a pop-up with Cancel / Back to it / Go live. The
+  Profile master reset is gone.
+- **#77 A light interactive scene** (dots that follow the pointer) while
+  setup waits, instead of spinners.
+- **#79 Section pages:** select or deselect all of a section's pages, and
+  filter them.
+- **#80 Golden set** on Evaluations: 5–100 questions with expected answers
+  written from passages spread over the whole knowledge base (k-means over
+  the embeddings, even share per page, no topic over about twice its
+  share), with a map and per-topic bars that show clusters; remove any,
+  then save as an evaluation set. Evaluation sets may hold 100 questions.
+- The trains domain's 702 rows on the local build were deleted by the first
+  start-over (before set-aside existed) and can't be recovered; the local
+  install is now a Cheshunt planning setup at content selection.
 
 **Done 2026-10-11: the sidebar reorganised** (Ask: Ask, Sessions · Build:
 Agent Builder · Evaluate: Evaluations · Data: Knowledge base (Sources and
@@ -142,16 +179,14 @@ kind: start from [AGENTS.md](AGENTS.md); the backlog is the open issues
 
 ## Current state
 
-- **Everything is shut down (2026-10-12, end of day):** the SSM tunnels
-  closed; EC2 `<instance-id>` (eu-west-2) **stopped** with `session.sh stop`
-  (the stack first; AgentCore endpoints turned off; no instance runs in any
-  region); locally every container stopped and Rancher Desktop quit
-  (`scripts/stop.sh --all`). Data kept everywhere. Start again: locally
-  `scripts/start.sh` (Rancher Desktop, `DOCKER_CONTEXT=rancher-desktop`,
-  Compose project `rag_systems_cloud`); EC2 `session.sh start`, then the
-  tunnels (app 28000, Langfuse 23000).
-- EC2's active release is `2821acf` (PR #72, deployed by GitHub Actions on
-  2026-10-12; everything below is on it). Its agents run on the **AgentCore
+- **Everything is shut down (2026-10-20):** EC2 stopped with
+  `session.sh stop` (stack, AgentCore endpoints, instance); locally every
+  container stopped and Rancher Desktop quit. Data kept everywhere. Start
+  again: locally `scripts/start.sh` (stop the other projects'
+  `rag_systems-*` and MWAA containers first if Langfuse won't start); EC2
+  `session.sh start`, then the tunnels (app 28000, Langfuse 23000).
+- EC2's active release is `6160793` (PR #80, deployed by GitHub Actions on
+  2026-10-13; everything below is on it). Its agents run on the **AgentCore
   harness** with Claude Haiku 4.5 through **Bedrock** and Bedrock
   embeddings (checked in the running app 2026-10-11); locally they run in
   the app with the **Anthropic API** and local embeddings. Setup there is

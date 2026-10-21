@@ -178,6 +178,7 @@ class SigningIn(AuthDatabase):
         user = identity.create_user("Tam", f"tam-{uuid.uuid4().hex[:6]}@example.com", "admin")
         client = self.signed_in(user)
         value = client.cookies.get("rag_session")
+        client.cookies.clear()   # set() alone adds a second cookie beside the valid one
         client.cookies.set("rag_session", value[:-4] + ("AAAA" if not value.endswith("AAAA") else "BBBB"))
         self.assertEqual(client.get("/api/config").status_code, 401)
 

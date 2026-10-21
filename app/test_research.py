@@ -34,6 +34,50 @@ def assessments(**scores):
     return assessor
 
 
+class ScraperAddresses(unittest.TestCase):
+    """The scraper never fetches inside the deployment (server-side request forgery)."""
+
+    def resolves(self, ip):
+        return patch("socket.getaddrinfo", return_value=[(2, 1, 6, "", (ip, 443))])
+
+    def test_public_addresses_are_fetched(self):
+        from common.scraping import scraper
+        with self.resolves("151.101.0.81"):
+            scraper.check_url("https://www.nationalrail.co.uk/")
+
+    def test_internal_addresses_are_refused(self):
+        from common.scraping import scraper
+        for ip in ("127.0.0.1", "169.254.169.254", "10.77.1.240", "172.18.0.5", "192.168.1.2", "100.64.0.1",
+                   "0.0.0.0", "::1", "fe80::1", "::ffff:127.0.0.1", "fd00::1"):
+            with self.subTest(ip=ip), self.resolves(ip), self.assertRaises(scraper.BlockedAddress):
+                scraper.check_url("http://example.org/")
+
+    def test_private_networks_only_when_allowed(self):
+        from common.scraping import scraper
+        with self.resolves("10.0.0.5"), patch.dict("os.environ", {"FETCH_ALLOW_PRIVATE": "true"}):
+            scraper.check_url("http://intranet.example/")
+        with self.resolves("169.254.169.254"), patch.dict("os.environ", {"FETCH_ALLOW_PRIVATE": "true"}), \
+                self.assertRaises(scraper.BlockedAddress):
+            scraper.check_url("http://metadata.example/")
+
+    def test_not_http_is_refused(self):
+        from common.scraping import scraper
+        for url in ("file:///etc/passwd", "gopher://x/", "http:///nohost"):
+            with self.subTest(url=url), self.assertRaises(scraper.BlockedAddress):
+                scraper.check_url(url)
+
+    def test_a_redirect_inside_is_refused(self):
+        from common.scraping import scraper
+        hop = Mock(is_redirect=True, headers={"Location": "http://169.254.169.254/latest/meta-data/"})
+        public = [(2, 1, 6, "", ("151.101.0.81", 80))]
+        inside = [(2, 1, 6, "", ("169.254.169.254", 80))]
+        with patch("socket.getaddrinfo", side_effect=[public, inside]), \
+                patch("requests.get", return_value=hop) as get, self.assertRaises(scraper.BlockedAddress):
+            scraper._request("http://example.org/", 5)
+        self.assertEqual(get.call_count, 1)   # the metadata address was never requested
+        self.assertFalse(get.call_args.kwargs["allow_redirects"])
+
+
 class SourceValidation(unittest.TestCase):
     def test_good_source_is_accepted(self):
         result = research.validate("night trains?", ["night trains"], [source("https://www.nightjet.com/en")],

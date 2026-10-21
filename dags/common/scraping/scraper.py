@@ -1,7 +1,10 @@
 import hashlib
 import io
+import ipaddress
 import logging
+import os
 import random
+import socket
 import time
 
 from urllib.parse import urldefrag, urljoin, urlparse
@@ -28,12 +31,59 @@ def fetch_bytes(url: str, timeout: int = 30) -> tuple[bytes, str]:
     return resp.content, resp.headers.get("Content-Type", "")
 
 
+# Pages come from admins, web search and links in pages, so a URL may point
+# inside the deployment (the database, Langfuse, the cloud metadata service):
+# server-side request forgery. Only public addresses are fetched, each
+# redirect checked again. FETCH_ALLOW_PRIVATE=true allows private networks,
+# for an intranet knowledge base; loopback, link-local (metadata) and
+# reserved addresses are never fetched.
+MAX_REDIRECTS = 5
+
+
+class BlockedAddress(requests.RequestException):
+    """The URL resolves to an address the scraper may not fetch."""
+
+
+def _allow_private() -> bool:
+    return os.environ.get("FETCH_ALLOW_PRIVATE", "").strip().lower() in ("1", "true", "yes")
+
+
+def check_url(url: str) -> None:
+    """Raise BlockedAddress unless every address the URL's host resolves to may be fetched."""
+    parts = urlparse(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise BlockedAddress(f"not an http(s) URL: {url}")
+    try:
+        infos = socket.getaddrinfo(parts.hostname, parts.port or (443 if parts.scheme == "https" else 80),
+                                   type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise requests.ConnectionError(f"cannot resolve {parts.hostname}: {exc}") from exc
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0].split("%")[0])
+        if getattr(ip, "ipv4_mapped", None):
+            ip = ip.ipv4_mapped
+        never = ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
+        if never or (ip.is_private and not _allow_private()) or not (ip.is_global or ip.is_private):
+            raise BlockedAddress(f"{parts.hostname} resolves to {ip}, which is not fetched")
+
+
+def _request(url: str, timeout: int) -> requests.Response:
+    """GET following redirects by hand, checking each address first."""
+    for _ in range(MAX_REDIRECTS + 1):
+        check_url(url)
+        resp = requests.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT}, allow_redirects=False)
+        if not resp.is_redirect:
+            return resp
+        url = urljoin(url, resp.headers["Location"])
+    raise requests.TooManyRedirects(f"more than {MAX_REDIRECTS} redirects")
+
+
 def _get(url: str, timeout: int) -> requests.Response:
     last_exc: Exception | None = None
     for attempt in range(config.FETCH_MAX_RETRIES):
         _polite_delay()
         try:
-            resp = requests.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT})
+            resp = _request(url, timeout)
         except (requests.ConnectionError, requests.Timeout) as exc:
             wait = config.FETCH_BACKOFF_BASE_SECONDS * (2**attempt)
             logger.warning(
