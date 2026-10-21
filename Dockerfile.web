@@ -3,7 +3,13 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY requirements-web.txt /app/requirements-web.txt
-RUN pip install --no-cache-dir -r /app/requirements-web.txt
+# Debian's security updates, then the app's packages. pip itself is removed
+# afterwards: the app never installs anything at run time, and pip vendors
+# its own (older) copies of urllib3, msgpack and setuptools.
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --upgrade pip setuptools \
+    && pip install --no-cache-dir -r /app/requirements-web.txt \
+    && pip uninstall -y pip
 
 # The app's code, so the image runs on its own (the release install). The dev
 # and EC2 compose files bind-mount the checkout over these paths.
