@@ -449,6 +449,7 @@ class _Run:
         self.session_id = session_id
         self.user_id = user_id
         self.limit = limit
+        self.started = time.monotonic()
         self.emit = on_event
         self.retrieval_view = retrieval_view
         self.lock = threading.Lock()
@@ -516,6 +517,8 @@ class _Run:
             except Exception as error:
                 generation.update(level="ERROR", status_message=f"{type(error).__name__}: {error}"[:500])
                 raise
+            # The next turn costs at least this one (its context only grows): the token budget looks ahead.
+            self.last_turn_tokens = (run.get("input_tokens", 0) - before[1]) + (run.get("output_tokens", 0) - before[2])
             generation.update(
                 output={"stop_reason": stop_reason,
                         "text": "\n\n".join(t for turn, t in sorted(run.get("texts", {}).items()) if turn > before[0]),
@@ -523,6 +526,27 @@ class _Run:
                 usage_details={"input": run.get("input_tokens", 0) - before[1],
                                "output": run.get("output_tokens", 0) - before[2]})
             return stop_reason, uses
+
+    def budget_used(self) -> dict:
+        runs = getattr(self, "runs", [])
+        return {"max_tokens": sum((r.get("input_tokens") or 0) + (r.get("output_tokens") or 0) for r in runs),
+                "max_model_calls": sum(r.get("turns") or 0 for r in runs),
+                "max_tool_calls": getattr(self, "tool_calls", 0),
+                "max_seconds": round(time.monotonic() - getattr(self, "started", time.monotonic()), 1)}
+
+    def over_budget(self) -> str | None:
+        """Which of the flow's budget limits (R15) has run out, or None."""
+        limits = (getattr(self, "settings", None) or {}).get("budget") or {}
+        if not limits:
+            return None
+        used = self.budget_used()
+        words = {"max_tokens": "tokens", "max_seconds": "seconds", "max_model_calls": "model calls",
+                 "max_tool_calls": "tool calls"}
+        ahead = {"max_tokens": getattr(self, "last_turn_tokens", 0), "max_model_calls": 1}
+        for key, limit in limits.items():
+            if used.get(key, 0) + ahead.get(key, 0) > limit or used.get(key, 0) >= limit:
+                return f"the budget of {limit:,} {words[key]}"
+        return None
 
     def turn_limit(self, role: str) -> int:
         """The run's turn limit, or a role's own (a data-source search's budget)."""
@@ -664,6 +688,11 @@ class _Run:
             run = self.new_run(role, n)
             messages = [{"role": "user", "content": [{"text": task}]}]
             while True:
+                if hit := self.over_budget():   # stop with what it has (R15)
+                    if not getattr(self, "budget_hit", None):
+                        self.budget_hit = hit
+                        self.emit({"type": "budget", "agent": role, "delegation": n, "reason": hit})
+                    break
                 stop_reason, uses = self.invoke(run, messages)
                 if stop_reason != "tool_use" or not uses:
                     break
@@ -707,7 +736,11 @@ class _Run:
                 with self.lock:
                     used = sum(1 for c in getattr(self, "calls", []) if c["tool"] == name)
                 reason = api_tools.check(name, _input(use), used)
+            if reason is None and (hit := self.over_budget()):
+                reason = f"{hit} has run out: answer with what you have"
             if reason is None:
+                with self.lock:
+                    self.tool_calls = getattr(self, "tool_calls", 0) + 1
                 return tool(use, delegation)
             with self.lock:
                 self.refusals = getattr(self, "refusals", []) + [{"tool": name, "role": role, "reason": reason,
@@ -1085,6 +1118,10 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
     """Run-wide settings a flow gives the agents (one of each per flow): the
     supervisor's word limit and rounds, the retriever, web search, API tools."""
     settings = {}
+    start = next((n for n in spec.nodes if n.type == "start"), None)
+    if start and start.config:   # the run's budget (R15); 0: no limit
+        budget = flows.COMPONENTS["start"].config.model_validate(start.config).model_dump()
+        settings["budget"] = {k: v for k, v in budget.items() if v}
     supervisor = next((n for n in spec.nodes if n.type == "supervisor"), None)
     if supervisor:
         config = flows.COMPONENTS["supervisor"].config.model_validate(supervisor.config)
@@ -2214,7 +2251,7 @@ def answer(question: str, session_id: str, user_id: str | None, max_iterations: 
         except Exception as error:
             root.update(level="ERROR", status_message=f"{type(error).__name__}: {error}"[:500])
             raise
-        root.update(output={"answer": result["answer"],
+        root.update(output={"answer": result["answer"], "budget": result.get("budget"),
                             "guardrails": {k: v["decision"] for k, v in (result.get("guardrails") or {}).items()},
                             "answer_check": result.get("answer_check")})
         if found:
@@ -2275,6 +2312,13 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
     result["flow"] = {"id": spec.id, "version": version}
     result["guardrails"]["input"] = {"decision": verdict.decision, "stage": "input"}
     result["activities"] = {node: "error" if state == "start" else state for node, state in activities.items()}
+    if limits := settings.get("budget"):   # what the run used of its budget (R15)
+        used = {k: v for k, v in run.budget_used().items() if k in limits}
+        over = next((k for k in limits if used[k] > limits[k]), None)
+        hit = getattr(run, "budget_hit", None) or (over and (
+            f"the budget of {limits[over]:,} {over.removeprefix('max_').replace('_', ' ')}"
+            " (checked between turns: one model turn can't be cut short)"))
+        result["budget"] = {"limits": limits, "used": used, "hit": hit}
     return result
 
 
@@ -2344,6 +2388,7 @@ def _drive(run_id: str, run: "_Run", config: dict, question: str, graph_input, s
     evaluation = final.get("answer_evaluation") or {}
     result["sources"] = _cited_sources(result["answer"], internal["searches"])
     run.metrics = {"seconds": result["total"], "rounds": internal["rounds"], "tasks": len(internal["delegations"]),
+                   "budget_hit": getattr(run, "budget_hit", None),
                    "input_tokens": internal["usage"]["input_tokens"], "output_tokens": internal["usage"]["output_tokens"],
                    "output_blocked": (final.get("output_guardrail") or {}).get("decision") not in (None, "ALLOW"),
                    "evaluated": bool(evaluation), "passed": evaluation.get("passed") if evaluation else None,

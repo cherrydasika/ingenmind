@@ -385,7 +385,7 @@ function Playground({ open, onClose, record, flowId, dirty, session, onEvent, on
       const result = await flowsApi.run(flowId, {
         question: q, session_id: sessionId, user_id: userId, version: target === "" ? undefined : Number(target),
       }, onEvent);
-      update({ answer: result.answer ?? "", flow: result.flow, total: result.total });
+      update({ answer: result.answer ?? "", flow: result.flow, total: result.total, budget: result.budget });
     } catch (err) {
       update({ error: err.message });
     } finally {
@@ -412,7 +412,8 @@ function Playground({ open, onClose, record, flowId, dirty, session, onEvent, on
             <div key={t.id} className="fl-turn">
               <div className="fl-q">{t.question}</div>
               {t.answer !== null && <div className="fl-answer">{t.answer ? <AnswerText text={t.answer} /> : <span className="fl-faint">No answer.</span>}
-                {t.flow && <div className="fl-faint fl-turn-meta">{t.flow.id} {typeof t.flow.version === "number" ? `v${t.flow.version}` : t.flow.version}{t.total ? ` · ${t.total.toFixed(1)} s` : ""}</div>}</div>}
+                {t.flow && <div className="fl-faint fl-turn-meta">{t.flow.id} {typeof t.flow.version === "number" ? `v${t.flow.version}` : t.flow.version}{t.total ? ` · ${t.total.toFixed(1)} s` : ""}</div>}
+                {t.budget && <BudgetUse budget={t.budget} />}</div>}
               {t.error && <div className="fl-issue is-error">{t.error}</div>}
               {t.answer === null && !t.error && <div className="fl-faint">Running… click a node to follow its trace.</div>}
             </div>
@@ -426,6 +427,18 @@ function Playground({ open, onClose, record, flowId, dirty, session, onEvent, on
       </form>
       {blocked && <div className="fl-field-help">Save the draft to run your changes, or pick a published version.</div>}
     </aside>
+  );
+}
+
+// What a run used of the flow's budget (R15, set on the Start node).
+const BUDGET_WORDS = { max_tokens: "tokens", max_seconds: "s", max_model_calls: "model calls", max_tool_calls: "tool calls" };
+function BudgetUse({ budget }) {
+  const parts = Object.entries(budget.limits).map(([k, limit]) =>
+    `${(budget.used[k] ?? 0).toLocaleString()} / ${limit.toLocaleString()} ${BUDGET_WORDS[k] || k}`);
+  return (
+    <div className={`fl-turn-meta ${budget.hit ? "fl-budget-hit" : "fl-faint"}`}>
+      {budget.hit ? `Stopped early: ${budget.hit} ran out. ` : "Budget: "}{parts.join(" · ")}
+    </div>
   );
 }
 

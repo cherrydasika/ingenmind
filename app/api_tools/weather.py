@@ -149,9 +149,9 @@ def run(args: dict) -> dict:
             summary = _forecast(place, days)
         except urllib.error.HTTPError as http_error:
             body = http_error.read(300).decode(errors="replace")
-            return failure(f"Open-Meteo returned HTTP {http_error.code}: {body}", time.monotonic() - started)
+            return failure(f"Open-Meteo returned HTTP {http_error.code}: {body}", time.monotonic() - started, service=True)
         except (urllib.error.URLError, TimeoutError, ValueError, KeyError, IndexError) as other:
-            return failure(f"Open-Meteo could not be read: {other}", time.monotonic() - started)
+            return failure(f"Open-Meteo could not be read: {other}", time.monotonic() - started, service=True)
         with _lock:
             _cache[key] = (time.time(), summary)
         cached = False

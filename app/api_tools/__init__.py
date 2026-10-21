@@ -22,6 +22,8 @@ can approve calls (R32).
 """
 
 import re
+import threading
+import time
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -62,8 +64,10 @@ class ApiTool:
                 "steps": self.steps, "attribution": self.attribution, "status": self.status()}
 
 
-def failure(error: str, seconds: float = 0.0) -> dict:
-    return {"ok": False, "cached": False, "error": error, "seconds": round(seconds, 3), "summary": None, "display": None}
+def failure(error: str, seconds: float = 0.0, service: bool = False) -> dict:
+    """service: the API itself failed (unreachable, 5xx, quota), not the request: it counts towards the breaker."""
+    return {"ok": False, "cached": False, "error": error, "seconds": round(seconds, 3), "summary": None, "display": None,
+            "service_error": service}
 
 
 from . import entry_requirements, swiss_transport, weather  # noqa: E402  (the modules use ApiTool)
@@ -124,11 +128,42 @@ def check(name: str, args, calls_so_far: int = 0) -> str | None:
     return None
 
 
+# Circuit breaker (R15): a tool that failed BREAK_AFTER times in a row is
+# skipped for COOL_DOWN seconds, so a broken API doesn't slow every question.
+BREAK_AFTER = 3
+COOL_DOWN = 120.0
+_failures: dict[str, list] = {}   # name → [consecutive failures, skipped until (monotonic)]
+_breaker_lock = threading.Lock()
+
+
+def breaker(name: str) -> dict | None:
+    """The tool's breaker while it is open: {"failures", "seconds_left"}; else None."""
+    with _breaker_lock:
+        count, until = _failures.get(name, (0, 0.0))
+    left = until - time.monotonic()
+    return {"failures": count, "seconds_left": round(left)} if left > 0 else None
+
+
+def _note(name: str, ok: bool) -> None:
+    with _breaker_lock:
+        if ok:
+            _failures.pop(name, None)
+            return
+        count = _failures.get(name, [0, 0.0])[0] + 1
+        _failures[name] = [count, time.monotonic() + COOL_DOWN if count >= BREAK_AFTER else 0.0]
+
+
 def run(name: str, args: dict) -> dict:
     tool = TOOLS.get(name)
     if tool is None:
         return failure(f"Unknown tool {name!r}")
+    if open_ := breaker(name):
+        return failure(f"{name} is skipped for {open_['seconds_left']} s after {open_['failures']} failures in a row; "
+                       "answer without it")
     try:
-        return tool.run(args)
+        result = tool.run(args)
     except Exception as error:
-        return failure(f"{name} failed: {type(error).__name__}: {error}")
+        result = failure(f"{name} failed: {type(error).__name__}: {error}", service=True)
+    # A failure the request caused (a place that doesn't exist) isn't the API failing.
+    _note(name, not result.get("service_error"))
+    return result

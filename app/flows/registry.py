@@ -121,6 +121,15 @@ class SubflowConfig(BaseModel):
     subflow: str = Field(description="Id of the nested flow in this flow's subflows")
 
 
+class StartConfig(BaseModel):
+    """The run's budget (R15): when one runs out, the agents stop and answer with what they have, saying so.
+    0 means no limit. The guardrails and the answer check always run, outside the budget."""
+    max_tokens: int = Field(0, ge=0, le=5_000_000, description="Model tokens the agents may use for one question")
+    max_seconds: int = Field(0, ge=0, le=3600, description="Seconds the agents may take for one question")
+    max_model_calls: int = Field(0, ge=0, le=1000, description="Model turns the agents may take for one question")
+    max_tool_calls: int = Field(0, ge=0, le=1000, description="Tool calls (searches, APIs, sub-agents) for one question")
+
+
 class InputGuardrailConfig(BaseModel):
     """The flow's scope: every guardrail in the flow (input, output, research sources) enforces it.
     An empty scope follows the supervisor's brief, and an empty message is a
@@ -323,7 +332,8 @@ EVIDENCE_OUTCOMES = ("GOOD_EVIDENCE", "RETRIEVAL_FAILURE", "KNOWLEDGE_GAP", "ALR
 
 COMPONENTS: dict[str, Component] = {c.type: c for c in (
     # control
-    Component("start", "Start", "control", "control", "Where the flow begins."),
+    Component("start", "Start", "control", "control", "Where the flow begins, with the run's budget.", StartConfig,
+              applied=("max_tokens", "max_seconds", "max_model_calls", "max_tool_calls")),
     Component("end", "End", "control", "control", "Where the flow ends."),
     Component("input_guardrail", "Input guardrail", "gate", "guardrail",
               "Scope check on the question, before the graph runs (guardrails.py). Its scope applies to every "

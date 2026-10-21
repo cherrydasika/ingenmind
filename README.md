@@ -283,6 +283,19 @@ the classic one's 320–410k.
 
 ![An evaluation run on the Evaluations page: the summary (expectations met, answer check, scores, blocks, time, tokens) and the results per knowledge area](docs/images/flow-evaluation.png)
 
+### Budgets and failing tools
+
+A flow's **Start** node sets the run's budget for one question: model
+tokens, seconds, model calls and tool calls (0: no limit). It is checked
+before every agent turn and tool call, looking one turn ahead for tokens
+(the next turn costs at least the last); when it runs out the agents stop
+and answer with what they have, and the Ask page and the Test panel say so.
+A single model turn can't be cut short, so a budget smaller than one turn
+is reported as crossed. The guardrails and the answer check always run,
+outside the budget. An API tool that fails three times in a row because
+the service is down (not because of the request) is skipped for two
+minutes (`api_tools.breaker`).
+
 ### Multi-agent RAG
 
 The graph behind every question is shown in [How it works](#how-it-works).
