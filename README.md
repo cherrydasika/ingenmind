@@ -1222,6 +1222,15 @@ to wait (HTTP 429, `Retry-After`). The Users page shows each person's
 questions and tokens today, and an admin can set someone's own limits.
 Counters are kept in PostgreSQL, so a restart doesn't reset them.
 
+**Audit log** (`app/audit.py`, Admin → Audit log): every state-changing
+request to a route that needs more than asking questions is recorded by
+middleware, so a new route can't be left out: who, what (the route), its
+target, which fields it set (short, non-secret values only), the result,
+the client address and a request ID (also returned as `X-Request-ID`).
+Sign-ins, sign-outs, refused sign-ins and attempts, and confirmations are
+recorded too. A database trigger makes the log append-only. Filter by
+person, action, dates or text, and download it as CSV.
+
 **Sessions** are automatic: a question joins your current session when it
 was active in the last 30 minutes, else a new one starts; signing in starts
 fresh and signing out ends it. Every Retrieval-page question is kept with

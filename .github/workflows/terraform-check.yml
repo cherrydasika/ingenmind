@@ -39,26 +39,6 @@ jobs:
 
   pgvector-tests:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg17
-        # Signed in to Docker Hub: it refused GitHub's shared runners anonymous
-        # pulls ("toomanyrequests") for hours at a time. A service container is
-        # pulled before any step runs, so it signs in here, not in a login step.
-        credentials:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-        env:
-          POSTGRES_USER: rag
-          POSTGRES_PASSWORD: test-password
-          POSTGRES_DB: rag
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U rag -d rag"
-          --health-interval=5s
-          --health-timeout=3s
-          --health-retries=10
     env:
       PGHOST: localhost
       PGPORT: "5432"
@@ -68,8 +48,26 @@ jobs:
       PYTHONPATH: app:dags
       WEB_DIR: web
       AWS_EC2_METADATA_DISABLED: "true"
+      # Dependabot's pull requests don't get the repository's secrets.
+      HAS_DOCKERHUB: ${{ secrets.DOCKERHUB_USERNAME != '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # Docker Hub refused GitHub's shared runners anonymous pulls
+      # ("toomanyrequests") for hours at a time, so sign in when the secret is
+      # there. PostgreSQL starts in a step rather than as a service container,
+      # whose credentials can't be left out when the secret is missing.
+      - name: Sign in to Docker Hub
+        if: env.HAS_DOCKERHUB == 'true'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+      - name: Start PostgreSQL with pgvector
+        run: |
+          docker run -d --name pgvector -p 5432:5432 -e POSTGRES_USER=rag -e POSTGRES_PASSWORD=test-password \
+            -e POSTGRES_DB=rag pgvector/pgvector:pg17
+          for i in $(seq 1 60); do docker exec pgvector pg_isready -h 127.0.0.1 -U rag -d rag && exit 0; sleep 2; done
+          docker logs pgvector; exit 1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
