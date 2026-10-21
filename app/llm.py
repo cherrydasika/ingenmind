@@ -9,15 +9,29 @@ Chosen by environment:
   ANTHROPIC_API_KEY / OPENAI_API_KEY   read by the provider SDKs
   OLLAMA_BASE_URL  default http://localhost:11434/v1
 
+  LLM_FALLBACK   provider:model,… tried in order when a call fails for a
+                 reason that isn't the request's (timeouts, rate limits,
+                 server errors, unreachable), e.g. anthropic:claude-haiku-4-5
+  LLM_FOR_GUARDRAILS / LLM_FOR_EVALUATORS / LLM_FOR_REWRITING
+                 provider:model for those jobs (a cheap, fast model suits the
+                 guardrails and rewriting); the default model otherwise
+A provider that fails BREAK_AFTER times in a row is skipped for COOL_DOWN
+seconds, going straight to the fallbacks (R16).
 Three calls: generate() for free text, call_tool() for structured output
 through one tool the model must call (a Pydantic schema as its input), and
 chat() for one turn of a tool-using conversation (the local agent runtime)."""
 
+import contextlib
+import contextvars
 import json
+import logging
 import os
 import threading
+import time
 import uuid
 from typing import NamedTuple
+
+log = logging.getLogger(__name__)
 
 PROVIDERS = ("bedrock", "anthropic", "openai", "ollama")
 DEFAULT_MODELS = {
@@ -56,6 +70,19 @@ class NoToolCall(RuntimeError):
     """The model answered without calling the tool it was asked to call."""
 
 
+def provider_error(provider: str, model: str) -> str | None:
+    """Why a provider and model can't run here, or None."""
+    if provider not in PROVIDERS:
+        return f"{provider!r} is not one of {', '.join(PROVIDERS)}"
+    if not (model or DEFAULT_MODELS.get(provider)):
+        return f"no model given for {provider}"
+    if provider == "anthropic" and not os.environ.get("ANTHROPIC_API_KEY"):
+        return "set ANTHROPIC_API_KEY for anthropic"
+    if provider == "openai" and not os.environ.get("OPENAI_API_KEY"):
+        return "set OPENAI_API_KEY for openai"
+    return None
+
+
 def config_error() -> str | None:
     """Why the configured provider cannot run, or None."""
     if PROVIDER not in PROVIDERS:
@@ -69,23 +96,172 @@ def config_error() -> str | None:
     return None
 
 
+def parse_target(text: str) -> tuple[str, str] | None:
+    """'anthropic:claude-haiku-4-5' → ("anthropic", "claude-haiku-4-5"); a bare provider gets its default."""
+    text = (text or "").strip()
+    if not text:
+        return None
+    provider, _, model = text.partition(":")
+    provider = provider.strip().lower()
+    return provider, model.strip() or DEFAULT_MODELS.get(provider, "")
+
+
+def fallbacks() -> list[tuple[str, str]]:
+    return [t for t in (parse_target(x) for x in os.environ.get("LLM_FALLBACK", "").split(",")) if t]
+
+
+# Which model a call uses: using() for a block (an agent's turn), for_task()
+# for a job with its own setting, else the default.
+_target: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar("llm_target", default=None)
+
+
+@contextlib.contextmanager
+def using(provider: str | None, model: str | None = None):
+    """Calls inside the block use this provider and model (None: unchanged)."""
+    if not provider:
+        yield
+        return
+    token = _target.set((provider, model or DEFAULT_MODELS.get(provider, "")))
+    try:
+        yield
+    finally:
+        _target.reset(token)
+
+
+def for_task(task: str):
+    """The model a job (guardrails, evaluators, rewriting) is set to use: LLM_FOR_<TASK>."""
+    target = parse_target(os.environ.get(f"LLM_FOR_{task.upper()}", ""))
+    return using(*target) if target else contextlib.nullcontext()
+
+
+def task(name: str):
+    """Decorator: the function's model calls use LLM_FOR_<NAME> when it is set."""
+    def wrap(function):
+        import functools
+
+        @functools.wraps(function)
+        def inner(*args, **kwargs):
+            with for_task(name):
+                return function(*args, **kwargs)
+        return inner
+    return wrap
+
+
+def current() -> tuple[str, str]:
+    return _target.get() or (PROVIDER, MODEL)
+
+
+def catalogue() -> dict:
+    """What the Models card shows: the default model, the fallbacks, each job's
+    model, each provider's state, and list prices (model_prices.json)."""
+    from pathlib import Path
+    prices = json.loads((Path(__file__).with_name("model_prices.json")).read_text())
+    rows, seen = [], set()
+
+    def add(provider, model, use):
+        key = (provider, model)
+        if key in seen:
+            next(r for r in rows if (r["provider"], r["model"]) == key)["uses"].append(use)
+            return
+        seen.add(key)
+        rows.append({"provider": provider, "model": model, "uses": [use], "error": provider_error(provider, model),
+                     "breaker": breaker(provider), **(prices["models"].get(model) or {})})
+    add(PROVIDER, MODEL, "default")
+    for target in fallbacks():
+        add(*target, "fallback")
+    for job in ("guardrails", "evaluators", "rewriting"):
+        target = parse_target(os.environ.get(f"LLM_FOR_{job.upper()}", ""))
+        if target:
+            add(*target, job)
+    return {"models": rows, "price_note": prices["note"],
+            "providers": [{"provider": p, "label": LABELS[p], "error": provider_error(p, DEFAULT_MODELS.get(p) or "x"),
+                           "breaker": breaker(p)} for p in PROVIDERS]}
+
+
+# ---------- the provider breaker ----------
+
+BREAK_AFTER = 3
+COOL_DOWN = 60.0
+_failures: dict[str, list] = {}
+_breaker_lock = threading.Lock()
+
+
+def breaker(provider: str) -> dict | None:
+    with _breaker_lock:
+        count, until = _failures.get(provider, (0, 0.0))
+    left = until - time.monotonic()
+    return {"failures": count, "seconds_left": round(left)} if left > 0 else None
+
+
+def _note(provider: str, ok: bool) -> None:
+    with _breaker_lock:
+        if ok:
+            _failures.pop(provider, None)
+            return
+        count = _failures.get(provider, [0, 0.0])[0] + 1
+        _failures[provider] = [count, time.monotonic() + COOL_DOWN if count >= BREAK_AFTER else 0.0]
+
+
+TRANSIENT_CODES = {"ThrottlingException", "ServiceUnavailableException", "ModelNotReadyException",
+                   "InternalServerException", "ModelTimeoutException", "ServiceQuotaExceededException"}
+
+
+def transient(error: Exception) -> bool:
+    """Whether a failure is the provider's (worth trying another), not the request's."""
+    status = getattr(error, "status_code", None) or getattr(getattr(error, "response", None), "status_code", None)
+    if isinstance(status, int) and (status in (408, 429) or status >= 500):
+        return True
+    code = (getattr(error, "response", None) or {}).get("Error", {}).get("Code") \
+        if isinstance(getattr(error, "response", None), dict) else None
+    if code in TRANSIENT_CODES:
+        return True
+    name = type(error).__name__
+    return any(word in name for word in ("Timeout", "Connection", "RateLimit", "InternalServer", "Unavailable",
+                                         "Throttl", "Overloaded", "EndpointConnection"))
+
+
+def _route(method: str, *args):
+    """Call method on the chosen model; on a transient failure, the fallbacks in order."""
+    first = current()
+    chain = [first] + [t for t in fallbacks() if t != first]
+    last_error = None
+    for provider, model in chain:
+        if breaker(provider) and (provider, model) != chain[-1]:
+            continue                           # skipped while it cools down (the last one is always tried)
+        if provider_error(provider, model):
+            continue
+        try:
+            result = getattr(_backend(provider, model), method)(*args)
+        except Exception as error:
+            if not transient(error):
+                raise
+            _note(provider, False)
+            log.warning("%s %s failed (%s: %s); trying the next model", provider, model, type(error).__name__, error)
+            last_error = error
+            continue
+        _note(provider, True)
+        return result
+    raise last_error or RuntimeError("no model could take the call")
+
+
 def label() -> str:
     return f"{MODEL} · {LABELS.get(PROVIDER, PROVIDER)}"
 
 
 def generate(prompt: str, *, system: str | None = None, max_tokens: int = 1024,
              temperature: float | None = None) -> Reply:
-    return _backend().send(prompt, system, max_tokens, temperature, tool=None)
+    return _route("send", prompt, system, max_tokens, temperature, None)
 
 
 def call_tool(prompt: str, *, system: str, name: str, description: str, schema: dict,
               max_tokens: int = 1024, temperature: float | None = 0) -> Reply:
     """reply.tool_input is the tool's arguments as a dict; NoToolCall if the
     model did not call it."""
-    reply = _backend().send(prompt, system, max_tokens, temperature,
-                            tool={"name": name, "description": description, "schema": schema})
+    reply = _route("send", prompt, system, max_tokens, temperature,
+                   {"name": name, "description": description, "schema": schema})
     if not isinstance(reply.tool_input, dict):
-        raise NoToolCall(f"{PROVIDER} model {MODEL} did not call {name} (stop reason: {reply.stop_reason})")
+        provider, model = current()
+        raise NoToolCall(f"{provider} model {model} did not call {name} (stop reason: {reply.stop_reason})")
     return reply._replace(tool_input=_unwrap(reply.tool_input, schema))
 
 
@@ -98,7 +274,7 @@ def chat(system: str | None, messages: list[dict], tools: list[dict] | None = No
     "schema"}]. The model chooses whether to call a tool. A {"providerBlock"}
     in the reply (e.g. Claude's thinking) must be kept in the history; only
     its own provider reads it."""
-    return _backend().chat(system, messages, tools, max_tokens, temperature)
+    return _route("chat", system, messages, tools, max_tokens, temperature)
 
 
 def _unwrap(arguments: dict, schema: dict) -> dict:
@@ -115,23 +291,33 @@ def _unwrap(arguments: dict, schema: dict) -> dict:
 # ---------- backends ----------
 
 _lock = threading.Lock()
-_instance = None
+_instances: dict[tuple[str, str], object] = {}
 
 
-def _backend():
-    global _instance
+def _backend(provider: str | None = None, model: str | None = None):
+    provider, model = (provider, model) if provider else (PROVIDER, MODEL)
     with _lock:
-        if _instance is None:
-            error = config_error()
+        if (provider, model) not in _instances:
+            error = config_error() if (provider, model) == (PROVIDER, MODEL) else provider_error(provider, model)
             if error:
                 raise RuntimeError(f"LLM is not configured: {error}")
-            _instance = {"bedrock": _Bedrock, "anthropic": _Anthropic,
-                         "openai": _OpenAI, "ollama": _OpenAI}[PROVIDER]()
-        return _instance
+            _instances[(provider, model)] = {"bedrock": _Bedrock, "anthropic": _Anthropic, "openai": _OpenAI,
+                                             "ollama": _OpenAI}[provider](provider, model)
+        return _instances[(provider, model)]
 
 
-class _Bedrock:
-    def __init__(self):
+class _Model:
+    """A backend's model: the one it was made for, else the configured one (read at call time)."""
+    _model = ""
+
+    @property
+    def model(self) -> str:
+        return self._model or MODEL
+
+
+class _Bedrock(_Model):
+    def __init__(self, provider: str | None = None, model: str | None = None):
+        self.provider, self._model = "bedrock", model or ""
         import boto3
         self.client = boto3.client("bedrock-runtime", region_name=BEDROCK_REGION)
 
@@ -139,7 +325,7 @@ class _Bedrock:
         inference = {"maxTokens": max_tokens}
         if temperature is not None:
             inference["temperature"] = temperature
-        request = {"modelId": MODEL, "messages": messages, "inferenceConfig": inference}
+        request = {"modelId": self.model, "messages": messages, "inferenceConfig": inference}
         if system:
             request["system"] = [{"text": system}]
         if tools:
@@ -176,14 +362,15 @@ class _Bedrock:
                     response["usage"]["outputTokens"])
 
 
-class _Anthropic:
+class _Anthropic(_Model):
     """Newer Claude models reject a forced tool_choice and sampling
     parameters with a 400; each is dropped for that model after its first
     rejection, a forced call falling back to auto plus an instruction.
     SDK 1.x has no temperature argument: older models still honour it, so
     it goes in extra_body."""
 
-    def __init__(self):
+    def __init__(self, provider: str | None = None, model: str | None = None):
+        self.provider, self._model = "anthropic", model or ""
         import anthropic
         self.anthropic = anthropic
         self.client = anthropic.Anthropic()
@@ -208,7 +395,7 @@ class _Anthropic:
 
     def send(self, prompt, system, max_tokens, temperature, tool):
         def build():
-            request = {"model": MODEL, "max_tokens": max_tokens,
+            request = {"model": self.model, "max_tokens": max_tokens,
                        "messages": [{"role": "user", "content": prompt}], **self._sampling(temperature)}
             instruction = system or ""
             if tool:
@@ -230,7 +417,7 @@ class _Anthropic:
     def chat(self, system, messages, tools, max_tokens, temperature):
         native = [{"role": m["role"], "content": [c for c in map(_to_anthropic, m["content"]) if c]} for m in messages]
         def build():
-            request = {"model": MODEL, "max_tokens": max_tokens, "messages": native, **self._sampling(temperature)}
+            request = {"model": self.model, "max_tokens": max_tokens, "messages": native, **self._sampling(temperature)}
             if system:
                 request["system"] = system
             if tools:
@@ -268,26 +455,28 @@ def _result_text(result: dict) -> str:
     return "\n".join(c.get("text") or json.dumps(c.get("json"), ensure_ascii=False) for c in result.get("content", []))
 
 
-class _OpenAI:
+class _OpenAI(_Model):
     """OpenAI, or any OpenAI-compatible server (Ollama). Local models do not
     always honour a forced tool call; a JSON object in the text counts."""
 
     STOP_REASONS = {"tool_calls": "tool_use", "stop": "end_turn", "length": "max_tokens"}
 
-    def __init__(self):
+    def __init__(self, provider: str | None = None, model: str | None = None):
+        provider = provider or PROVIDER
+        self.provider, self._model = provider, model or ""
         import openai
         self.openai = openai
-        if PROVIDER == "ollama":
+        if provider == "ollama":
             self.client = openai.OpenAI(base_url=OLLAMA_BASE_URL, api_key="ollama")
         else:
             self.client = openai.OpenAI()
         # Current OpenAI models want max_completion_tokens; Ollama reads max_tokens.
-        self.limit_param = "max_tokens" if PROVIDER == "ollama" else "max_completion_tokens"
+        self.limit_param = "max_tokens" if provider == "ollama" else "max_completion_tokens"
         self.unsupported: set[str] = set()
 
     def _create(self, messages, max_tokens, temperature, tools=None, choice=None):
         while True:
-            request = {"model": MODEL, "messages": messages, self.limit_param: max_tokens}
+            request = {"model": self.model, "messages": messages, self.limit_param: max_tokens}
             if temperature is not None and "temperature" not in self.unsupported:
                 request["temperature"] = temperature
             if tools:

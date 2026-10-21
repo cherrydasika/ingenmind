@@ -1,7 +1,9 @@
 """The provider adapters against fake SDK clients: no network, no keys.
 Run: PYTHONPATH=app:dags python -m unittest app/test_llm.py"""
 
+import os
 import sys
+import threading
 import types
 import unittest
 from types import SimpleNamespace as NS
@@ -219,3 +221,97 @@ class CallToolTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Routing(unittest.TestCase):
+    """R16: per-call model choice, fallback on provider failures, a breaker per provider."""
+
+    class Down(Exception):
+        status_code = 529   # overloaded
+
+    class BadRequest(Exception):
+        status_code = 400
+
+    def backends(self, behaviour):
+        made = {}
+
+        class Backend:
+            def __init__(self, provider, model):
+                self.provider, self.model = provider, model
+
+            def send(self, *args):
+                behaviour[self.provider]()
+                return llm.Reply(f"from {self.provider}:{self.model}", None, 1, 1, "end_turn")
+        return lambda provider=None, model=None: made.setdefault((provider, model), Backend(provider, model))
+
+    def setUp(self):
+        llm._failures.clear()
+        self.addCleanup(llm._failures.clear)
+
+    def env(self, **values):
+        return patch.dict(os.environ, {"ANTHROPIC_API_KEY": "k", "OPENAI_API_KEY": "k", **values})
+
+    def test_a_failing_provider_falls_back_in_order(self):
+        def down():
+            raise self.Down("overloaded")
+        behaviour = {"bedrock": down, "anthropic": down, "openai": lambda: None}
+        with self.env(LLM_FALLBACK="anthropic:claude-haiku-4-5,openai:gpt-4.1-mini"), \
+                patch.object(llm, "PROVIDER", "bedrock"), patch.object(llm, "MODEL", "b"), \
+                patch.object(llm, "_backend", side_effect=self.backends(behaviour)):
+            self.assertEqual(llm.generate("hi").text, "from openai:gpt-4.1-mini")
+        self.assertEqual(llm._failures["bedrock"][0], 1)
+
+    def test_a_request_error_is_not_retried_elsewhere(self):
+        def bad():
+            raise self.BadRequest("bad")
+        with self.env(LLM_FALLBACK="openai:gpt-4.1-mini"), patch.object(llm, "PROVIDER", "anthropic"), \
+                patch.object(llm, "MODEL", "a"), \
+                patch.object(llm, "_backend", side_effect=self.backends({"anthropic": bad, "openai": lambda: None})), \
+                self.assertRaises(self.BadRequest):
+            llm.generate("hi")
+
+    def test_a_provider_that_keeps_failing_is_skipped_for_a_while(self):
+        calls = []
+
+        def down():
+            calls.append(1)
+            raise self.Down("overloaded")
+        with self.env(LLM_FALLBACK="openai:gpt-4.1-mini"), patch.object(llm, "PROVIDER", "anthropic"), \
+                patch.object(llm, "MODEL", "a"), \
+                patch.object(llm, "_backend", side_effect=self.backends({"anthropic": down, "openai": lambda: None})):
+            for _ in range(5):
+                self.assertIn("openai", llm.generate("hi").text)
+        self.assertEqual(len(calls), llm.BREAK_AFTER)   # then skipped while it cools down
+        self.assertIsNotNone(llm.breaker("anthropic"))
+
+    def test_a_block_or_a_job_can_choose_its_model(self):
+        with self.env(LLM_FOR_GUARDRAILS="openai:gpt-4.1-mini"), patch.object(llm, "PROVIDER", "anthropic"), \
+                patch.object(llm, "MODEL", "a"), \
+                patch.object(llm, "_backend", side_effect=self.backends({p: (lambda: None) for p in llm.PROVIDERS})):
+            self.assertEqual(llm.generate("x").text, "from anthropic:a")
+            with llm.using("openai", "gpt-4.1"):
+                self.assertEqual(llm.generate("x").text, "from openai:gpt-4.1")
+            self.assertEqual(llm.task("guardrails")(lambda: llm.generate("x").text)(), "from openai:gpt-4.1-mini")
+
+    def test_the_catalogue_lists_roles_states_and_prices(self):
+        with self.env(LLM_FALLBACK="openai:gpt-4.1-mini"), patch.object(llm, "PROVIDER", "anthropic"), \
+                patch.object(llm, "MODEL", "claude-haiku-4-5"):
+            c = llm.catalogue()
+        rows = {(m["provider"], m["model"]): m for m in c["models"]}
+        self.assertEqual(rows[("anthropic", "claude-haiku-4-5")]["uses"], ["default"])
+        self.assertEqual(rows[("anthropic", "claude-haiku-4-5")]["input"], 1.0)
+        self.assertEqual(rows[("openai", "gpt-4.1-mini")]["uses"], ["fallback"])
+        self.assertTrue(c["price_note"])
+
+    def test_the_local_runtime_uses_an_agents_chosen_model(self):
+        import agent_runtime
+        seen = []
+        runtime = agent_runtime.LocalHarness.__new__(agent_runtime.LocalHarness)
+        runtime.locks, runtime.locks_lock = {}, threading.Lock()
+        runtime.chat = lambda *a, **k: seen.append(llm.current()) or llm.Turn([{"text": "ok"}], "end_turn", 1, 1)
+        with patch.object(agent_runtime, "load_history", return_value=[]), patch.object(agent_runtime, "save_history"):
+            stream = runtime.invoke_harness(runtimeSessionId="s", messages=[{"role": "user", "content": [{"text": "q"}]}],
+                                            systemPrompt=[{"text": "sys"}], tools=[],
+                                            chatModel={"provider": "openai", "model": "gpt-4.1"})["stream"]
+            list(stream)
+        self.assertEqual(seen, [("openai", "gpt-4.1")])

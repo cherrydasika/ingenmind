@@ -239,6 +239,10 @@ class LlmConfig(BaseModel):
         return RUNTIME_MODEL if value == HARNESS_MODEL else value
     temperature: float = Field(0.2, ge=0, le=1, description="For the agents this LLM plugs into (default 0.2)")
     max_tokens: int = Field(2048, ge=64, le=8192, description="Per model turn of those agents (default 2048)")
+    chat_provider: Literal["default", "bedrock", "anthropic", "openai", "ollama"] = Field(
+        "default", description="On the local runtime: the provider for the agents this LLM plugs into (default: "
+                               "LLM_PROVIDER). LLM_FALLBACK still applies when it fails. AgentCore uses its harness model")
+    chat_model: str = Field("", max_length=200, description="That provider's model id (empty: its default)")
 
 
 class MemoryConfig(BaseModel):
@@ -411,7 +415,8 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
     Component("llm", "LLM", "resource", "model",
               "The model an agent reasons with. Temperature and max tokens apply to the agents it plugs into, on "
               "either agent runtime; the evaluators and the query rewriter keep temperature 0 for structured "
-              "output.", LlmConfig, provides="llm", applied=("provider", "model", "temperature", "max_tokens")),
+              "output.", LlmConfig, provides="llm",
+              applied=("provider", "model", "temperature", "max_tokens", "chat_provider", "chat_model")),
     Component("memory", "Memory", "resource", "memory",
               "Each agent's conversation per browser session: PostgreSQL on the local runtime, AgentCore Memory "
               "(with long-term facts and summaries) on AgentCore.", MemoryConfig, provides="memory"),

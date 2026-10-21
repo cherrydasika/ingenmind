@@ -92,6 +92,7 @@ export const api = {
   agentMemory: () => request("/api/agent-memory"),
   users: () => request("/api/users"),
   knowledgeFlagged: () => request("/api/knowledge/flagged"),
+  modelCatalogue: () => request("/api/models/catalogue"),
   audit: (query) => request(`/api/audit${query ? `?${query}` : ""}`),
   addUser: (user) => post("/api/users", user),
   updateUser: (id, changes) => request(`/api/users/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(changes) }),

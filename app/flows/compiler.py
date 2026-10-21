@@ -304,6 +304,16 @@ def runtime_issues(spec: FlowSpec, runtime: Runtime, path: str = "") -> list[dic
         if allowed and spec.state not in allowed:
             issues.append(_issue("error", f"{where}.{node.id}", f"{component.title} cannot run in a "
                                                                 f"{spec.state!r} flow (only {', '.join(sorted(allowed))})"))
+        if node.type == "llm" and (node.config or {}).get("chat_provider", "default") != "default":
+            import agent_runtime   # the chosen model (R16) runs on the local runtime, if its provider is set up
+            import llm
+            provider, model = node.config["chat_provider"], node.config.get("chat_model", "")
+            if agent_runtime.RUNTIME != "local":
+                issues.append(_issue("warning", f"{where}.{node.id}", "the agents run on the AgentCore harness, which "
+                                                                      "uses its own model: this LLM's provider applies "
+                                                                      "on the local runtime only"))
+            elif error := llm.provider_error(provider, model):
+                issues.append(_issue("error", f"{where}.{node.id}", f"{provider} can't run here: {error}"))
         if node.type == "subflow" and runtime.subflow_state:
             sub = spec.subflows.get(node.config.get("subflow"))
             if sub is not None and sub.state != runtime.subflow_state:

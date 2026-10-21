@@ -151,6 +151,7 @@ class Verdict(BaseModel):
         return self.decision == "ALLOW"
 
 
+@llm.task("guardrails")
 def assess_with_llm(stage: str, question: str, content: str, scope: str = UK_RAIL_SCOPE,
                     previous: list[str] | tuple = ()) -> Assessment:
     data = {"stage": stage, "question": question, "content": content}

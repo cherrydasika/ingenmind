@@ -172,6 +172,7 @@ def normalise(raw: dict) -> dict:
     return structured.normalise(raw, scores=tuple(THRESHOLDS), lists=LIST_FIELDS, strings=("rationale",))
 
 
+@llm.task("evaluators")
 def assess_with_llm(question: str, answer: str, chunks: list[dict], api_results: list[dict]) -> tuple[AnswerAssessment, dict]:
     """A reply that still does not validate is asked for once more."""
     usage = {"input_tokens": 0, "output_tokens": 0}

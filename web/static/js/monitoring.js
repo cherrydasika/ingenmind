@@ -26,6 +26,25 @@ function usage(metrics) {
   return { runs, passRate: evaluated ? passed / evaluated : null, blocked, p50 };
 }
 
+// Monitoring → Models (llm.catalogue, R16).
+const USES = { default: "default", fallback: "fallback", guardrails: "guardrails", evaluators: "evaluators", rewriting: "query rewriting" };
+function models(c) {
+  const price = (v) => (v === undefined ? "—" : `$${v}`);
+  const rows = c.models.map((m) => h("tr", {},
+    h("td", {}, h("code", {}, m.model || "—")),
+    h("td", {}, m.provider),
+    h("td", {}, m.uses.map((u) => USES[u] || u).join(", ")),
+    h("td", { class: "num" }, price(m.input)), h("td", { class: "num" }, price(m.output)),
+    h("td", { class: "num" }, m.context ? `${Math.round(m.context / 1000)}k` : "—"),
+    h("td", {}, m.error ? h("span", { class: "badge badge-err", title: m.error }, "not set up")
+      : m.breaker ? h("span", { class: "badge badge-warn" }, `skipped ${m.breaker.seconds_left} s`)
+        : h("span", { class: "badge badge-ok" }, "ready"))));
+  return [h("div", { class: "table-wrap" }, h("table", {},
+    h("thead", {}, h("tr", {}, ["Model", "Provider", "Used for", "In / M", "Out / M", "Context", "State"].map((t) => h("th", {}, t)))),
+    h("tbody", {}, rows))),
+  h("p", { class: "note", style: "margin-top:8px" }, c.price_note)];
+}
+
 export class MonitoringPage {
   title = "Overview";
 
@@ -52,6 +71,7 @@ export class MonitoringPage {
     const live = agentInfo?.live;
     const metrics = live && can("manage_agents") ? await api.flowMetrics(live.flow_id).catch(() => null) : null;
     const used = usage(metrics);
+    const catalogue = can("manage_agents") || can("manage_settings") ? await api.modelCatalogue().catch(() => null) : null;
 
     const ready = system?.state === "READY";
     const kpis = h("div", { class: "kpis" },
@@ -75,6 +95,8 @@ export class MonitoringPage {
       section("services", "Services", down.length
         ? `${down.map((s) => s.name).join(", ")} ${down.length === 1 ? "is" : "are"} down. Langfuse and MinIO are optional: they run only with the tracing overlay.`
         : "Everything is up.", card({ children: list })),
+      catalogue ? section("models", "Models", "Which model does what, what takes over when one fails (LLM_FALLBACK), "
+        + "and the list price per million tokens.", card({ children: models(catalogue) })) : null,
     ));
   }
 }
