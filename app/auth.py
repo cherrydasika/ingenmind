@@ -58,6 +58,11 @@ SCOPES = os.environ.get("OIDC_SCOPES", "openid email profile").strip()
 # https://<domain>.auth.<region>.amazoncognito.com/logout?client_id={client_id}&logout_uri={return}
 LOGOUT_URL = os.environ.get("OIDC_LOGOUT_URL", "").strip()
 SESSION_MAX_AGE = 12 * 3600   # the cookie; a sign-in lasts at most a working day
+# Admins can change everything, so their sign-in also ends after this long
+# without using the app (ADMIN_IDLE_MINUTES). Background polls don't count.
+ADMIN_IDLE_SECONDS = int(os.environ.get("ADMIN_IDLE_MINUTES", "60") or 60) * 60
+BACKGROUND_PATHS = {"/api/status"}
+SEEN_EVERY = 60   # seconds between updates of the last-seen time (each one rewrites the cookie)
 # Confirming it's you (before a reset): sign in again at the provider. The
 # provider must have asked for the password within FRESH_SECONDS (its
 # auth_time), and the confirmation is good for one action within CONFIRM_SECONDS.
@@ -162,6 +167,8 @@ class AuthMiddleware:
             if not user or user["status"] != "active":
                 session.clear()   # deactivated or removed: sign them out
                 user = None
+            else:
+                user = _still_active(session, user, scope["path"])
         scope.setdefault("state", {})["user"] = user
         permission = required_permission(scope["method"], scope["path"])
         if scope["path"] == "/api/me" or allowed(user, permission):
@@ -173,6 +180,18 @@ class AuthMiddleware:
         else:
             response = JSONResponse({"error": "You don't have permission for this"}, 403)
         await response(scope, receive, send)
+
+
+def _still_active(session: dict, user: dict, path: str, now: float | None = None) -> dict | None:
+    """The user, or None (and the session cleared) when an admin has been idle too long."""
+    now = time.time() if now is None else now
+    seen = session.get("seen")
+    if user.get("role") == "admin" and seen and now - seen > ADMIN_IDLE_SECONDS:
+        session.clear()
+        return None
+    if path not in BACKGROUND_PATHS and (not seen or now - seen >= SEEN_EVERY):
+        session["seen"] = now
+    return user
 
 
 def current_user(request: Request) -> dict | None:

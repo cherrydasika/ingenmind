@@ -1204,6 +1204,14 @@ knowledge, view sessions, view agent memory, run evaluations, manage agents,
 manage users, manage settings); every API route checks one. Users are
 deactivated, never deleted.
 
+**Browser protections** (`app/web_security.py`): every response carries a
+strict Content Security Policy (scripts only from the app itself, no
+framing) and the standard security headers (HSTS too when
+`SESSION_COOKIE_SECURE` is on); state-changing requests sent from another
+site are refused (`ALLOWED_ORIGINS` adds origins, e.g. behind a proxy); and
+admins are signed out after `ADMIN_IDLE_MINUTES` (default 60) without using
+the app. The security model: [docs/security.md](docs/security.md).
+
 **Sessions** are automatic: a question joins your current session when it
 was active in the last 30 minutes, else a new one starts; signing in starts
 fresh and signing out ends it. Every Retrieval-page question is kept with
