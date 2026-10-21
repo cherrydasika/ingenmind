@@ -205,6 +205,7 @@ def _malformed(raw: dict) -> bool:
     return any(isinstance(v, str) and "<parameter" in v for v in raw.values())
 
 
+@llm.task("evaluators")
 def assess_with_llm(task: str, searches: list[dict], draft: str) -> tuple[LlmAssessment, dict]:
     """Claude on Bedrock with a forced tool call whose input schema is
     LlmAssessment; returns the validated assessment and token usage. Odd
@@ -350,6 +351,7 @@ REWRITE_PROMPT = (
 REWRITE_TOOL = "record_query_rewrite"
 
 
+@llm.task("rewriting")
 def diagnose_and_rewrite(task: str, searches: list[dict], evaluation: EvidenceEvaluation) -> tuple[QueryRewrite, dict]:
     """Claude on Bedrock (forced tool, Pydantic schema): a diagnosis and
     rewritten queries for the one retry."""

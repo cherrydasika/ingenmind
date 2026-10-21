@@ -296,6 +296,23 @@ outside the budget. An API tool that fails three times in a row because
 the service is down (not because of the request) is skipped for two
 minutes (`api_tools.breaker`).
 
+### Models: per agent, per job, and fallbacks
+
+- **Per agent** (local runtime): an LLM node's `chat_provider` and
+  `chat_model` choose the provider and model for the agents it plugs into,
+  so a strong model can write the answer while a cheap one searches. On
+  AgentCore the agents use the harness's model (the builder says so).
+- **Per job:** `LLM_FOR_GUARDRAILS`, `LLM_FOR_EVALUATORS` and
+  `LLM_FOR_REWRITING` (`provider:model`) give those jobs their own model;
+  a cheap, fast one suits the guardrails and query rewriting.
+- **Fallbacks:** `LLM_FALLBACK=anthropic:claude-haiku-4-5,openai:gpt-4.1-mini`
+  is tried in order when a call fails for a reason that isn't the
+  request's (timeout, rate limit, server error, unreachable). A provider
+  that fails three times in a row is skipped for a minute.
+- **Monitoring → Overview → Models** lists which model does what, each
+  one's state, and list prices per million tokens
+  (`app/model_prices.json`, edit it as prices change).
+
 ### Multi-agent RAG
 
 The graph behind every question is shown in [How it works](#how-it-works).

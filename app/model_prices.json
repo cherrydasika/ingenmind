@@ -1,0 +1,12 @@
+{
+  "note": "List prices in US dollars per million tokens (input, output) and context window in tokens, as published by each provider in 2025. Prices change: check your provider's pricing page and edit this file. Bedrock's regional (eu.) profiles can cost a little more than the list price.",
+  "models": {
+    "claude-haiku-4-5": {"input": 1.0, "output": 5.0, "context": 200000},
+    "eu.anthropic.claude-haiku-4-5-20251001-v1:0": {"input": 1.0, "output": 5.0, "context": 200000},
+    "claude-sonnet-4-5": {"input": 3.0, "output": 15.0, "context": 200000},
+    "eu.anthropic.claude-sonnet-4-5-20250929-v1:0": {"input": 3.0, "output": 15.0, "context": 200000},
+    "gpt-4.1": {"input": 2.0, "output": 8.0, "context": 1047576},
+    "gpt-4.1-mini": {"input": 0.4, "output": 1.6, "context": 1047576},
+    "gpt-4o-mini": {"input": 0.15, "output": 0.6, "context": 128000}
+  }
+}

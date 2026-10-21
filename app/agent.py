@@ -507,7 +507,10 @@ class _Run:
         and tokens (the full detail the browser never sees)."""
         params = self._params(run, messages)
         before = (run.get("turns", 0), run.get("input_tokens", 0), run.get("output_tokens", 0))
-        with observation(as_type="generation", name=f"{run['role']}_agent", model=_model_id(),
+        chosen = params.get("chatModel") or {}   # the flow's LLM node's model, on the local runtime (R16)
+        with observation(as_type="generation", name=f"{run['role']}_agent",
+                         model=(chosen.get("model") or llm.DEFAULT_MODELS.get(chosen.get("provider"), "")) or _model_id()
+                         if chosen else _model_id(),
                          input={"system": params["systemPrompt"], "messages": messages},
                          metadata={"delegation": run.get("delegation"), "turn": before[0] + 1,
                                    "tools": [t.get("name") for t in params.get("tools") or [] if isinstance(t, dict)]}
@@ -560,8 +563,10 @@ class _Run:
                   "messages": messages, "systemPrompt": _system_prompt(role, self.settings),
                   "tools": ROLES[role]["tools"], "maxIterations": self.turn_limit(role)}
         model = (self.settings.get("models") or {}).get(ROLE_ALIASES.get(role, role))
-        if model:   # the flow's LLM node changes this agent's temperature or max tokens
-            params["model"] = {"bedrockModelConfig": model}
+        if model:   # the flow's LLM node changes this agent's temperature, max tokens or model
+            params["model"] = {"bedrockModelConfig": {k: v for k, v in model.items() if k != "chat"}}
+            if model.get("chat") and agent_runtime.RUNTIME == "local":
+                params["chatModel"] = model["chat"]
         if role == "supervisor" and self.agents != set(SPECIALISTS):
             params["systemPrompt"], params["tools"] = _restricted_supervisor(params["systemPrompt"], self.agents)
         params["systemPrompt"], params["tools"] = _apply_settings(role, self.settings, params["systemPrompt"],
@@ -593,6 +598,8 @@ class _Run:
             params["model"] = {"bedrockModelConfig": {"modelId": flows.registry.HARNESS_MODEL,
                                                       "maxTokens": agent.llm["max_tokens"],
                                                       "temperature": agent.llm["temperature"]}}
+        if agent.llm and agent.llm.get("chat_provider", "default") != "default" and agent_runtime.RUNTIME == "local":
+            params["chatModel"] = {"provider": agent.llm["chat_provider"], "model": agent.llm.get("chat_model", "")}
         if self.user_id:
             params["runtimeUserId"] = self.user_id
         params["actorId"] = _actor_id(self.session_id)
@@ -1179,10 +1186,14 @@ def _agent_models(flow: flows.FlowSpec, out: dict | None = None) -> dict:
         role = AGENT_ROLES.get(target.type) or (target.config.get("role", "external_apis")
                                                 if target.type == "specialist_agent" else None)
         llm = flows.COMPONENTS["llm"].config.model_validate(source.config)
-        if role and role not in out and (llm.temperature, llm.max_tokens) != (defaults.temperature, defaults.max_tokens):
+        chosen = llm.chat_provider != "default"
+        if role and role not in out and ((llm.temperature, llm.max_tokens) != (defaults.temperature, defaults.max_tokens)
+                                         or chosen):
             # modelId is read by AgentCore only, whose role allows the harness model.
             out[role] = {"modelId": flows.registry.HARNESS_MODEL, "maxTokens": llm.max_tokens,
                          "temperature": llm.temperature}
+            if chosen:   # the local runtime's provider and model for this agent (R16)
+                out[role]["chat"] = {"provider": llm.chat_provider, "model": llm.chat_model}
     for sub in flow.subflows.values():
         _agent_models(sub, out)
     return out

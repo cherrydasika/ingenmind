@@ -186,6 +186,11 @@ def app_config(request: Request) -> Response:
     })
 
 
+def model_catalogue(request: Request) -> Response:
+    """The Models card (R16): which model does what, fallbacks, providers' state, list prices."""
+    return _json(llm.catalogue())
+
+
 def models(request: Request) -> Response:
     found, _ = list_models()
     return _json({"models": found})
@@ -1584,6 +1589,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/vendor/plotly.min.js", plotly_js),
     Route("/api/config", app_config),
     Route("/api/models", models),
+    Route("/api/models/catalogue", model_catalogue),
     Route("/api/status", status),
     Route("/api/ask", ask, methods=["POST"]),
     Route("/api/ask/stream", ask_stream, methods=["POST"]),

@@ -191,6 +191,16 @@ on #120 that isn't waiting on the user.
   checked between turns); 12,000 finished inside it. Provider fallback is
   R16.
 
+- **R16 (#91) done:** `llm.py` keeps one backend per provider and model;
+  `LLM_FALLBACK` is tried in order on provider failures (timeouts, 429,
+  5xx, unreachable; never on request errors), with a breaker per provider
+  (3 failures → skipped 60 s); `LLM_FOR_GUARDRAILS/EVALUATORS/REWRITING`
+  give those jobs their own model; an LLM node's `chat_provider` /
+  `chat_model` pick an agent's model on the local runtime (traced with
+  that model; a warning on AgentCore, an error if the provider isn't set
+  up). Monitoring → Overview → Models lists them with list prices
+  (`app/model_prices.json`).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

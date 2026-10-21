@@ -163,16 +163,19 @@ class LocalHarness:
             return self.locks.setdefault(runtime_session, threading.Lock())
 
     def invoke_harness(self, *, runtimeSessionId: str, messages: list[dict], systemPrompt: list[dict],
-                       tools: list[dict], actorId: str = "", model: dict | None = None, **_ignored) -> dict:
+                       tools: list[dict], actorId: str = "", model: dict | None = None,
+                       chatModel: dict | None = None, **_ignored) -> dict:
         config = (model or {}).get("bedrockModelConfig") or {}
+        chosen = chatModel or {}   # the flow's LLM node may pick this agent's provider and model (R16)
 
         def turn() -> llm.Turn:
             with self._lock(runtimeSessionId):
                 history = _merge(load_history(runtimeSessionId), _plain(messages))
-                reply = self.chat("\n\n".join(block["text"] for block in systemPrompt), history,
-                                  [_tool_spec(t) for t in tools] or None,
-                                  max_tokens=config.get("maxTokens") or DEFAULT_MAX_TOKENS,
-                                  temperature=config.get("temperature", DEFAULT_TEMPERATURE))
+                with llm.using(chosen.get("provider"), chosen.get("model")):
+                    reply = self.chat("\n\n".join(block["text"] for block in systemPrompt), history,
+                                      [_tool_spec(t) for t in tools] or None,
+                                      max_tokens=config.get("maxTokens") or DEFAULT_MAX_TOKENS,
+                                      temperature=config.get("temperature", DEFAULT_TEMPERATURE))
                 content = reply.content or [{"text": ""}]
                 save_history(runtimeSessionId, actorId, _trim(history + [{"role": "assistant", "content": content}]))
             return reply
