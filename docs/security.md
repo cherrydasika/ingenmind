@@ -63,7 +63,7 @@ knowledge base.
 | LLM07 | **System prompt leakage** | Prompts and drafts stay server-side; the output guardrail refuses answers that reveal instructions | Covered by the red-team set: **R14 (#89)** |
 | LLM08 | **Vector and embedding weaknesses** | One knowledge base per deployment, so no cross-tenant retrieval; embeddings never leave the server | When there are several collections or workspaces, retrieval must respect who may see what: **R35 (#102)**, **R60 (#116)** |
 | LLM09 | **Misinformation** | Every answer is judged for correctness, faithfulness, completeness and citations against its evidence; a failing answer is never shown; "not available" is preferred to a guess; readiness and evaluations before going live | Scheduled evaluations and a regression gate on promotion: **R56 (#114)**. User feedback: **R51 (#111)** |
-| LLM10 | **Unbounded consumption** | Agent turn limits, two supervisor rounds, a research budget per question; flow size limits | No per-user rate limits or quotas: **R06 (#84)**. No hard token, time and tool-call budget per run: **R15 (#90)** |
+| LLM10 | **Unbounded consumption** | Agent turn limits, two supervisor rounds, a research budget per question; flow size limits | **Since R06:** questions per minute and tokens per day per user, a global daily cap, 429 with Retry-After (`app/usage_limits.py`) | Research runs are not limited separately, and a single run has no hard token, time and tool-call budget: **R15 (#90)** |
 
 ## The web application
 

@@ -771,7 +771,7 @@ class FlowStore(unittest.TestCase):
         self.client.post("/api/flows", json={"flow": blank(flow_id)})
         seen = {}
 
-        def fake_answer(question, session_id, user_id, limit, on_event, view, flow, source):
+        def fake_answer(question, session_id, user_id, limit, on_event, view, flow, source, on_metrics=None):
             seen["flow"], seen["source"] = flow, source
             return {"answer": "ok", "searches": [], "flow": {"id": flow[0].id, "version": flow[1]}}
         with patch.object(web_api.agent, "answer", side_effect=fake_answer):

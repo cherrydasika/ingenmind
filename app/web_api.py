@@ -42,6 +42,7 @@ from initialization import (blueprint_run, build as setup_build, content as setu
                             state as setup_state, supervisor)
 import sessions
 import source_profiles
+import usage_limits
 import web_security
 import evaluation_archive as evaluation
 import embedding_viz
@@ -84,6 +85,17 @@ def _json_default(value):
 
 def _json(data, status: int = 200) -> Response:
     return Response(json.dumps(data, default=_json_default), status_code=status, media_type="application/json")
+
+
+async def _over_limit(request: Request) -> Response | None:
+    """429 when the signed-in user has reached a limit (usage_limits.py),
+    else count this question and return None."""
+    user = auth.current_user(request)
+    refusal = user and await run_in_threadpool(usage_limits.admit, user)
+    if not refusal:
+        return None
+    return Response(json.dumps({"error": refusal.message, "retry_after": refusal.retry_after}), status_code=429,
+                    media_type="application/json", headers={"Retry-After": str(refusal.retry_after)})
 
 
 def _scoped(request: Request, body):
@@ -215,6 +227,8 @@ async def ask(request: Request) -> Response:
     parsed = _parse_ask(body)
     if isinstance(parsed, Response):
         return parsed
+    if limited := await _over_limit(request):
+        return limited
     return await run_in_threadpool(_answer, *parsed, body)
 
 
@@ -228,6 +242,8 @@ async def ask_stream(request: Request) -> Response:
     parsed = _parse_ask(body)
     if isinstance(parsed, Response):
         return parsed
+    if limited := await _over_limit(request):
+        return limited
     return _event_stream(lambda emit: _answer_payload(
         *parsed, body, lambda stage, state, **info: emit("stage", {"stage": stage, "state": state, **info})))
 
@@ -363,6 +379,8 @@ async def agent_stream(request: Request) -> Response:
     if error:
         return error
     question, _, max_iterations = parsed
+    if limited := await _over_limit(request):
+        return limited
     # The server's session, not the browser's: the user's current one, or a
     # new one after sign-in or 30 minutes idle (sessions.py). Kept in the
     # cookie; every question here becomes a turn of its history.
@@ -491,6 +509,8 @@ async def flow_run(request: Request) -> Response:
         return _json({"error": f"unknown flow or version: {missing}"}, 404)
     except flows.FlowError as invalid:
         return _json({"error": "this flow cannot run", "issues": invalid.issues}, 422)
+    if limited := await _over_limit(request):
+        return limited
     return _event_stream(lambda emit: _agent_payload(question, session_id, body, max_iterations, emit,
                                                      (spec, label), "playground"))
 
@@ -730,8 +750,13 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
                    flow: tuple | None = None, source: str = "users", record: bool = False) -> dict:
     """record: keep the question and what the user saw in the session's
     history (the Retrieval page; the playground and evaluations are tests)."""
-    result = agent.answer(question, session_id, body.get("user_id"), max_iterations,
-                          lambda event: emit("stage", event), retrieval_view, flow, source)
+    metrics = {}
+    try:
+        result = agent.answer(question, session_id, body.get("user_id"), max_iterations,
+                              lambda event: emit("stage", event), retrieval_view, flow, source, metrics.update)
+    finally:   # a failed run still spent its tokens
+        usage_limits.charge(body.get("user_id"),
+                            (metrics.get("input_tokens") or 0) + (metrics.get("output_tokens") or 0))
     trace_id = result.pop("trace_id", None)   # server-side only
     if record:
         try:
@@ -744,9 +769,18 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
 # ---------- Users (identity.py; manage_users) ----------
 
 def user_list(request: Request) -> Response:
+    users = identity.list_users()
+    try:
+        usage = usage_limits.overview(users)
+    except Exception as error:   # the list still shows without the numbers
+        print(f"usage overview unavailable: {error}", file=sys.stderr)
+        usage = {}
     return _json({"users": [identity.public(u) | {"created_by": u["created_by"], "updated_by": u["updated_by"],
-                                                  "updated_at": u["updated_at"]} for u in identity.list_users()],
-                  "permissions": identity.PERMISSIONS, "roles": identity.ROLES, "me": auth.current_user(request)["user_id"]})
+                                                  "updated_at": u["updated_at"], "usage": usage.get(u["user_id"])}
+                            for u in users],
+                  "permissions": identity.PERMISSIONS, "roles": identity.ROLES, "me": auth.current_user(request)["user_id"],
+                  "limit_defaults": {"admin": usage_limits.defaults("admin"), "others": usage_limits.defaults("user"),
+                                     "global_tokens_per_day": usage_limits.global_tokens_per_day()}})
 
 
 async def user_create(request: Request) -> Response:
@@ -764,7 +798,8 @@ async def user_create(request: Request) -> Response:
 
 
 async def user_update(request: Request) -> Response:
-    """Change first_name, role, permissions or status (deactivate rather than delete)."""
+    """Change first_name, role, permissions or status (deactivate rather than
+    delete), or the user's usage limits."""
     body = await request.json()
     if not isinstance(body, dict):
         return _json({"error": "expected a JSON object"}, 400)
@@ -772,6 +807,17 @@ async def user_update(request: Request) -> Response:
     user_id = request.path_params["user_id"]
     changes = {k: body[k] for k in ("first_name", "role", "permissions", "status") if k in body}
     try:
+        if "limits" in body:   # {"per_minute", "tokens_per_day"}: null keeps the role's default
+            if not isinstance(body["limits"], (dict, type(None))):
+                raise ValueError("limits must be an object or null")
+            if not await run_in_threadpool(identity.get_user, user_id):
+                raise LookupError(user_id)
+            await run_in_threadpool(usage_limits.set_override, user_id, body["limits"], actor["user_id"])
+        if not changes:
+            user = await run_in_threadpool(identity.get_user, user_id)
+            if not user:
+                raise LookupError(user_id)
+            return _json({"user": identity.public(user)})
         await run_in_threadpool(identity.guard_change, actor, user_id, changes)
         user = await run_in_threadpool(identity.update_user, user_id, changes, actor["user_id"])
     except LookupError:

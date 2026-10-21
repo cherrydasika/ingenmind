@@ -771,6 +771,8 @@ table.matrix thead th:first-child { width: 34%; }
 /* ---------- Users (users.js) ---------- */
 table.users td { vertical-align: middle; }
 tr.user-disabled td { color: var(--faint); }
+.usage-near { color: var(--warn, #b45309); font-weight: 600; }
+.usage-over { color: var(--err, #b91c1c); font-weight: 600; }
 tr.user-edit-row > td { background: var(--surface-2); }
 .user-form { display: grid; gap: 14px; }
 .user-form-row { display: flex; gap: 14px; flex-wrap: wrap; }
