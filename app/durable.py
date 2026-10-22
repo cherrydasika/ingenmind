@@ -44,7 +44,7 @@ RETENTION_DAYS = float(os.environ.get("DURABLE_RETENTION_DAYS", "7"))
 RESUME_MINUTES = float(os.environ.get("DURABLE_RESUME_MINUTES", "30"))
 FINAL = ("done", "failed", "cancelled")
 # The run's own state kept with each snapshot (agent._Run attributes).
-SNAPSHOT_FIELDS = ("searches", "calls", "evaluations", "rewrites", "contracts", "web_searches", "research",
+SNAPSHOT_FIELDS = ("searches", "calls", "evaluations", "rewrites", "followups", "contracts", "web_searches", "research",
                    "candidates", "data_candidates", "budgets", "role_limits", "known_sources", "runs", "path",
                    "agent_runs", "trace_id", "budget_hit", "question", "user_facts", "proposals")
 

@@ -9,8 +9,11 @@ import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 
+from unittest.mock import patch
+
 import agent
 import evidence
+import evidence_agents
 from evidence import Decision, LlmAssessment
 
 NOW = datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc)
@@ -44,7 +47,7 @@ class FakeRun:
 
     def __init__(self, chunks: list[list[dict]], results: list[LlmAssessment]):
         self.lock = threading.Lock()
-        self.events, self.evaluations, self.searches, self.rewrites = [], [], [], []
+        self.events, self.evaluations, self.searches, self.rewrites, self.followups = [], [], [], [], []
         self.path, self.research, self.web_searches = [], [], []
         self.candidates, self.fetched = {}, {}
         self.validator = None  # set by research tests
@@ -111,13 +114,26 @@ class KnowledgeBaseGraphRouting(unittest.TestCase):
         self.assertEqual(out["finding"]["answer"], "Railjets run hourly [1]; WESTbahn too [2].")
         self.assertGreaterEqual(out["evaluation"]["overall_confidence"], evidence.GOOD_CONFIDENCE)
 
-    def test_insufficient_evidence_goes_to_placeholder(self):
-        out, _ = run_kb(GOOD_CHUNKS, assessment(coverage=0.45, missing_information=["ticket prices"]))
+    def test_insufficient_evidence_goes_to_the_clarification_agent(self):
+        found = {"supported": "Railjets run hourly [1].", "missing": ["ticket prices"], "question": "Which day?"}
+        with patch.object(evidence_agents, "clarify", return_value=(found, {"input_tokens": 9})) as clarify:
+            out, fake = run_kb(GOOD_CHUNKS, assessment(coverage=0.45, missing_information=["ticket prices"]))
         self.assertEqual(out["evaluation"]["decision"], "INSUFFICIENT_EVIDENCE")
-        self.assertEqual(out["evaluation"]["route"], "insufficient_evidence_placeholder")
-        self.assertEqual(out["finding"]["status"], "Retry / clarification not implemented")
+        self.assertEqual(out["evaluation"]["route"], "insufficient_evidence_placeholder")   # the route keeps its id
+        self.assertEqual([p["n"] for p in clarify.call_args.args[1]], [1, 2])               # the passages, numbered
+        finding = out["finding"]
+        self.assertEqual(finding["status"], "INSUFFICIENT_EVIDENCE: partial findings, ask the user")
+        for text in ("Railjets run hourly [1].", "ticket prices", "ask the user: Which day?"):
+            self.assertIn(text, finding["answer"])
+        self.assertTrue(finding["search_ns"])                                  # its citations can be checked
+        self.assertEqual(fake.followups[0]["kind"], "clarification")
+
+    def test_a_failed_follow_up_agent_withholds_the_draft_as_before(self):
+        with patch.object(evidence_agents, "clarify", side_effect=TimeoutError("slow")):
+            out, _ = run_kb(GOOD_CHUNKS, assessment(coverage=0.45, missing_information=["ticket prices"]))
         self.assertIn("ticket prices", out["finding"]["answer"])
-        self.assertNotIn("Railjets", out["finding"]["answer"])  # the draft is withheld
+        self.assertNotIn("Railjets", out["finding"]["answer"])
+        self.assertEqual(out["finding"]["search_ns"], [])
 
     def test_knowledge_gap_goes_to_research(self):
         out, fake = run_kb(GOOD_CHUNKS, assessment(coverage=0.3, failure_type="KNOWLEDGE_GAP",
@@ -134,12 +150,50 @@ class KnowledgeBaseGraphRouting(unittest.TestCase):
         self.assertIn("Railjets run hourly [1]", out["finding"]["answer"])
         self.assertTrue(out["finding"]["search_ns"])
 
-    def test_conflicting_evidence_goes_to_investigation_placeholder(self):
-        out, _ = run_kb(GOOD_CHUNKS, assessment(consistency=0.2, contradictions=["[1] says hourly, [2] says every 2 hours"]))
+    def test_conflicting_evidence_goes_to_the_investigation_agent(self):
+        found = {"resolution": "unresolved", "findings": "ÖBB says hourly [1]; WESTbahn every 2 hours [2].", "missing": []}
+        with patch.object(evidence_agents, "investigate", return_value=(found, {"input_tokens": 9})) as investigate:
+            out, _ = run_kb(GOOD_CHUNKS, assessment(consistency=0.2,
+                                                    contradictions=["[1] says hourly, [2] says every 2 hours"]))
         self.assertEqual(out["evaluation"]["decision"], "CONFLICTING_EVIDENCE")
         self.assertEqual(out["evaluation"]["route"], "investigation_placeholder")
-        self.assertIn("[1] says hourly", out["finding"]["answer"])
-        self.assertTrue(out["finding"]["status"].startswith("Investigation"))
+        self.assertIn("[1] says hourly", investigate.call_args.args[2]["contradictions"][0])
+        finding = out["finding"]
+        self.assertEqual(finding["status"], "CONFLICTING_EVIDENCE: investigated (unresolved)")
+        self.assertIn("WESTbahn every 2 hours [2]", finding["answer"])
+        self.assertIn("The sources disagree", finding["answer"])
+        self.assertTrue(finding["search_ns"])
+
+    def test_flows_saved_with_the_placeholders_run_the_agents(self):
+        make = agent._runtime().factories["placeholder"]
+        node = lambda id_: agent.flows.spec.NodeSpec.model_validate({"id": id_, "type": "placeholder", "config": {}})
+        found = {"resolution": "conditions", "findings": "Hourly on ÖBB [1].", "missing": []}
+        fake = FakeRun([GOOD_CHUNKS], [assessment()])
+        state = {"task": TASK, "evaluation": {"decision": "CONFLICTING_EVIDENCE", "contradictions": []},
+                 "searches": [{"first": 1, "retrieval": {"chunks": GOOD_CHUNKS}}]}
+        with patch.object(evidence_agents, "investigate", return_value=(found, {})):
+            out = make(node("investigation_placeholder"))(state, {"configurable": {"run": fake}})
+        self.assertEqual(out["result"]["status"], "CONFLICTING_EVIDENCE: investigated (conditions)")
+        other = make(node("some_placeholder"))({"evaluation": {"decision": "X", "overall_confidence": 0.1,
+                                                               "missing_information": [], "contradictions": [],
+                                                               "rationale": ""}})
+        self.assertIn("withheld", other["result"]["answer"])
+
+
+class FollowUpAgents(unittest.TestCase):
+    def test_passages_keep_their_numbers_and_labels_and_skip_withheld_ones(self):
+        chunks = [{"text": "a", "source_url": "u1", "meta": {"organisation": "LNER", "effective_date": "2025-01-01"}},
+                  {"text": "b", "source_url": "u2", "withheld": ["injection"]}, {"text": "c", "source_url": "u3"}]
+        found = evidence_agents.passages([{"first": 5, "retrieval": {"chunks": chunks}}])
+        self.assertEqual([(p["n"], p["organisation"]) for p in found], [(5, "LNER"), (7, None)])
+        self.assertIn("[5] u1 (LNER, 2025-01-01)", evidence_agents._prompt("t", found, {}))
+
+    def test_an_unknown_resolution_counts_as_unresolved(self):
+        class Reply:
+            tool_input, usage = {"resolution": "vibes", "findings": "x [1]"}, {}
+        with patch.object(evidence_agents.llm, "call_tool", return_value=Reply()):
+            result, _ = evidence_agents.investigate("t", [], {})
+        self.assertEqual(result["resolution"], "unresolved")
 
     def test_empty_retrieval_is_rewritten_and_retried_once(self):
         out, fake = run_kb([[], GOOD_CHUNKS], assessment())

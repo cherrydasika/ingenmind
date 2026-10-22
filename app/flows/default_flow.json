@@ -195,19 +195,13 @@
         },
         {
           "id": "investigation_placeholder",
-          "type": "placeholder",
-          "label": "Investigation agent (not built)",
-          "config": {
-            "message": "Investigation (Debugging) Agent not implemented"
-          }
+          "type": "investigation_agent",
+          "label": "Investigation agent"
         },
         {
           "id": "insufficient_evidence_placeholder",
-          "type": "placeholder",
-          "label": "Retry / clarify (not built)",
-          "config": {
-            "message": "Retry / clarification not implemented"
-          }
+          "type": "clarification_agent",
+          "label": "Clarification agent"
         },
         {
           "id": "finish_task",
