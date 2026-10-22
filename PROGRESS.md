@@ -251,6 +251,14 @@ on #120 that isn't waiting on the user.
   the structure-written one), so fixed stays the default; worth repeating
   on a real domain's knowledge base with longer pages.
 
+- **R22 (#2) done, off by default:** a local cross-encoder reranker
+  (`app/rerank.py`) after fusion, switched by a flow's Retriever (`rerank`,
+  `rerank_candidates`) or `RERANK`; shown in the workflow chart and traced;
+  a failure keeps the fused order. The search test can add reranked rows
+  and times it. On 150 Trainline pages / 98 questions: MiniLM MRR 0.88 →
+  0.92 but hit rate top 5 0.99 → 0.97 (~0.2 s a question); bge-reranker-base
+  no better at ~1.3 s. No clear gain, so it stays off.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
