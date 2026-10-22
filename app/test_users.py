@@ -1,14 +1,17 @@
 """User administration (/api/users, identity.guard_change). Runs against its
 own database (needs the pgvector service)."""
 
+import json
 import unittest
 import uuid
+from unittest.mock import Mock, patch
 
 import psycopg
 from psycopg import sql
 from starlette.testclient import TestClient
 
 import agent_memory
+import answer_cache
 import audit
 import auth
 import flows
@@ -44,7 +47,7 @@ class UsersDatabase(unittest.TestCase):
 
     @staticmethod
     def reset_caches():
-        for module in (identity, sessions, agent_memory, flows.store, flows.evals, usage_limits, audit):
+        for module in (identity, sessions, agent_memory, flows.store, flows.evals, usage_limits, audit, answer_cache):
             module.reset_schema_cache()
 
     def make(self, role="user", name="Pat"):
@@ -283,3 +286,66 @@ class AuditLog(UsersDatabase):
         self.assertIn("refused", csv.text)
         self.assertEqual(client.get("/api/audit?since=not-a-date").status_code, 400)
         self.assertEqual(self.signed_in(developer).get("/api/audit").status_code, 403)
+
+
+class AnswerCache(UsersDatabase):
+    """R19: checked answers reused for questions that mean the same."""
+
+    VECTORS = {"fare?": [1.0, 0.0, 0.0], "how much is the fare?": [0.99, 0.05, 0.0], "weather?": [0.0, 1.0, 0.0]}
+
+    def setUp(self):
+        import answer_cache
+        self.cache = answer_cache
+        patcher = patch.object(answer_cache, "_embed", side_effect=lambda q: self.VECTORS[q])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        answer_cache.clear()
+
+    GOOD = {"answer": "£12 [1]", "answer_check": {"passed": True}, "guardrails": {"input": {"decision": "ALLOW"}},
+            "calls": [], "research": [], "flow": {"id": "f", "version": 1}}
+
+    def test_only_checked_answers_using_nothing_that_changes_are_kept(self):
+        self.assertTrue(self.cache.cacheable(self.GOOD))
+        for change in ({"answer_check": {"passed": False}}, {"calls": [{"tool": "get_weather"}]},
+                       {"research": [{"url": "x"}]}, {"guardrails": {"output": {"decision": "BLOCK"}}},
+                       {"budget": {"hit": "the budget"}}, {"privacy": {"masked": ["email"]}}):
+            with self.subTest(change=change):
+                self.assertFalse(self.cache.cacheable({**self.GOOD, **change}))
+        self.assertFalse(self.cache.eligible_question("fare?", follow_up=True))
+        self.assertFalse(self.cache.eligible_question("fare for jo@example.com?", follow_up=False))
+
+    def test_the_same_meaning_hits_and_anything_else_misses(self):
+        before = self.cache.stats()
+        self.cache.store("fare?", "f", 1, self.GOOD)
+        self.assertEqual(self.cache.lookup("how much is the fare?", "f", 1)["answer"], "£12 [1]")
+        self.assertIsNone(self.cache.lookup("weather?", "f", 1))           # another question
+        self.assertIsNone(self.cache.lookup("fare?", "f", 2))              # another version
+        stats = self.cache.stats()
+        self.assertEqual((stats["entries"], stats["hits"] - before["hits"], stats["misses"] - before["misses"]), (1, 1, 2))
+        self.assertEqual(self.cache.clear(), 1)
+        self.assertIsNone(self.cache.lookup("fare?", "f", 1))
+
+    def test_a_question_that_differs_in_a_key_word_misses_even_when_its_embedding_matches(self):
+        anytime, off_peak = "How much is an Anytime return to Highfold?", "How much is an Off-Peak return to Highfold?"
+        reworded = "What is the price of an Anytime return to Highfold?"
+        self.VECTORS.update({anytime: [1.0, 0.0, 0.0], off_peak: [1.0, 0.0, 0.0], reworded: [1.0, 0.0, 0.0]})
+        self.cache.store(anytime, "f", 1, self.GOOD)
+        self.assertIsNone(self.cache.lookup(off_peak, "f", 1))          # a wrong hit would be a wrong fare
+        self.assertIsNotNone(self.cache.lookup(reworded, "f", 1))
+
+    def test_a_change_to_the_knowledge_base_misses(self):
+        self.cache.store("fare?", "f", 1, self.GOOD)
+        with patch.object(self.cache, "knowledge", return_value="changed"):
+            self.assertIsNone(self.cache.lookup("fare?", "f", 1))
+
+    def test_the_ask_route_answers_from_the_cache_without_running_the_agents(self):
+        from unittest.mock import AsyncMock
+        user = self.make()
+        client = self.signed_in(user)
+        with patch.object(web_api, "_not_set_up", AsyncMock(return_value=None)), \
+                patch.object(web_api.answer_cache, "lookup", return_value=self.GOOD), \
+                patch.object(web_api.agent, "live_flow", return_value=(Mock(id="f"), 1)), \
+                patch.object(web_api.agent, "answer", side_effect=AssertionError("ran the agents")):
+            response = client.post("/api/agent/stream", json={"question": "fare?"})
+        result = json.loads(response.text.split("event: result\ndata: ")[1].split("\n")[0])
+        self.assertEqual((result["cached"], result["answer"]), (True, "£12 [1]"))

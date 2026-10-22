@@ -45,6 +45,16 @@ function models(c) {
   h("p", { class: "note", style: "margin-top:8px" }, c.price_note)];
 }
 
+// Monitoring → Answer cache (answer_cache.py, R19).
+function cacheCard(c, reload) {
+  const clear = h("button", { class: "btn btn-sm btn-ghost", type: "button", disabled: !c.entries }, "Clear");
+  clear.addEventListener("click", async () => { clear.disabled = true; await api.answerCacheClear().catch(() => null); reload(); });
+  return h("div", { class: "toolbar", style: "justify-content:flex-start;gap:18px;flex-wrap:wrap" },
+    kpi("Hit rate, last 7 days", c.hit_rate === null ? "—" : pct(c.hit_rate), `${fmtInt(c.hits)} reused of ${fmtInt(c.hits + c.misses)}`),
+    kpi("Cached answers", fmtInt(c.entries), c.enabled ? `kept ${c.hours} h · similarity ≥ ${c.similarity}` : "off (ANSWER_CACHE=false)"),
+    clear);
+}
+
 export class MonitoringPage {
   title = "Overview";
 
@@ -72,6 +82,7 @@ export class MonitoringPage {
     const metrics = live && can("manage_agents") ? await api.flowMetrics(live.flow_id).catch(() => null) : null;
     const used = usage(metrics);
     const catalogue = can("manage_agents") || can("manage_settings") ? await api.modelCatalogue().catch(() => null) : null;
+    const cache = can("manage_settings") ? await api.answerCache().catch(() => null) : null;
 
     const ready = system?.state === "READY";
     const kpis = h("div", { class: "kpis" },
@@ -95,6 +106,9 @@ export class MonitoringPage {
       section("services", "Services", down.length
         ? `${down.map((s) => s.name).join(", ")} ${down.length === 1 ? "is" : "are"} down. Langfuse and MinIO are optional: they run only with the tracing overlay.`
         : "Everything is up.", card({ children: list })),
+      cache ? section("answer-cache", "Answer cache", "Checked answers reused for questions that mean the same, "
+        + "on the same live version and knowledge base: no model calls. Cleared when another version goes live.",
+      card({ children: cacheCard(cache, () => this.mount()) })) : null,
       catalogue ? section("models", "Models", "Which model does what, what takes over when one fails (LLM_FALLBACK), "
         + "and the list price per million tokens.", card({ children: models(catalogue) })) : null,
     ));
