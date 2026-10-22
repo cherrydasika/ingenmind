@@ -74,6 +74,7 @@ import agent_tree
 import answer_eval
 import api_tools
 import citations
+import conversation
 import evidence
 import flows
 import guardrails
@@ -2242,31 +2243,6 @@ def _record_run(spec: flows.FlowSpec, version, source: str, metrics: dict) -> No
         log.warning("could not record flow run metrics: %s", error)
 
 
-# Each browser session's last questions that passed the input check, kept in
-# this process only (never stored) so the check can read a follow-up ("and at
-# Victoria?"). After a restart, or an hour without questions, a follow-up is
-# judged on its own again.
-_recent: dict[str, tuple[float, list[str]]] = {}
-_recent_lock = threading.Lock()
-RECENT_TTL = 3600
-RECENT_SESSIONS = 1000
-
-
-def _recent_questions(session_id: str) -> list[str]:
-    with _recent_lock:
-        at, questions = _recent.get(session_id, (0.0, []))
-        return list(questions) if time.time() - at < RECENT_TTL else []
-
-
-def _remember_question(session_id: str, question: str) -> None:
-    questions = _recent_questions(session_id) + [question]
-    with _recent_lock:
-        _recent.pop(session_id, None)   # re-insert: the dict's order is least recently used first
-        _recent[session_id] = (time.time(), questions[-guardrails.MAX_PREVIOUS:])
-        while len(_recent) > RECENT_SESSIONS:
-            _recent.pop(next(iter(_recent)))
-
-
 def answer(question: str, session_id: str, user_id: str | None, max_iterations: int | None,
            on_event, retrieval_view, flow: tuple[flows.FlowSpec, int] | None = None,
            source: str = "users", on_metrics=None) -> dict:
@@ -2322,11 +2298,12 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
     graph = graph_for(spec)
     settings = _flow_settings(spec)
     on_event({"type": "guardrail", "stage": "input", "state": "start"})
-    verdict = guardrails.check("input", question, scope=_scope(settings), previous=_recent_questions(session_id))
+    # The session's earlier questions that passed, from its stored turns
+    # (conversation.py, R26): a follow-up is read in context, even after a restart.
+    previous = conversation.recent_questions(session_id)
+    verdict = guardrails.check("input", question, scope=_scope(settings), previous=previous)
     on_event({"type": "guardrail", "stage": "input", "state": "done", "decision": verdict.decision})
     score(trace_id, "input_guardrail", verdict.decision, "CATEGORICAL", verdict.reason[:500])
-    if verdict.allowed:
-        _remember_question(session_id, question)
     if not verdict.allowed:
         _record_run(spec, version, source, {"input_blocked": True})
         if on_metrics:
@@ -2335,6 +2312,14 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
                 "flow": {"id": spec.id, "version": version}}
     if setup := agent_runtime.config_error():
         raise RuntimeError(f"the agents are not configured: {setup}")
+    # A follow-up goes to the agents as a question that stands on its own, so it
+    # doesn't depend on what a runtime session still remembers (R26).
+    read_as = None
+    if previous:
+        on_event({"type": "rewrite_question", "state": "start"})
+        read_as = conversation.standalone(question, conversation.context(session_id))
+        on_event({"type": "rewrite_question", "state": "done", "changed": bool(read_as)})
+    asked = read_as or question
     limit = max_iterations or describe().get("harness", {}).get("max_iterations") or 6
     activities = {}
     def progress(event):
@@ -2358,7 +2343,7 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
     config = {"configurable": {"run": run, "thread_id": run_id}, "recursion_limit": 60}
     started = time.time()
     try:
-        result = _drive(run_id, run, config, question, {"question": question, "round": 0, "findings": []}, started,
+        result = _drive(run_id, run, config, asked, {"question": asked, "round": 0, "findings": []}, started,
                         graph=graph)
     except Exception:
         _record_run(spec, version, source, {"failed": True, "seconds": round(time.time() - started, 3)})
@@ -2367,6 +2352,9 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
     if on_metrics:
         on_metrics(run.metrics)
     result["flow"] = {"id": spec.id, "version": version}
+    result["question"] = question                 # what the user asked (masked); read_as: what the agents got
+    if read_as:
+        result["read_as"] = read_as
     result["guardrails"]["input"] = {"decision": verdict.decision, "stage": "input"}
     result["activities"] = {node: "error" if state == "start" else state for node, state in activities.items()}
     if limits := settings.get("budget"):   # what the run used of its budget (R15)

@@ -7,7 +7,8 @@ flow version, timings, and the Langfuse trace for the full detail. History
 older than RETENTION_DAYS is deleted.
 
     app_sessions       session_id, user_id, started_at, last_activity,
-                       ended_at, status, title (the first question)
+                       ended_at, status, title (the first question), summary
+                       and summary_upto (conversation.py: older turns, summarised)
     app_session_turns  one row per question: question, answer, result (the
                        public result: sources, answer check, guardrails,
                        activities, flow, timings), trace_id, asked_at
@@ -30,7 +31,7 @@ PRUNE_EVERY_SECONDS = 3600
 TITLE_CHARS = 80
 # What of a public result a turn keeps: enough to show the answer again and
 # redraw the workflow graph; numbers, labels and URLs, no chunk text.
-RESULT_KEYS = ("answer", "sources", "citations", "answer_check", "guardrails", "activities", "rounds", "total", "flow", "status")
+RESULT_KEYS = ("answer", "read_as", "sources", "citations", "answer_check", "guardrails", "activities", "rounds", "total", "flow", "status")
 
 _schema_ready = False
 _schema_lock = threading.Lock()
@@ -68,6 +69,9 @@ def ensure_schema() -> None:
                     title text NOT NULL DEFAULT ''
                 )""")
             connection.execute("CREATE INDEX IF NOT EXISTS app_sessions_user ON app_sessions (user_id, last_activity DESC)")
+            # A rolling summary of the older turns, for reading follow-ups (conversation.py, R26).
+            connection.execute("ALTER TABLE app_sessions ADD COLUMN IF NOT EXISTS summary text NOT NULL DEFAULT '', "
+                               "ADD COLUMN IF NOT EXISTS summary_upto bigint NOT NULL DEFAULT 0")
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS app_session_turns (
                     turn_id bigserial PRIMARY KEY,

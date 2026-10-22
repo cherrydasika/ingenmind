@@ -283,6 +283,25 @@ the classic one's 320–410k.
 
 ![An evaluation run on the Evaluations page: the summary (expectations met, answer check, scores, blocks, time, tokens) and the results per knowledge area](docs/images/flow-evaluation.png)
 
+### Conversation memory
+
+Follow-ups are read from the session's stored turns (`app/conversation.py`,
+R26), so they work after a restart and on either agent runtime. When a
+session has earlier questions that passed the input check, one small model
+call (`LLM_FOR_REWRITING` if set) rewrites the new one to stand on its own
+("And my dog?" → "Can I take my dog on Lakeshore Rail trains?") from a
+bounded view of the conversation: a rolling summary of older turns (at most
+800 characters, redone in the background once four more are waiting) and
+the last three turns (question ≤ 300, answer ≤ 500 characters). The agents
+get the rewritten question, and the Ask page shows it ("Read as: …"); a
+question that already stands on its own goes as asked. The local runtime's
+own history per agent is also capped by size (`MAX_HISTORY_CHARS`, 60,000)
+as well as by messages. **New conversation** on the Ask page ends the
+session, so earlier questions stop being context (they stay on the Sessions
+page). Checked on the demo: "Can I take my bicycle…?", a web app restart,
+then "And my dog?" was read and answered as a question about dogs; after
+New conversation the same follow-up asks for clarification.
+
 ### Citation previews
 
 Each `[n]` in an answer opens the passage it cites (`app/citations.py`,
@@ -1039,8 +1058,8 @@ prompts are restricted from the web API; detailed diagnostics remain in
 administrator-controlled Langfuse/AgentCore tooling. Blocked input does not
 run tools, write research documents, or update agent memory. To read a
 follow-up ("and at Victoria?"), the input check also sees the session's last
-three questions that passed it, kept in the web app's memory only (never
-stored, forgotten after an hour or a restart); it still judges the new
+three questions that passed it, read from the session's stored turns (R26),
+so it survives restarts and ends with the session; it still judges the new
 question on its own, and a blocked question never becomes context. Model classification reduces risk but is not a formal security
 guarantee; tests and adversarial evaluations should be maintained.
 

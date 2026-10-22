@@ -62,8 +62,8 @@ export class RetrievalPage {
       h("div", { class: "stack" },
         this.renderAsk(),
         section("responses", "Answer",
-          "Answers come from the live flow and are checked against their evidence before you see them. Follow-up questions keep the conversation's context; a new session starts after 30 minutes idle, and earlier ones are on the Sessions page. To test a flow and see each step, use the Agent Builder.",
-          card({ children: this.renderChat() })),
+          "Answers come from the live flow and are checked against their evidence before you see them. Follow-up questions keep the conversation's context; a new session starts after 30 minutes idle or with New conversation, and earlier ones are on the Sessions page. To test a flow and see each step, use the Agent Builder.",
+          card({ children: [this.renderChatBar(), this.renderChat()] })),
         section("workflow", "Workflow", "The live flow, as built in the Agent Builder; each step lights up as it runs.", card({ cls: "wf-card", children: this.flow.element })),
       ),
     );
@@ -93,6 +93,22 @@ export class RetrievalPage {
   }
 
   // ---------- Chat ----------
+
+  // New conversation (R26): ends the session, so earlier questions stop being context.
+  renderChatBar() {
+    if (!this.messages.length) return null;
+    return h("div", { class: "chat-bar" }, h("button", {
+      class: "btn btn-ghost btn-sm", type: "button", disabled: this.busy,
+      title: "Start over: earlier questions are no longer used to read follow-ups (they stay on the Sessions page)",
+      onclick: async () => {
+        try { await api.newConversation(); } catch { /* the next question still starts fresh after 30 minutes */ }
+        this.messages = [];
+        this.latest = null;
+        this.flow.reset();
+        this.render();
+      },
+    }, "New conversation"));
+  }
 
   renderChat() {
     const body = h("div", { class: "chat" });
@@ -136,6 +152,9 @@ export class RetrievalPage {
       turn.append(h("div", { class: "privacy-note", role: "note" }, r.privacy.masked
         ? `Your question had ${personalData(masked)}: it was removed before anything else saw it.`
         : `Your question had ${personalData(masked)}, so it wasn't sent on.`));
+    }
+    if (r.read_as) {   // a follow-up, as the agents got it (R26)
+      turn.append(h("div", { class: "read-as", role: "note" }, "Read as: ", h("em", {}, r.read_as)));
     }
     turn.append(h("div", { class: `reply ${ae && !ae.passed ? "withheld" : ""}` },
       h("div", { class: "reply-role" }, "◆ Answer", verdict),

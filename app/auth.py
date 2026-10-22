@@ -111,7 +111,7 @@ RULES = [
                       r"|/start-over|/restore)?",
      "manage_settings"),
     ({"PUT"}, r"/api/me/theme", ANY),
-    ({"POST"}, r"/api/(ask|ask/stream|agent/stream|agent/resume|session/reset)", "query_rag"),
+    ({"POST"}, r"/api/(ask|ask/stream|agent/stream|agent/resume|session/reset|sessions/new)", "query_rag"),
     ({"GET"}, r"/api/agent(/session)?", "query_rag"),
     ({"GET"}, r"/api/agent/memory", "view_agent_memory"),
     ({"GET"}, r"/api/agent-memory", "view_agent_memory"),

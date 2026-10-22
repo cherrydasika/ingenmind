@@ -35,6 +35,7 @@ import adhoc_ingest
 import agent
 import agent_memory as memory_store   # web_api.agent_memory is a route handler
 import answer_cache
+import conversation
 import audit
 import auth
 import identity
@@ -428,13 +429,12 @@ async def agent_stream(request: Request) -> Response:
 
 def _ask_live(question: str, session_id: str, body: dict, max_iterations, emit) -> dict:
     """A user's question: a cached answer when one fits (answer_cache.py), else the live flow."""
-    follow_up = bool(agent._recent_questions(session_id))
+    follow_up = bool(conversation.recent_questions(session_id))
     reusable = answer_cache.eligible_question(question, follow_up)
     if reusable:
         spec, version = agent.live_flow()
         if cached := answer_cache.lookup(question, spec.id, version):
             emit("stage", {"type": "cache", "state": "hit"})
-            agent._remember_question(session_id, question)
             result = {**cached, "cached": True}
             try:
                 sessions.record_turn(session_id, body["user_id"], question, result, None)
@@ -903,6 +903,7 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
         try:
             # The question as the agents saw it: personal data masked (pii.py).
             sessions.record_turn(session_id, body["user_id"], result.get("question") or question, result, trace_id)
+            conversation.summarise_later(session_id)   # a long session's older turns, folded (R26)
         except Exception as error:   # the user still gets the answer
             print(f"could not record the session turn: {error}", file=sys.stderr)
     return _shape_agent_result(result)
@@ -1027,6 +1028,15 @@ def session_list(request: Request) -> Response:
     target = user["user_id"] if who == "me" else (None if who == "all" else who)
     return _json({"sessions": sessions.list_sessions(target), "can_view_all": see_all,
                   "retention_days": sessions.RETENTION_DAYS})
+
+
+async def session_new(request: Request) -> Response:
+    """Start a new conversation (R26): the current session ends, so the next
+    question starts a fresh one, with no earlier turns as context."""
+    user = auth.current_user(request)
+    await run_in_threadpool(sessions.end, user["user_id"], request.session.get("sid"))
+    request.session.pop("sid", None)
+    return _json({"ok": True})
 
 
 def session_current(request: Request) -> Response:
@@ -1756,6 +1766,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/session/reset", reset_session, methods=["POST"]),
     Route("/api/sessions", session_list),
     Route("/api/sessions/current", session_current),
+    Route("/api/sessions/new", session_new, methods=["POST"]),
     Route("/api/sessions/{session_id}", session_detail),
     Route("/api/home", home),
     Route("/api/knowledge-system", knowledge_system_status),

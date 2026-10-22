@@ -237,6 +237,18 @@ class HistoryTest(unittest.TestCase):
         self.assertEqual(trimmed[0], {"role": "user", "content": [{"text": "q"}]})
         self.assertLessEqual(len(trimmed), 6)
 
+    def test_a_long_history_is_trimmed_by_size_too(self):
+        big = {"role": "user", "content": [{"toolResult": {"toolUseId": "a", "status": "success",
+                                                             "content": [{"text": "passage " * 2000}]}}]}
+        exchange = [{"role": "user", "content": [{"text": "q"}]},
+                    {"role": "assistant", "content": [{"toolUse": {"toolUseId": "a", "name": "n", "input": {}}}]},
+                    big, {"role": "assistant", "content": [{"text": "answer"}]}]
+        with patch.object(agent_runtime, "MAX_HISTORY_CHARS", 40_000):
+            trimmed = agent_runtime._trim(exchange * 6)                     # ~96,000 characters
+        self.assertEqual(trimmed[0], {"role": "user", "content": [{"text": "q"}]})
+        self.assertLessEqual(sum(agent_runtime._size(m) for m in trimmed), 40_000)
+        self.assertGreaterEqual(len(trimmed), 4)                             # the newest exchange stays
+
     def test_runtime_choice_and_config_errors(self):
         with patch.object(agent_runtime, "RUNTIME", "agentcore"), patch.object(agent_runtime, "HARNESS_ARN", ""):
             self.assertIn("AGENT_HARNESS_ARN", agent_runtime.config_error())

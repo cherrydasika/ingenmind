@@ -272,6 +272,15 @@ on #120 that isn't waiting on the user.
   (`thetrainline.com/via/trips/…`, no scheme or "www."); the full address
   on hover.
 
+- **R25 (#35) waits on the user:** a data change on the deployed UK-rail
+  knowledge base (EC2, or guided setup there: R01); noted on the issue.
+- **R26 (#94) done:** follow-up context from the session's stored turns
+  (`app/conversation.py`) instead of process memory, a standalone-question
+  rewrite the agents get (both runtimes), a rolling summary for long
+  sessions (bounded prompt), the local runtime's history capped by size,
+  and New conversation on the Ask page. Checked on a demo preview across a
+  web app restart.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
