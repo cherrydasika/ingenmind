@@ -36,6 +36,12 @@ class Plans(unittest.TestCase):
         with self.assertRaises(planner.PlanError):
             planner.validate([{"id": "t1", "agent": "kb", "goal": "g"}], TEAM, taken={"t1"})
 
+    def test_the_answer_keeps_citation_numbers_only(self):
+        self.assertEqual(planner.strip_labels("It is 14°C [live]. Bikes go free [1][2, 3] [Live data]."),
+                         "It is 14°C. Bikes go free [1][2, 3].")
+        self.assertEqual(planner.strip_labels("See [the rules](https://example.org) [4]."),
+                         "See [the rules](https://example.org) [4].")
+
 
 SPEC = {"id": "planned", "name": "Planned", "version": 1, "state": "main", "subflows": {},
         "nodes": [{"id": "start", "type": "start"}, {"id": "ig", "type": "input_guardrail"},
@@ -105,6 +111,15 @@ class Executor(unittest.TestCase):
         self.assertEqual([d["id"] for d in asked[1]["done"]], ["t2"])
         self.assertEqual({t["id"]: t["status"] for t in result["plan"]}, {"t1": "failed", "t2": "done", "t4": "done"})
         self.assertTrue(any(e.get("replanned") for e in events))
+
+    def test_a_task_that_found_nothing_does_not_feed_its_dependants(self):
+        first = [step("t1", "kb", label="Operators"), step("t2", "kb", ["t1"], "Offer on each")]
+        second = [step("t3", "kb", label="Operators, another way")]
+        result, _, inputs, _, asked = self.run_flow(
+            [first, second], {"t1": ("partial", ""), "t3": ("done", "Northern [1].")})
+        self.assertNotIn("t2", inputs)                                   # never ran on an empty input
+        self.assertEqual(asked[1]["failed"][0]["id"], "t1")
+        self.assertEqual({t["id"]: t["status"] for t in result["plan"]}, {"t1": "failed", "t3": "done"})
 
 
 if __name__ == "__main__":

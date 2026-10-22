@@ -321,15 +321,25 @@ on #120 that isn't waiting on the user.
 - **Fix (#155, merged):** the checkpointer's setup ran at import and its
   `CREATE INDEX CONCURRENTLY` deadlocked the demo seed on a fresh database
   (new installs with the demo); now set up before the first run.
-- **R31 (#99) in review — PR from `planner-executor`, not merged yet:**
-  Planner component (`app/planner.py`, `_Run.run_plan`): a task graph for
-  its sub-agents, ready tasks in parallel through the R29 contract, results
-  passed to dependants, one re-plan after a failure, a composed answer; plan
-  panel under the Ask page's workflow chart and in the playground; gallery
-  architecture "Planner–executor". 550 tests pass. Real check on the demo:
-  3 tasks ran in parallel and all finished. **Left:** the answer check
-  sometimes fails the composed answer (it cited "[Live data]"; compose
-  prompt now forbids that; re-check), then merge and tick #120.
+
+- **R31 (#99) done (#156):** Planner component (`app/planner.py`,
+  `_Run.run_plan`): a task graph for its sub-agents, ready tasks in parallel
+  through the R29 contract, results passed to dependants, one re-plan after
+  a failure, a composed answer; plan panel under the Ask page's workflow
+  chart and in the playground; gallery architecture "Planner–executor".
+  Found in the real check (local rail domain, 4 multi-part questions mixing
+  the knowledge base and live weather): a task that found nothing still fed
+  its dependants (now it counts as failed: they are skipped and re-planned);
+  the composer cited "[live]" labels (now stripped in code), answered parts
+  the reports said were missing, and dropped live parts (prompt fixed: 6/6
+  honest and complete on a fixed report set, was 0/4; end to end it still
+  sometimes says "yes" on the borderline question, and the answer check
+  catches it); the re-plan gave a
+  knowledge question to Live data (prompt fixed). End to end, 2 of 4
+  questions pass every time; the other 2 fail the answer check on the live
+  flow too (the knowledge base only half-covers them), so not a planner gap.
+  Local Compose note: the webapp container's bind mounts had gone stale
+  (empty `/app/dags`); `up -d --force-recreate webapp worker` fixed it.
 
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):

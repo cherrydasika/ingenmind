@@ -994,7 +994,9 @@ class _Run:
             failures = []
             for step, result, seconds in done:
                 results[step.id], step.status, step.seconds = result, result.status, seconds
-                if result.status == "failed":
+                # Nothing found counts as failed: its dependants would run with no input.
+                if result.status == "failed" or not (result.findings or "").strip():
+                    step.status = "failed"
                     failures.append(step)
             # Whatever waits on a failed task can't run as planned.
             blocked = {s.id for s in failures}
@@ -1009,7 +1011,7 @@ class _Run:
                     more, used = planner.make_plan(
                         question, team, max(1, config.get("max_tasks", 6) - len(kept)),
                         done=[{"id": s.id, "label": s.label, "findings": results[s.id].findings}
-                              for s in kept if s.id in results and results[s.id].status != "failed"],
+                              for s in kept if s.id in results and s.status != "failed"],
                         failed=[{"id": s.id, "label": s.label,
                                  "why": results[s.id].error or "; ".join(results[s.id].missing) or "failed"}
                                 for s in failures])
