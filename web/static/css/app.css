@@ -660,6 +660,9 @@ td.heat.heat-current { outline: 2px solid var(--text); outline-offset: -2px; }
 td.heat.heat-picked { box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.55); }
 table.sq-matrix td.heat { cursor: pointer; }
 .sq-input { min-width: 260px; flex: 1 1 260px; }
+.src-chunk-list { margin: 0; padding-left: 22px; }
+.src-chunk-list li { margin: 10px 0; }
+.src-chunk-text { color: var(--muted); font-size: 12.5px; white-space: pre-wrap; margin-top: 4px; }
 .sq-select { width: auto; max-width: 100%; }
 .sq-questions li { margin: 2px 0; }
 td.heat.heat-empty { background: transparent; color: var(--faint); outline: 1px dashed var(--border-strong); outline-offset: -1px; }

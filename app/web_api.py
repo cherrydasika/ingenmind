@@ -1490,6 +1490,19 @@ def overview(request: Request) -> Response:
                   "can_manage": auth.allowed(auth.current_user(request), "manage_knowledge")})
 
 
+def source_chunks(request: Request) -> Response:
+    """One page's chunks in order: heading path (R21), length and the start of the text."""
+    url = request.query_params.get("url") or ""
+    client = storage.get_client("research" if request.query_params.get("dataset") == "research" else "curated")
+    with client.connection() as connection:
+        rows = connection.execute(
+            f"SELECT chunk_index, body, payload->'headings' AS headings, payload->>'chunking' AS chunking "
+            f"FROM {client.table} WHERE source_url = %s ORDER BY chunk_index", (url,)).fetchall()
+    return _json({"url": url, "chunks": [{"index": r["chunk_index"], "headings": r["headings"] or [],
+                                          "chunking": r["chunking"] or "fixed", "chars": len(r["body"]),
+                                          "text": r["body"][:400]} for r in rows]})
+
+
 # ---------- Ingestion ----------
 
 def _job_state(kind: str) -> dict:
@@ -1782,6 +1795,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/ingestion", ingestion),
     Route("/api/ingestion/trigger", trigger, methods=["POST"]),
     Route("/api/sources/remove", remove_sources, methods=["POST"]),
+    Route("/api/sources/chunks", source_chunks),
     Route("/api/source-reports", source_reports),
     Route("/api/source-reports/remove", source_reports_remove, methods=["POST"]),
     Route("/api/adhoc", adhoc_settings),

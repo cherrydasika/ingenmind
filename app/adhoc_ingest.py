@@ -24,7 +24,7 @@ def source_id(title: str) -> str:
 
 def preview(title: str, text: str) -> dict:
     """What a submit would do, without writing anything."""
-    chunks = chunking.chunk_text(text, config.CHUNK_SIZE, config.CHUNK_OVERLAP) if text.strip() else []
+    chunks = chunking.split(text) if text.strip() else []
     sid = source_id(title) if title.strip() else None
     existing = None
     if sid:
@@ -52,7 +52,8 @@ def ingest(title: str, text: str, ttl_days: float) -> dict:
     # Same paragraph dedup as URL ingestion: drop paragraphs another source
     # already stores (or repeated within this document).
     text, owned_hashes, dedup_stats = dedup.dedupe_page(client, sid, text)
-    chunks = chunking.chunk_text(text, config.CHUNK_SIZE, config.CHUNK_OVERLAP)
+    pieces = chunking.split(text)
+    chunks = [p["text"] for p in pieces]
     if not chunks:
         return {"status": "empty", "source_id": sid, "chunks": 0, "dedup": dedup_stats,
                 "seconds": time.perf_counter() - t0}
@@ -63,10 +64,11 @@ def ingest(title: str, text: str, ttl_days: float) -> dict:
 
     storage.upsert_chunks(
         client, sid, chunks, vectors, doc_hash, ttl_days,
-        extra_payload={"title": title.strip(), "source_type": "adhoc",
+        extra_payload={"title": title.strip(), "source_type": "adhoc", "chunking": config.CHUNKING,
                        **{f"dedup_{k}": v for k, v in dedup_stats.items()}},
         paragraph_hashes=owned_hashes,
         replace_existing=bool(existing),
+        chunk_payloads=[{"headings": p["headings"]} if p["headings"] else {} for p in pieces],
     )
     return {"status": "replaced" if existing else "added", "source_id": sid, "chunks": len(chunks),
             "dedup": dedup_stats, "embed_seconds": t_embed, "seconds": time.perf_counter() - t0}

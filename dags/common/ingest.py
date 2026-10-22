@@ -10,11 +10,21 @@ from datetime import datetime, timezone
 
 from . import chunking, config, dedup, embedding, scraping, storage
 
+# Payload fields ingestion writes itself (or per chunk): not carried over.
+_OWN_FIELDS = {"source_url", "chunk_index", "text", "content_hash", "ingested_at", "ttl_days", "expires_at",
+               "paragraph_hashes", "headings", "chunking", "page_date"}
+
+
+def _page_fields(payload: dict | None) -> dict:
+    return {k: v for k, v in (payload or {}).items() if k not in _OWN_FIELDS and not k.startswith("dedup_")}
+
+
 def ingest_url(client: storage.PgStore, entry: dict, force: bool = False) -> dict:
     url = entry["url"]
     ttl_days = entry.get("ttl_days", config.DEFAULT_TTL_DAYS)
     existing = storage.get_existing_metadata(client, url)
 
+    force = force or bool(entry.get("force"))
     if existing is not None and not force:
         time_left_days = (existing["expires_at"] - datetime.now(timezone.utc).timestamp()) / 86400
         if time_left_days > config.REFRESH_MARGIN_DAYS:
@@ -29,7 +39,7 @@ def ingest_url(client: storage.PgStore, entry: dict, force: bool = False) -> dic
     except Exception as exc:
         return {"url": url, "status": "failed", "stage": "fetch", "error": f"{type(exc).__name__}: {exc}"}
     try:
-        text = scraping.extract_pdf_text(page[0], url) if pdf else scraping.extract_text(page, url)
+        text = scraping.extract_pdf_text(page[0], url) if pdf else scraping.extract_text(page, url, headings=chunking.wants_headings())
     except Exception as exc:
         return {"url": url, "status": "failed", "stage": "extract", "error": f"{type(exc).__name__}: {exc}"}
 
@@ -54,7 +64,8 @@ def ingest_url(client: storage.PgStore, entry: dict, force: bool = False) -> dic
     # page, before chunking. page_hash stays on the raw text so "unchanged
     # page" detection above still works.
     text, owned_hashes, dedup_stats = dedup.dedupe_page(client, url, text)
-    chunks = chunking.chunk_text(text, config.CHUNK_SIZE, config.CHUNK_OVERLAP)
+    pieces = chunking.split(text)
+    chunks = [p["text"] for p in pieces]
     if not chunks:
         if existing_hash is not None:
             storage.delete_url_points(client, url)
@@ -64,9 +75,14 @@ def ingest_url(client: storage.PgStore, entry: dict, force: bool = False) -> dic
     storage.upsert_chunks(
         client, url, chunks, vectors, page_hash, ttl_days,
         # entry["metadata"]: provenance, e.g. from the research agent.
-        extra_payload={**{f"dedup_{k}": v for k, v in dedup_stats.items()},
+        # entry["keep_payload"]: what the page's chunks carried before (labels,
+        # provenance), kept when it is cut again (python -m rechunk, R21).
+        extra_payload={**_page_fields(existing if entry.get("keep_payload") else None),
+                       "chunking": config.CHUNKING,
+                       **{f"dedup_{k}": v for k, v in dedup_stats.items()},
                        **({"page_date": page_date} if page_date else {}), **(entry.get("metadata") or {})},
         paragraph_hashes=owned_hashes,
         replace_existing=existing_hash is not None,
+        chunk_payloads=[{"headings": p["headings"]} if p["headings"] else {} for p in pieces],
     )
     return {"url": url, "status": "updated", "chunks": len(chunks), **dedup_stats}

@@ -148,8 +148,11 @@ def extract_links(html: str, base_url: str) -> list[dict]:
     return list(found.values())
 
 
-def extract_text(html: str, url: str) -> str:
-    text = trafilatura.extract(html, url=url, include_comments=False, include_tables=False)
+def extract_text(html: str, url: str, headings: bool = False) -> str:
+    """The page's main text; headings: as markdown, keeping its headings and
+    lists (for structure-aware chunking, R21)."""
+    text = trafilatura.extract(html, url=url, include_comments=False, include_tables=False,
+                               **({"output_format": "markdown"} if headings else {}))
     if not text:
         raise ValueError(f"No extractable text content found at {url}")
     return text.strip()

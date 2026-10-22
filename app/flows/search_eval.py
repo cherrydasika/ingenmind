@@ -18,9 +18,12 @@ reciprocal rank with RRF_K in RRF_KS, each keeping TOP_KS results. Each
 combination is scored exactly as retrieval.hybrid_search ranks (candidates
 per search: 2 × top_k), from one deep search per question.
 
-A question written from a passage matches that passage (its chunk id); a
-question added by hand, or one whose passage has gone since (the page was
-re-chunked or removed), matches any passage of its page.
+A question written from a passage matches that passage (its chunk id). When
+the passage has changed since (the page was cut again, e.g. with another
+CHUNKING, R21, or removed), a result matches when it holds the passage's text:
+at least half of its words, or one whose words come mostly from it and
+cover a third of it (the passage cut in two). So sets compare chunkings
+fairly. A question added by hand matches any passage of its page.
 
     search_eval_sets   id, name, questions [{question, chunk_id, source, passage, topic, by}]
     search_eval_runs   one run of a set: the settings, the scores, and per question
@@ -190,7 +193,8 @@ def _write(count: int, write=write_one) -> None:
                 with _lock:
                     if question and not any(r and golden._alike(r["question"], question) for r in results):
                         results[slot] = {"question": question, "chunk_id": chunk["id"], "source": chunk["url"],
-                                         "passage": chunk["body"][:600], "topic": chunk["topic"], "by": "model"}
+                                         "passage": chunk["body"][:golden.PASSAGE_CHARS], "topic": chunk["topic"],
+                                         "by": "model"}
                         job["done"] += 1
                         return
             with _lock:
@@ -256,12 +260,30 @@ def ranked(dense_hits: list[dict], text_hits: list[dict], mode: str, rrf_k: int 
     return retrieval._fuse(dense, text, top_k, rrf_k or retrieval.RRF_K)[0]
 
 
+def _words(text: str) -> set[str]:
+    return golden._words(text or "")
+
+
+def holds(hit_text: str, passage: set[str]) -> bool:
+    """Whether a result holds a passage's text (after the page was cut again)."""
+    words = _words(hit_text)
+    shared = len(words & passage)
+    return bool(passage) and (shared >= 0.5 * len(passage)
+                              or (len(words) >= 15 and shared >= 0.7 * len(words) and shared >= 0.3 * len(passage)))
+
+
 def position(hits: list[dict], target: dict) -> int | None:
     """1-based position of the right passage among hits, or None."""
+    passage = target.get("_words")
     for n, hit in enumerate(hits, 1):
-        if target.get("chunk_id") and hit["id"] == target["chunk_id"]:
-            return n
-        if not target.get("chunk_id") and (hit.get("payload") or {}).get("source_url") == target["source"]:
+        payload = hit.get("payload") or {}
+        if target.get("chunk_id"):
+            if hit["id"] == target["chunk_id"]:
+                return n
+        elif passage:
+            if payload.get("source_url") == target["source"] and holds(payload.get("text") or "", passage):
+                return n
+        elif payload.get("source_url") == target["source"]:
             return n
     return None
 
@@ -284,17 +306,24 @@ def score(questions: list[dict], searches: list[tuple[list[dict], list[dict]]]) 
 
 
 def _targets(questions: list[dict]) -> list[dict]:
-    """Questions whose passage has gone match their page instead."""
+    """A question whose passage changed since (a chunk id is reused when a page
+    is cut again) is matched by the passage's text instead."""
     ids = [q["chunk_id"] for q in questions if q.get("chunk_id")]
-    present = set()
+    bodies = {}
     if ids:
         with storage.get_client().connection() as connection:
-            present = {str(r["id"]) for r in connection.execute(
-                "SELECT id FROM rag_chunks WHERE id = ANY(%s::uuid[]) AND expires_at > now() UNION "
-                "SELECT id FROM research_chunks WHERE id = ANY(%s::uuid[]) AND expires_at > now()",
+            bodies = {str(r["id"]): r["body"] for r in connection.execute(
+                "SELECT id, body FROM rag_chunks WHERE id = ANY(%s::uuid[]) AND expires_at > now() UNION ALL "
+                "SELECT id, body FROM research_chunks WHERE id = ANY(%s::uuid[]) AND expires_at > now()",
                 (ids, ids)).fetchall()}
-    return [q if not q.get("chunk_id") or q["chunk_id"] in present else {**q, "chunk_id": None, "gone": True}
-            for q in questions]
+    out = []
+    for q in questions:
+        passage = q.get("passage") or ""
+        same = q.get("chunk_id") in bodies and bodies[q["chunk_id"]][:len(passage)] == passage
+        if q.get("chunk_id") and not same:
+            q = {**q, "chunk_id": None, "gone": True}
+        out.append({**q, "_words": _words(passage) if q.get("gone") else None})
+    return out
 
 
 def _run(set_row: dict) -> None:
@@ -314,13 +343,16 @@ def _run(set_row: dict) -> None:
         run_id = f"sr_{uuid.uuid4().hex[:12]}"
         with store._connect() as connection:
             chunks = connection.execute("SELECT count(*) AS n FROM rag_chunks WHERE expires_at > now()").fetchone()["n"]
+            chunking = {r["chunking"]: r["n"] for r in connection.execute(
+                "SELECT coalesce(payload->>'chunking', 'fixed') AS chunking, count(*) AS n FROM rag_chunks "
+                "WHERE expires_at > now() GROUP BY 1").fetchall()}
             connection.execute("""
                 INSERT INTO search_eval_runs (id, set_id, set_name, questions, settings, knowledge, cells,
                                               per_question, seconds)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (run_id, set_row["id"], set_row["name"], len(questions),
                  Jsonb({"top_k": retrieval.TOP_K, "rrf_k": retrieval.RRF_K, "top_ks": TOP_KS, "rrf_ks": RRF_KS}),
-                 Jsonb({"chunks": chunks, "embedding_model": config.EMBEDDING_MODEL,
+                 Jsonb({"chunks": chunks, "embedding_model": config.EMBEDDING_MODEL, "chunking": chunking,
                         "gone": sum(1 for q in questions if q.get("gone"))}),
                  Jsonb(cells), Jsonb(per_question), time.perf_counter() - started))
         job.update(status="done", phase="done", run_id=run_id, finished_at=time.time())

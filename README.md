@@ -890,6 +890,23 @@ default 1000 chars / 150 overlap, snapped to word boundaries), so each chunk
 is a focused passage for retrieval and the whole page's content remains
 searchable, not just its opening.
 
+**Structure-aware chunking** (R21, `CHUNKING=structure`;
+`dags/common/chunking/structure.py`) cuts along the page's headings,
+paragraphs and list items instead: extraction keeps the headings
+(trafilatura's markdown output), blocks of one section are packed up to
+`CHUNK_SIZE`, a section under 250 characters joins the next one under the
+same top heading, and only a block that doesn't fit is cut, at sentences.
+Each chunk starts with its heading path ("Refunds > Delay Repay"), so both
+searches see it, and stores it (`payload.headings`); Knowledge base →
+Sources → a page's chunk count lists its chunks with their headings. The
+setting applies to pages ingested from then on; `docker compose run --rm
+worker python -m rechunk` queues every stored web page and PDF to be
+fetched, cut and embedded again (labels and provenance kept; ad-hoc
+documents are re-cut by submitting them again). Fixed stays the default:
+on 40 Trainline guide pages, two Search quality sets of 49 questions (one
+written from each chunking's passages) each favoured the chunking it was
+written from, by 2–6 points of hit rate in the top 3, so neither won.
+
 An alternative **per-URL** strategy also exists
 (`dags/common/chunking/per_url.py`) — one chunk per whole page instead of
 multiple. It's simpler, but a whole page gives less precise retrieval context.
