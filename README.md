@@ -1401,8 +1401,20 @@ groups a conversation too.
 **Memory** has two kinds, kept apart. Session memory — each agent's
 conversation within a session — is keyed by user and session. Agent memory
 (`app/agent_memory.py`) is what the agents learn across runs, from outcomes
-only (web sites that pass validation, tool failures, evidence decisions),
-never from anyone's words; the **Agent memory** page shows it.
+only (web sites that pass validation, tool failures, evidence decisions,
+which kinds of query rewrite recover evidence), never from anyone's words;
+the **Agent memory** page shows it. The agents use it (R27,
+`AGENT_MEMORY_USE`, default on): web search results carry each site's
+validation record and reliable sites come first, failing ones last; a tool
+that worked in under 20% of its recent calls (at least five) is skipped for
+the run, saying why; the query rewriter is told which kinds of rewrite
+(narrower, broader, synonyms…) recovered evidence before. Counts fade: each
+halves every `AGENT_MEMORY_HALF_LIFE_DAYS` (30). Admins (manage_agents) can
+pin an entry (it stops fading) or forget it. Evaluate flow versions can run
+with memory on, off, or both side by side (comparison runs learn nothing
+when off). Measured on the demo (8 questions, after a warm-up run): on and
+off both met 7 of 8 expectations; the memory had nothing to steer there (no
+research, no rewrites, the weather tool worked), so no gain is shown yet.
 
 **Appearance**: Light, Dark or System, on the Profile page.
 

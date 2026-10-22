@@ -712,8 +712,10 @@ def _eval_execute(run: dict, index: int, question: dict) -> dict:
     if "{domain}" in question["question"]:   # the red-team set names the flow's own domain
         domain = agent._flow_settings(spec).get("domain") or spec.name
         question = {**question, "question": question["question"].replace("{domain}", domain)}
-    result = agent.answer(question["question"], f"eval-{run['id']}-{index}", None, None, lambda event: None,
-                          retrieval_view, (spec, version), "eval", metrics.update)
+    # Agent memory on, or off for a comparison run (R27): read and learned alike.
+    with memory_store.using((run.get("options") or {}).get("memory", memory_store.USE)):
+        result = agent.answer(question["question"], f"eval-{run['id']}-{index}", None, None, lambda event: None,
+                              retrieval_view, (spec, version), "eval", metrics.update)
     tokens = (metrics.get("input_tokens") or 0) + (metrics.get("output_tokens") or 0)
     return {**metrics, "answer": result.get("answer") or "", "tokens": tokens,
             "seconds": metrics.get("seconds") or result.get("total") or 0}
@@ -838,7 +840,10 @@ async def eval_start(request: Request) -> Response:
             spec, label = _run_target(flow_id, version)
             _run_check(spec)
             targets.append((label, spec.model_dump(mode="json")))
-        ids = flows.evals.start(str(body.get("set_id") or ""), flow_id, targets, _eval_execute)
+        memory = {"on": (True,), "off": (False,), "both": (True, False)}.get(body.get("memory") or "on")
+        if memory is None:
+            return _json({"error": "memory: on, off or both"}, 400)
+        ids = flows.evals.start(str(body.get("set_id") or ""), flow_id, targets, _eval_execute, memory)
     except (flows.store.FlowNotFound, LookupError) as missing:
         return _json({"error": f"not found: {missing}"}, 404)
     except flows.FlowError as invalid:
@@ -1009,7 +1014,20 @@ def audit_csv(request: Request) -> Response:
 
 def agent_memory_view(request: Request) -> Response:
     """What the agents have learned across runs: outcomes only, never anyone's conversation."""
-    return _json({"agents": memory_store.AGENTS, "kinds": memory_store.KINDS, "entries": memory_store.entries()})
+    return _json({"agents": memory_store.AGENTS, "kinds": memory_store.KINDS, "entries": memory_store.entries(),
+                  "in_use": memory_store.USE, "half_life_days": memory_store.HALF_LIFE_DAYS,
+                  "can_manage": auth.allowed(auth.current_user(request), "manage_agents")})
+
+
+async def agent_memory_entry(request: Request) -> Response:
+    """Pin, unpin or forget one entry (R27)."""
+    body = await request.json()
+    if not isinstance(body, dict) or body.get("action") not in ("pin", "unpin", "forget"):
+        return _json({"error": "action is pin, unpin or forget"}, 400)
+    key = (str(body.get("agent") or ""), str(body.get("kind") or ""), str(body.get("key") or ""))
+    done = (memory_store.forget(*key) if body["action"] == "forget"
+            else memory_store.pin(*key, body["action"] == "pin"))
+    return _json({"ok": True}) if done else _json({"error": "no such entry"}, 404)
 
 
 # ---------- Sessions (sessions.py) ----------
@@ -1727,6 +1745,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/agent/resume", agent_resume, methods=["POST"]),
     Route("/api/agent/memory", agent_memory),
     Route("/api/agent-memory", agent_memory_view),
+    Route("/api/agent-memory/entry", agent_memory_entry, methods=["POST"]),
     Route("/api/users", user_list),
     Route("/api/users", user_create, methods=["POST"]),
     Route("/api/users/{user_id}", user_update, methods=["PUT"]),

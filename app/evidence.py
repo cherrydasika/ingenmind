@@ -338,6 +338,10 @@ class QueryRewrite(BaseModel):
     diagnosis: str = Field(description="One or two sentences: why the searches returned off-topic or no evidence")
     queries: list[str] = Field(min_length=1, max_length=3,
                                description="1–3 rewritten search queries for the same knowledge base")
+    # The kind of rewrite, which agent memory learns from (R27; never the queries).
+    strategy: Literal["narrower", "broader", "synonyms", "split", "spelling", "language", "other"] = Field(
+        "other", description="The main change: narrower, broader, synonyms (the documents' words), split "
+                             "(one question per query), spelling, language, or other")
 
 
 REWRITE_PROMPT = (
@@ -359,6 +363,9 @@ def diagnose_and_rewrite(task: str, searches: list[dict], evaluation: EvidenceEv
                       for s in searches) or "(no searches)"
     prompt = (f"TASK:\n{task}\n\nSEARCHES TRIED (query: top sources):\n{tried}\n\n"
               f"EVALUATOR: {evaluation.rationale}\nMissing: {'; '.join(evaluation.missing_information) or '—'}")
+    import agent_memory   # here: agent_memory imports research, which the evidence module mustn't need first
+    if history := agent_memory.strategy_note():      # what worked before (agent memory, R27)
+        prompt += f"\n\n{history}"
     with observation(as_type="generation", name="query_rewriter", model=llm.MODEL,
                      input=[{"role": "system", "content": REWRITE_PROMPT}, {"role": "user", "content": prompt}]) as gen:
         reply = llm.call_tool(prompt, system=REWRITE_PROMPT, name=REWRITE_TOOL,

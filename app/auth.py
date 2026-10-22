@@ -115,6 +115,7 @@ RULES = [
     ({"GET"}, r"/api/agent(/session)?", "query_rag"),
     ({"GET"}, r"/api/agent/memory", "view_agent_memory"),
     ({"GET"}, r"/api/agent-memory", "view_agent_memory"),
+    ({"POST"}, r"/api/agent-memory/entry", "manage_agents"),
     ({"GET"}, r"/api/flows(/[^/]+)?", ("manage_agents", "run_evaluations")),
     ({"GET", "POST", "PUT", "DELETE"}, r"/api/flows(/.*)?", "manage_agents"),
     ({"GET", "POST", "DELETE"}, r"/api/(flow-evals|evaluations)(/.*)?", "run_evaluations"),
