@@ -1,6 +1,7 @@
 """Server-side scope checks for questions, answers and research sources."""
 
 import json
+import logging
 import re
 from typing import Literal
 
@@ -8,6 +9,8 @@ from pydantic import BaseModel, Field
 
 import llm
 from tracing import observation
+
+log = logging.getLogger(__name__)
 
 MAX_QUESTION_CHARS = 2000
 MAX_CONTENT_CHARS = 24000
@@ -205,7 +208,8 @@ def check(stage: Literal["input", "output", "research"], question: str, content:
             if stage == "input" else []
         classify = assessor or (lambda s, q, c: assess_with_llm(s, q, c, scope.scope, context))
         result = Assessment.model_validate(classify(stage, question, content))
-    except Exception:
+    except Exception as error:
+        log.warning("%s guardrail classifier failed, closing: %s: %s", stage, type(error).__name__, error)
         return verdict("BLOCK", "classifier_unavailable", scope.unavailable_message)
     if stage == "output" and result.answer_kind in ("refusal", "clarification") and result.decision != "ALLOW":
         # A refusal or a question holds nothing out of scope to block; the

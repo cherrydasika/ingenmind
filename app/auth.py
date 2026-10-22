@@ -116,6 +116,8 @@ RULES = [
     ({"GET"}, r"/api/agent(/session)?", "query_rag"),
     ({"GET"}, r"/api/agent/memory", "view_agent_memory"),
     ({"GET"}, r"/api/agent-memory", "view_agent_memory"),
+    ({"GET"}, r"/api/runs", "view_sessions"),                        # R30: runs show users' questions
+    ({"POST"}, r"/api/runs/[^/]+/(resume|cancel)", "manage_agents"),
     ({"POST"}, r"/api/agent-memory/entry", "manage_agents"),
     ({"GET"}, r"/api/flows(/[^/]+)?", ("manage_agents", "run_evaluations")),
     ({"GET", "POST", "PUT", "DELETE"}, r"/api/flows(/.*)?", "manage_agents"),

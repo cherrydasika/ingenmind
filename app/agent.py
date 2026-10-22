@@ -65,8 +65,7 @@ from typing import Annotated, TypedDict
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError, EventStreamError
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.types import Send
+from langgraph.types import RetryPolicy, Send
 from pydantic import ValidationError
 
 import agent_memory
@@ -76,6 +75,7 @@ import answer_eval
 import api_tools
 import citations
 import contracts
+import durable
 import conversation
 import user_memory
 import evidence
@@ -525,6 +525,7 @@ class _Run:
                 with run.lock:
                     run.path.append({"node": name, "round": round_, "seconds": seconds})
                 run.emit({"type": "node", "state": "done", "node": name, "round": round_, "seconds": seconds})
+                durable.snapshot(run, name)      # what a resume needs, after every step (R30)
 
         return _Node()
 
@@ -1917,6 +1918,10 @@ def _runtime() -> flows.Runtime:
     """What the flow JSON's component types run as. Built per compile, so the
     node functions are looked up when the graph is built."""
     return flows.Runtime(
+        # A step that failed for a reason outside the request (a provider timeout, throttling, a
+        # dropped connection) runs again with backoff; finished steps are not redone (R30).
+        retry_policy=RetryPolicy(max_attempts=3, initial_interval=2.0, backoff_factor=2.0, jitter=True,
+                                 retry_on=llm.transient),
         states={"main": State, "task": KbState},
         factories={
             "supervisor": lambda node: _with_settings(_supervisor, node.config),
@@ -2034,7 +2039,8 @@ def _build_graph():
     return flows.compile_flow(FLOW, _runtime(), CHECKPOINTER)
 
 
-CHECKPOINTER = MemorySaver()
+# Checkpoints in PostgreSQL, so a run can resume after a restart (durable.py, R30).
+CHECKPOINTER = durable.saver()
 GRAPH = _build_graph()
 _graphs: dict[str, object] = {}
 _graphs_lock = threading.Lock()
@@ -2390,6 +2396,18 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
                 activities[public["node"]] = public["state"]
             on_event(public)
 
+    run = _prepare_run(spec, settings, session_id, user_id, limit, progress, retrieval_view, source, asked,
+                       trace_id)
+    run.run_id = run_id = str(uuid.uuid4())
+    # The run's record, so it can resume after a restart (durable.py, R30).
+    durable.begin(run_id, source=source, session_id=session_id, user_id=user_id, flow_id=spec.id, version=version,
+                  spec=spec.model_dump(mode="json"), question=asked, asked=question, read_as=read_as)
+    return _run_to_end(run, graph, spec, version, source, on_metrics, question, read_as, activities,
+                       {"question": asked, "round": 0, "findings": []}, time.time())
+
+
+def _prepare_run(spec: flows.FlowSpec, settings: dict, session_id: str, user_id: str | None, limit: int, progress,
+                 retrieval_view, source: str, asked: str, trace_id: str | None) -> "_Run":
     run = _Run(session_id, user_id, limit, progress, retrieval_view)
     run.source = source
     # What the user asked us to remember (R28): only their own, only if they opted in, only on the Ask page.
@@ -2402,14 +2420,21 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
     run.settings = settings
     run.tree, run.agent_runs = agent_tree.tree(spec), []
     run.trace_id = trace_id
-    run_id = str(uuid.uuid4())
+    return run
+
+
+def _run_to_end(run: "_Run", graph, spec: flows.FlowSpec, version, source: str, on_metrics, question: str,
+                read_as: str | None, activities: dict, graph_input, started: float) -> dict:
+    """Drive the graph (graph_input None: from its last checkpoint), then the result users see."""
+    run_id, settings = run.run_id, run.settings
+    durable.LIVE[run_id] = run
     config = {"configurable": {"run": run, "thread_id": run_id}, "recursion_limit": 60}
-    started = time.time()
+    cancelled = lambda: bool(getattr(run, "cancelled", None) and run.cancelled.is_set())
     try:
-        result = _drive(run_id, run, config, asked, {"question": asked, "round": 0, "findings": []}, started,
-                        graph=graph)
-    except Exception:
+        result = _drive(run_id, run, config, run.question, graph_input, started, graph=graph)
+    except Exception as error:
         _record_run(spec, version, source, {"failed": True, "seconds": round(time.time() - started, 3)})
+        durable.finish(run_id, "cancelled" if cancelled() else "failed", error=f"{type(error).__name__}: {error}"[:500])
         raise
     _record_run(spec, version, source, run.metrics)
     if on_metrics:
@@ -2418,7 +2443,7 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
     result["question"] = question                 # what the user asked (masked); read_as: what the agents got
     if read_as:
         result["read_as"] = read_as
-    result["guardrails"]["input"] = {"decision": verdict.decision, "stage": "input"}
+    result["guardrails"]["input"] = {"decision": "ALLOW", "stage": "input"}   # a run only starts once it passed
     result["activities"] = {node: "error" if state == "start" else state for node, state in activities.items()}
     if limits := settings.get("budget"):   # what the run used of its budget (R15)
         used = {k: v for k, v in run.budget_used().items() if k in limits}
@@ -2427,7 +2452,48 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
             f"the budget of {limits[over]:,} {over.removeprefix('max_').replace('_', ' ')}"
             " (checked between turns: one model turn can't be cut short)"))
         result["budget"] = {"limits": limits, "used": used, "hit": hit}
+    durable.finish(run_id, "cancelled" if cancelled() else "done", result)
     return result
+
+
+def resume_run(run_id: str, retrieval_view, on_event=lambda event: None) -> dict:
+    """Pick up a run that a restart (or a failure) cut short, from its last
+    checkpoint, with its own state put back (R30). The result as answer()'s."""
+    record = durable.get(run_id)
+    if not record or not durable.resumable(run_id):
+        raise ValueError("this run can't be resumed (finished, cancelled, or nothing was saved)")
+    spec = flows.FlowSpec.model_validate(record["spec"])
+    version = int(record["version"]) if record["version"].isdigit() else record["version"]
+    graph, settings = graph_for(spec), _flow_settings(spec)
+    activities = {}
+
+    def progress(event):
+        public = _public_progress(event)
+        if public:
+            if public["type"] == "activity":
+                activities[public["node"]] = public["state"]
+            on_event(public)
+    limit = describe().get("harness", {}).get("max_iterations") or 6
+    with observation(as_type="agent", name="question", input={"question": record["question"], "resumed": run_id}) as root:
+        tag_current_trace(name="question", session_id=record["session_id"] or None, user_id=record["user_id"],
+                          tags=[f"source:{record['source']}", f"flow:{spec.id}", f"version:{version}", "resumed"],
+                          metadata={"flow": spec.id, "version": str(version), "source": record["source"],
+                                    "resumed_run": run_id})
+        trace_id = current_trace_id()
+        run = _prepare_run(spec, settings, record["session_id"], record["user_id"], limit, progress, retrieval_view,
+                           record["source"], record["question"], trace_id)
+        durable.restore(run, record["snapshot"])
+        run.run_id, run.trace_id = run_id, trace_id
+        durable.begin(run_id, source=record["source"], session_id=record["session_id"], user_id=record["user_id"],
+                      flow_id=spec.id, version=version, spec=record["spec"], question=record["question"],
+                      asked=record["asked"], read_as=record["read_as"])
+        config = {"configurable": {"thread_id": run_id}}
+        fresh = CHECKPOINTER.get_tuple(config) is None    # cut short before its first step finished
+        result = _run_to_end(run, graph, spec, version, record["source"], None, record["asked"], record["read_as"],
+                             activities, {"question": record["question"], "round": 0, "findings": []} if fresh else None,
+                             time.time() - (record["seconds"] or 0))
+        root.update(output={"answer": result["answer"], "resumed": True})
+    return {**result, "resumed": True, "trace_id": trace_id}
 
 
 def resume(run_id: str, decisions: dict, on_event) -> dict:
@@ -2527,7 +2593,6 @@ def _drive(run_id: str, run: "_Run", config: dict, question: str, graph_input, s
                            evaluation.get("passed") if evaluation else None)
     except Exception as error:
         log.warning("could not record agent memory: %s", error)
-    CHECKPOINTER.delete_thread(run_id)
     return {**result, "status": "done", "run_id": run_id}
 
 

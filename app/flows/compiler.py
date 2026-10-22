@@ -32,6 +32,7 @@ class Runtime:
     delegates: set[str] | None = None               # names a fan-out may delegate to (None: any)
     impl_states: dict[str, set[str]] = field(default_factory=dict)  # impl → the flow states it can run in
     subflow_state: str | None = None                # the state a delegated subflow must run on
+    retry_policy: object | None = None              # LangGraph RetryPolicy for every step (R30)
 
 
 # ---------- validation ----------
@@ -363,7 +364,8 @@ def _build(spec: FlowSpec, runtime: Runtime) -> StateGraph:
         else:
             # The runtime sees every setting, defaults included.
             settled = node.model_copy(update={"config": component.config.model_validate(node.config).model_dump()})
-            graph.add_node(node.id, runtime.factories[component.impl](settled))
+            graph.add_node(node.id, runtime.factories[component.impl](settled),
+                           **({"retry_policy": runtime.retry_policy} if runtime.retry_policy else {}))
     start = next(n for n in spec.nodes if n.type == "start")
     graph.add_edge(START, _target(spec, _single_next(spec, start.id).target))
     for node in steps:

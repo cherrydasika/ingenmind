@@ -322,6 +322,25 @@ model call. "Open the page" links to the page scrolled to the first marked
 sentence (a text fragment, in browsers that support them). Sessions keep
 the previews with the answer.
 
+### Durable runs
+
+Every run's LangGraph state is checkpointed in PostgreSQL after each step
+(`langgraph-checkpoint-postgres`; `app/durable.py`, R30), and a record of
+the run (`agent_run_records`) keeps what the graph state doesn't: the
+searches behind its citations, tool calls, checks and usage. When the web
+app restarts, runs it left running become **interrupted**; those asked on
+the Ask page in the last `DURABLE_RESUME_MINUTES` (30) resume by
+themselves from their last finished step, and the answer joins the
+conversation (an Ask page left open picks it up). A step that fails for a
+reason outside the request (provider timeout, throttling, dropped
+connection) is retried up to three times with backoff, without redoing
+finished steps. **Monitoring → Runs** (view_sessions) lists every run with
+its status, steps, time and tokens; manage_agents can resume an interrupted
+or failed run, or cancel one. Finished runs drop their checkpoints; records
+are kept `DURABLE_RETENTION_DAYS` (7). `DURABLE_RUNS=false` keeps
+checkpoints in memory (no resume). Checked by killing the web app mid-run
+on the demo and starting it again: the run resumed and its answer appeared.
+
 ### Streaming and cancelling
 
 Questions stream their progress as server-sent events: the first arrives

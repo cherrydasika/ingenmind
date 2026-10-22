@@ -306,6 +306,18 @@ on #120 that isn't waiting on the user.
   Shown in the Agent Builder. Checked with real calls on the demo: a filled
   task and a done result; a nothing-found result is partial, not failed.
 
+- **R30 (#98) done:** durable runs (`app/durable.py`): LangGraph
+  checkpoints in PostgreSQL plus a run record with a snapshot of the run's
+  own state after each step; at startup interrupted Ask-page runs resume and
+  their answer joins the session (the open Ask page picks it up); transient
+  step failures retry with backoff; Monitoring → Runs (resume / cancel);
+  retention 7 days. Killing the web app mid-run and restarting resumed the
+  run (twice). Found on the way: holding a transaction while the
+  checkpointer's setup ran `CREATE INDEX CONCURRENTLY` hung a fresh
+  database's first start; now a session lock. Guardrail classifier errors
+  are now logged. **Deploy note:** the image gains
+  `langgraph-checkpoint-postgres` (CI builds it).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
