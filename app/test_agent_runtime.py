@@ -195,6 +195,11 @@ class AgentComponentTest(LocalHarnessTest):
         self.assertIn("did not pass Strict: It names one station only.", retry)              # the evaluator's feedback
         # The top agent's answer check sees the evidence its sub-agent gathered.
         self.assertEqual([c["source_url"] for c in seen["chunks"]], ["https://rail.example/access"])
+        # The sub-agent's report reaches its parent as a typed result (R29).
+        report = json.dumps(chat.calls[4]["messages"], ensure_ascii=False)
+        self.assertIn("Status: done.", report)
+        self.assertIn("Findings:\\nEvery station is step-free [1].", report)
+        self.assertIn('"required": ["goal"]', json.dumps(chat.calls[0]["tools"][0]))          # ask_kb takes a Task
 
     def test_the_live_shape_names_the_parts_for_the_chart(self):
         shape = agent.live_shape(self.starter(tools=["get_weather"]), 3)

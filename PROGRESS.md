@@ -297,6 +297,15 @@ on #120 that isn't waiting on the user.
   Found on the way: the checks blocked personalised answers until they saw
   the facts too. Export/delete with the rest of a user's data: R59.
 
+- **R29 (#97) done:** a typed task/result contract between agents and
+  sub-agents (`app/contracts.py`): `ask_<id>` takes a validated Task (goal,
+  inputs, constraints, expected output, turn budget, deadline, the last two
+  enforced); the run comes back as a validated Result (status, findings,
+  citations, missing, question, confidence, cost) built without an extra
+  model turn, traced, and phrased for the parent with what to do per status.
+  Shown in the Agent Builder. Checked with real calls on the demo: a filled
+  task and a done result; a nothing-found result is partial, not failed.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

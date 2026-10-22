@@ -67,6 +67,7 @@ import boto3
 from botocore.exceptions import BotoCoreError, ClientError, EventStreamError
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Send
+from pydantic import ValidationError
 
 import agent_memory
 import agent_runtime
@@ -74,6 +75,7 @@ import agent_tree
 import answer_eval
 import api_tools
 import citations
+import contracts
 import conversation
 import user_memory
 import evidence
@@ -485,6 +487,7 @@ class _Run:
         self.assessor = evidence.assess_with_llm
         self.rewriter = evidence.diagnose_and_rewrite
         self.rewrites: list[dict] = []
+        self.contracts: list[dict] = []   # sub-agent tasks and results (R29)
         self.searches: list[dict | None] = []
         self.calls: list[dict] = []
         self.evaluations: list[dict] = []
@@ -732,23 +735,30 @@ class _Run:
 
     # ---------- specialists ----------
 
-    def specialist(self, role: str, task: str, n: int) -> dict:
-        """Run a specialist on its task until it answers, running its tools."""
+    def specialist(self, role: str, task: str, n: int, max_turns: int | None = None,
+                   deadline: float | None = None) -> dict:
+        """Run a specialist on its task until it answers, running its tools.
+        max_turns / deadline (time.monotonic()): a sub-agent task's own limits
+        (R29); run["stopped"] says which cut it short."""
         with self.lock:
             lock = self.role_locks.setdefault(role, threading.Lock())
         with lock:
             run = self.new_run(role, n)
+            limit = min(self.turn_limit(role), max_turns or self.turn_limit(role))
             messages = [{"role": "user", "content": [{"text": task}]}]
             while True:
                 if hit := self.over_budget():   # stop with what it has (R15)
                     if not getattr(self, "budget_hit", None):
                         self.budget_hit = hit
                         self.emit({"type": "budget", "agent": role, "delegation": n, "reason": hit})
+                    run["stopped"] = "the run's budget"
                     break
                 stop_reason, uses = self.invoke(run, messages)
                 if stop_reason != "tool_use" or not uses:
                     break
-                if run["turns"] >= self.turn_limit(role):
+                late = deadline is not None and time.monotonic() > deadline
+                if run["turns"] >= limit or late:
+                    run["stopped"] = "its deadline" if late else "its turn limit"
                     self.emit({"type": "limit", "agent": role, "delegation": n, "turn": run["turns"]})
                     # Answer the pending calls so the session is not left
                     # waiting, and let the agent close with what it has.
@@ -886,12 +896,31 @@ class _Run:
             parent = next((r for r in self.agent_runs if r["n"] == delegation), None)
             if child not in self.tree or self.tree[child].parent != (parent or {}).get("node"):
                 return _result(use, f"Unknown sub-agent {child!r}.", error=True)
-            task = str(_input(use).get("task") or "").strip()[:MAX_TEXT_CHARS]
-            if not task:
-                return _result(use, "The task is empty.", error=True)
-            done = self.run_agent(child, task, parent=delegation)
-            note = "" if done["passed"] else f"\n[This did not pass {done['failed_check']}: {done['feedback']}]"
-            return _result(use, (done["answer"] or "(no answer)") + note)
+            # The typed contract (R29): a Task in, a Result back, both validated.
+            try:
+                task = contracts.Task.from_call(_input(use))
+            except ValidationError as error:
+                problems = "; ".join(f"{'.'.join(map(str, e['loc'])) or 'task'}: {e['msg']}" for e in error.errors()[:3])
+                return _result(use, f"Invalid task for {child}: {problems}", error=True)
+            deadline = time.monotonic() + task.deadline_seconds if task.deadline_seconds else None
+            done = self.run_agent(child, task.prompt()[:MAX_TEXT_CHARS], parent=delegation,
+                                  max_turns=task.max_turns, deadline=deadline)
+            result = contracts.result_of(
+                done["answer"], passed=done["passed"], failed_check=done["failed_check"],
+                error=done["feedback"] if done["failed_check"] == "its run" else None, stopped=done.get("stopped"),
+                checks=done.get("checks"), cost={"seconds": done.get("seconds", 0), "turns": done.get("turns", 0),
+                                                 "input_tokens": done.get("input_tokens", 0),
+                                                 "output_tokens": done.get("output_tokens", 0)})
+            with self.lock:
+                self.contracts.append({"n": done["n"], "parent": delegation, "agent": child,
+                                       "task": task.model_dump(), "result": result.model_dump()})
+            # Public-safe: status, counts and cost only (never the goal or the findings).
+            self.emit({"type": "contract", "n": done["n"], "agent": child, "status": result.status,
+                       "citations": len(result.citations), "missing": len(result.missing),
+                       "confidence": result.confidence, "turns": result.cost.turns})
+            with observation(as_type="span", name=f"contract:{child}", input=task.model_dump()) as span:
+                span.update(output=result.model_dump())
+            return _result(use, result.for_parent(), error=result.status == "failed")
         if name == "search_knowledge_base":
             return self._search(use, delegation)
         if name in ("web_search", "fetch_source"):
@@ -923,9 +952,11 @@ class _Run:
                         for w in getattr(self, "web_searches", []) if w["delegation"] in below]
         return chunks, api_results, searches
 
-    def run_agent(self, node: str, task: str, parent: int | None = None) -> dict:
+    def run_agent(self, node: str, task: str, parent: int | None = None, max_turns: int | None = None,
+                  deadline: float | None = None) -> dict:
         """Run a generic agent on a task, then its checks; a failed check gets another try
-        with the evaluator's feedback, up to its max attempts."""
+        with the evaluator's feedback, up to its max attempts. max_turns / deadline: a
+        sub-agent task's limits (R29)."""
         agent = self.tree[node]
         with self.lock:
             n = len(self.agent_runs) + 1
@@ -937,8 +968,11 @@ class _Run:
         prompt_task, out = task, {"answer": "", "passed": True, "failed_check": None, "feedback": "", "checks": []}
         for attempt in range(1, attempts + 1):
             try:
-                result = self.specialist(f"agent:{node}", prompt_task, n)
+                result = self.specialist(f"agent:{node}", prompt_task, n, max_turns, deadline)
                 out["answer"], out["turns"] = _without_preamble(result["answer"] or ""), result["turns"]
+                out["stopped"] = result.get("stopped")
+                for key in ("input_tokens", "output_tokens"):
+                    out[key] = out.get(key, 0) + result.get(key, 0)
             except Exception as error:
                 out.update(answer="", passed=False, failed_check="its run", feedback=f"{type(error).__name__}: {error}")
                 break
@@ -2571,6 +2605,7 @@ def _result_of(run: "_Run", final: dict, question: str, total: float) -> dict:
         "calls": run.calls,
         "evaluations": sorted(run.evaluations, key=lambda e: (e["delegation"], e["attempt"])),
         "rewrites": run.rewrites,
+        "contracts": getattr(run, "contracts", []),
         "research": [{**r, "web_searches": [w for w in run.web_searches if w["delegation"] == r["delegation"]]}
                      for r in run.research],
         "max_iterations": run.limit,

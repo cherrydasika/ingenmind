@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 import answer_eval
 import api_tools
+import contracts
 import evidence
 import flows
 import llm
@@ -90,10 +91,9 @@ def tools(agent: Agent, agents: dict[str, Agent], roles: dict) -> list[dict]:
         what = _first_sentence(child.config.get("instructions")) or "answers tasks in its area"
         out.append({"name": f"{SUBAGENT_TOOL}{child_id}", "config": {"inlineFunction": {
             "description": f"Hand a self-contained task to {child.name} ({what}). It works on it with its own "
-                           "tools and reports back, citing [n] where it used the knowledge base.",
-            "inputSchema": {"type": "object", "properties": {
-                "task": {"type": "string", "description": "The task, with every detail it needs"}},
-                "required": ["task"]}}}})
+                           "tools and reports back with a status (done, partial, failed or needs input), its "
+                           "findings citing [n] where it used the knowledge base, and what is missing.",
+            "inputSchema": contracts.task_schema()}}})
     return out
 
 
@@ -107,8 +107,8 @@ TOP_PROMPT = (
 SUB_PROMPT = (
     "You are {name}, a sub-agent: another agent gives you a task, and you report back to it. Use your tools "
     "and sub-agents for the task; report only what they return, citing knowledge-base chunks by their [n] "
-    "numbers right after the facts they support. If they don't cover the task, say what is missing. Be concise "
-    "(a hard limit of {words} words) and do not write to the end user.")
+    "numbers right after the facts they support. Be concise (a hard limit of {words} words) and do not write "
+    "to the end user. " + contracts.SUB_RULES)
 
 
 def prompt(agent: Agent, agents: dict[str, Agent]) -> str:
@@ -119,8 +119,9 @@ def prompt(agent: Agent, agents: dict[str, Agent]) -> str:
         text += f"\n\n{instructions}"
     if agent.subagents:
         team = "; ".join(f"{agents[c].name} ({SUBAGENT_TOOL}{c})" for c in agent.subagents)
-        text += (f"\n\nYour sub-agents: {team}. Give each a self-contained task when the question needs what it "
-                 "knows; independent tasks can go out in the same turn.")
+        text += (f"\n\nYour sub-agents: {team}. Give each a self-contained task (a goal, and inputs and "
+                 "constraints when they matter) when the question needs what it knows; independent tasks can go "
+                 "out in the same turn. Each reports a status: act on it as its report says.")
     return text
 
 

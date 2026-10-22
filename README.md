@@ -236,7 +236,15 @@ the classic one's 320–410k.
   **guardrails**, and plug things into an agent's left port: **tools**
   (Retriever for the knowledge base, Web search, Scraper, API tools),
   **sub-agents** (another Agent, plugged in by its right handle: its parent
-  hands it tasks with `ask_<name>`, at any depth) and **evaluators** (any
+  hands it tasks with `ask_<name>`, at any depth, under a typed contract:
+  R29, `app/contracts.py` — a **task** (goal; optional inputs,
+  constraints, expected output, a turn budget and a deadline) and a
+  **result** (status done / partial / failed / needs input, findings,
+  [n] citations, what is missing, the question it needs answered, its
+  checks' confidence, and its cost), both validated on every call and
+  traced as a `contract:<name>` span; the parent is told how to act on each
+  status, and an invalid task goes back to it as an error. The builder
+  shows the contract on agents with sub-agents and on sub-agents) and **evaluators** (any
   number, at any level: each checks that agent's result, the answer, the
   evidence or your own criteria, and a failure gets another try with its
   feedback). What an agent does comes from what is connected to it. Names
