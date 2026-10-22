@@ -116,20 +116,21 @@ def end(user_id: str, session_id: str | None) -> None:
                            "WHERE session_id = %s AND user_id = %s AND status = 'active'", (session_id, user_id))
 
 
-def record_turn(session_id: str, user_id: str, question: str, result: dict, trace_id: str | None = None) -> None:
-    """One question and what the user was shown."""
+def record_turn(session_id: str, user_id: str, question: str, result: dict, trace_id: str | None = None) -> dict:
+    """One question and what the user was shown: {turn_id, asked_at}."""
     ensure_schema()
     kept = {key: result.get(key) for key in RESULT_KEYS if key in result}
     with _connect() as connection:
-        connection.execute(
+        row = connection.execute(
             "INSERT INTO app_session_turns (session_id, user_id, question, answer, result, trace_id) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            (session_id, user_id, question, result.get("answer") or "", Jsonb(kept), trace_id))
+            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING turn_id, asked_at",
+            (session_id, user_id, question, result.get("answer") or "", Jsonb(kept), trace_id)).fetchone()
         connection.execute(
             "UPDATE app_sessions SET last_activity = now(), "
             "title = CASE WHEN title = '' THEN %s ELSE title END WHERE session_id = %s",
             (question.strip()[:TITLE_CHARS], session_id))
     prune()
+    return row
 
 
 def prune(force: bool = False) -> int:

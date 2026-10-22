@@ -1416,6 +1416,23 @@ when off). Measured on the demo (8 questions, after a warm-up run): on and
 off both met 7 of 8 expectations; the memory had nothing to steer there (no
 research, no rewrites, the weather tool worked), so no gain is shown yet.
 
+**Long-term memory about you** (R28, `app/user_memory.py`), off until you
+turn it on in Profile → Memory: the assistant then notes lasting facts you
+mention in your questions (home station, a railcard you hold, accessibility
+needs, travelling with a bike, your language): one small model call after
+each answered question, from your question only, personal data masked, at
+most 50. The list shows each fact with the question and time it came from;
+edit or delete any, or all; turning memory off deletes them all (the
+consent change is in the audit log). Your facts reach only your own
+questions on the Ask page: the supervisor gets them as quoted data, and the
+output check and answer check see them too, so "my home station" answered
+as Port Avalon passes; a web search never carries a word that comes from a
+fact rather than your question. Checked on the demo: "I live near Port
+Avalon and always travel with my folding bike…" gave "Home station: Port
+Avalon" and "Travels with a folding bike"; in a new conversation "What
+disruption should I expect at my home station in strong winds?" was
+answered for Port Avalon.
+
 **Appearance**: Light, Dark or System, on the Profile page.
 
 ### Ask page layout

@@ -75,6 +75,7 @@ import answer_eval
 import api_tools
 import citations
 import conversation
+import user_memory
 import evidence
 import flows
 import guardrails
@@ -995,6 +996,8 @@ class _Run:
             return _result(use, f"Recorded {len(chosen)} data source(s) for profiling.")
         if name == "web_search":
             query = str(args.get("query") or "").strip()[:400]
+            # Never what the user asked us to remember (R28): only what they asked.
+            query = user_memory.scrub_query(query, str(getattr(self, "question", "") or ""), _user_facts(self))
             if not query:
                 return _result(use, "The query is empty.", error=True)
             self.emit({"type": "research", "step": "search", "state": "start", "delegation": delegation, "query": query})
@@ -1280,7 +1283,8 @@ def _supervisor(state: State, config) -> dict:
             run.supervisor = run.new_run("supervisor")
         sup = run.supervisor
         if not state.get("pending_uses"):
-            messages = [{"role": "user", "content": [{"text": state["question"]}]}]
+            about = user_memory.context_text(_user_facts(run))
+            messages = [{"role": "user", "content": [{"text": state["question"] + about}]}]
         else:
             done = [f for f in state["findings"] if f["round"] == round_]
             text = "\n\n".join(
@@ -1930,6 +1934,23 @@ def _build_kb_graph(checkpointer=None):
 KB_GRAPH = _build_kb_graph()
 
 
+def _user_facts(run) -> list[str]:
+    """What the user asked us to remember, as given to this run (R28); [] for none."""
+    facts = getattr(run, "user_facts", None)
+    return facts if isinstance(facts, list) else []
+
+
+def _checked_question(state: State, run: "_Run") -> str:
+    """The question as the checks judge the answer against it: with what the
+    user asked us to remember (R28), which the answer may rightly use ("my
+    home station" → Port Avalon)."""
+    facts = _user_facts(run)
+    if not facts:
+        return state["question"]
+    return (state["question"] + "\n\n(Remembered about the user at their request, which the answer may use: "
+            + "; ".join(facts) + ")")
+
+
 def _answer_evaluator(state: State, config) -> dict:
     """The last gate: the summarizer's answer against the evidence it had."""
     run: _Run = config["configurable"]["run"]
@@ -1947,7 +1968,7 @@ def _answer_evaluator(state: State, config) -> dict:
     with run.node("answer_evaluator", state.get("round", 0)):
         try:
             settings = _settings(config)
-            result = answer_eval.evaluate(state["question"], draft, chunks, api_results, assessor=run.answer_assessor,
+            result = answer_eval.evaluate(_checked_question(state, run), draft, chunks, api_results, assessor=run.answer_assessor,
                                           thresholds={k: settings[k] for k in answer_eval.THRESHOLDS if k in settings})
             evaluation = result.model_dump(mode="json")
         except Exception as error:
@@ -1966,7 +1987,8 @@ def _answer_evaluator(state: State, config) -> dict:
 def _output_guardrail(state: State, config) -> dict:
     run = config["configurable"]["run"]
     run.emit({"type": "guardrail", "stage": "output", "state": "start"})
-    verdict = guardrails.check("output", state["question"], state.get("answer") or "", scope=_scope(getattr(run, "settings", None)))
+    verdict = guardrails.check("output", _checked_question(state, run), state.get("answer") or "",
+                               scope=_scope(getattr(run, "settings", None)))
     run.emit({"type": "guardrail", "stage": "output", "state": "done", "decision": verdict.decision})
     # An allowed draft is the answer unless an answer evaluator follows and replaces it.
     return {"output_guardrail": verdict.model_dump(),
@@ -2336,6 +2358,8 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
 
     run = _Run(session_id, user_id, limit, progress, retrieval_view)
     run.source = source
+    # What the user asked us to remember (R28): only their own, only if they opted in, only on the Ask page.
+    run.question, run.user_facts = asked, (user_memory.for_run(user_id) if source == "users" else [])
     run.agents = flow_agents(spec)
     try:                    # the labels the knowledge-base agent may filter by (#15)
         settings = {**settings, "filters": labels.vocabulary()}
