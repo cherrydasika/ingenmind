@@ -216,3 +216,16 @@ export function labelsCell(labels) {
   return h("td", { class: "wrap" }, (labels.topic || []).map((t) => badge(labelText(t))),
     kind ? h("div", { class: "faint", style: "white-space:nowrap" }, kind) : null);
 }
+
+// Heatmap cells (Evaluations): a 0–1 value as a shade of one blue; text: the
+// cell's content instead of the value. Low = dim, high = bright.
+const HEAT = ["#0d366b", "#104281", "#184f95", "#1c5cab", "#256abf", "#2a78d6", "#3987e5",
+  "#5598e7", "#6da7ec", "#86b6ef", "#9ec5f4", "#b7d3f6", "#cde2fb"];
+export function heatCell(value, { title = "", digits = 2, cls = "", text = null } = {}) {
+  if (value == null) return h("td", { class: `heat heat-empty ${cls}`, title: title || "Not scored" }, "—");
+  const index = Math.round(Math.max(0, Math.min(1, value)) * (HEAT.length - 1));
+  // Dark text from step 5 on: ≥ 4.3:1 either side of the switch.
+  return h("td", {
+    class: `heat ${index >= 5 ? "heat-light" : ""} ${cls}`, style: `background:${HEAT[index]}`, title,
+  }, text ?? value.toFixed(digits));
+}

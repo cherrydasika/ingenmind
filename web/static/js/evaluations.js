@@ -1,7 +1,8 @@
 import { api } from "./api.js";
-import { badge, card, errorBox, fmtTime, h, loading, markdown, note, shortUrl } from "./ui.js";
+import { badge, card, errorBox, fmtTime, h, heatCell, loading, markdown, note, shortUrl } from "./ui.js";
 import { FlowEvals } from "./flow_evals.js";
 import { GoldenSet } from "./golden.js";
+import { SearchQuality } from "./search_quality.js";
 
 const POLL_MS = 2000;
 const SELECTED_KEY = "rag.eval.selected";
@@ -12,21 +13,9 @@ const PHASE_LABEL = {
 };
 const SCORE_LABEL = { correctness: "correct", faithfulness: "faithful", similarity: "similar" };
 
-// Sequential blue (one hue): on the dark surface, low = dim, high = bright.
-const HEAT = ["#0d366b", "#104281", "#184f95", "#1c5cab", "#256abf", "#2a78d6", "#3987e5",
-  "#5598e7", "#6da7ec", "#86b6ef", "#9ec5f4", "#b7d3f6", "#cde2fb"];
 const MATRIX_VIEWS = [
   ["summary", "Summary"], ["correctness", "Correctness"], ["faithfulness", "Faithfulness"], ["similarity", "Similarity"],
 ];
-
-function heatCell(value, { title = "", digits = 2, cls = "" } = {}) {
-  if (value == null) return h("td", { class: `heat heat-empty ${cls}`, title: title || "Not scored" }, "—");
-  const index = Math.round(Math.max(0, Math.min(1, value)) * (HEAT.length - 1));
-  // Dark text from step 5 on: ≥ 4.3:1 either side of the switch.
-  return h("td", {
-    class: `heat ${index >= 5 ? "heat-light" : ""} ${cls}`, style: `background:${HEAT[index]}`, title,
-  }, value.toFixed(digits));
-}
 
 function scoreKind(v) {
   return v >= 0.75 ? "ok" : v >= 0.4 ? "warn" : "err";
@@ -51,6 +40,7 @@ export class EvaluationsPage {
     this.timer = null;
     this.matrixView = "summary";
     this.flowEvals = new FlowEvals();
+    this.searchQuality = new SearchQuality();
     this.golden = new GoldenSet({ onSaved: (set) => { this.flowEvals.form.set = set.id; this.flowEvals.load(); } });
     try { this.selected = sessionStorage.getItem(SELECTED_KEY); } catch { this.selected = null; }
   }
@@ -60,11 +50,12 @@ export class EvaluationsPage {
     this.timer = null;
     this.flowEvals.stop();
     this.golden.stop();
+    this.searchQuality.stop();
   }
 
   async mount() {
     this.root.replaceChildren(loading());
-    await Promise.all([this.refresh(), this.flowEvals.load(), this.golden.load()]);
+    await Promise.all([this.refresh(), this.flowEvals.load(), this.golden.load(), this.searchQuality.load()]);
   }
 
   async refresh() {
@@ -99,6 +90,7 @@ export class EvaluationsPage {
     this.root.replaceChildren(h("div", { class: "stack" },
       this.golden.root,
       this.flowEvals.root,
+      this.searchQuality.root,
       h("h2", { class: "fe-archive-title" }, "Archived local-model evaluations"),
       note("Earlier runs of the local-model workflow, read-only."),
       this.flash ? errorBox(this.flash) : null,
