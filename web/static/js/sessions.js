@@ -3,6 +3,7 @@
 // opens one session.
 
 import { api } from "./api.js";
+import { linkCitations } from "./citations.js";
 import { card, errorBox, fmtTime, h, loading, markdown, note, sourceItem } from "./ui.js";
 
 function dayLabel(iso) {
@@ -110,11 +111,13 @@ export class SessionsPage {
         : null;
     const meta = [clock(t.asked_at), r.total ? fmtTime(r.total) : null,
       r.flow ? `flow ${r.flow.id} v${r.flow.version}` : null].filter(Boolean).join(" · ");
+    const body = h("div", { class: "reply-body", html: markdown(t.answer) });
+    linkCitations(body, r.citations);   // the passages behind its citations (R23)
     return h("div", { class: "turn" },
       h("div", { class: "q" }, t.question),
       h("div", { class: `reply ${check && !check.passed ? "withheld" : ""}` },
         h("div", { class: "reply-role" }, "◆ Answer", verdict),
-        h("div", { class: "reply-body", html: markdown(t.answer) }),
+        body,
         h("div", { class: "reply-meta" }, meta)),
       r.sources?.length ? h("details", { class: "sources" },
         h("summary", {}, `Sources (${r.sources.length})`),

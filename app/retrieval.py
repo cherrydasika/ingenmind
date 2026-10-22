@@ -21,6 +21,8 @@ def _hit_to_chunk(hit: dict) -> dict:
         **({"rerank_score": round(hit["rerank_score"], 4)} if "rerank_score" in hit else {}),
         # For the evidence evaluator's freshness check.
         "ingested_at": hit["payload"].get("ingested_at"), "ttl_days": hit["payload"].get("ttl_days"),
+        # For citation previews (R23): the page's title and the headings the chunk sits under.
+        "title": hit["payload"].get("title") or "", "headings": hit["payload"].get("headings") or [],
         # What the page is about (#15): who published it and how current it is, for citations.
         "meta": {k: v for k, v in (hit["payload"].get("meta") or {}).items()
                  if k in ("organisation", "effective_date", "authority", "topic", "content_type")},

@@ -30,7 +30,7 @@ PRUNE_EVERY_SECONDS = 3600
 TITLE_CHARS = 80
 # What of a public result a turn keeps: enough to show the answer again and
 # redraw the workflow graph; numbers, labels and URLs, no chunk text.
-RESULT_KEYS = ("answer", "sources", "answer_check", "guardrails", "activities", "rounds", "total", "flow", "status")
+RESULT_KEYS = ("answer", "sources", "citations", "answer_check", "guardrails", "activities", "rounds", "total", "flow", "status")
 
 _schema_ready = False
 _schema_lock = threading.Lock()
