@@ -117,7 +117,7 @@ RULES = [
     ({"GET"}, r"/api/agent-memory", "view_agent_memory"),
     ({"GET"}, r"/api/flows(/[^/]+)?", ("manage_agents", "run_evaluations")),
     ({"GET", "POST", "PUT", "DELETE"}, r"/api/flows(/.*)?", "manage_agents"),
-    ({"GET", "POST"}, r"/api/(flow-evals|evaluations)(/.*)?", "run_evaluations"),
+    ({"GET", "POST", "DELETE"}, r"/api/(flow-evals|evaluations)(/.*)?", "run_evaluations"),
     ({"GET"}, r"/api/(overview|ingestion|source-reports|knowledge/(provenance|flagged))", "view_knowledge"),
     ({"POST"}, r"/api/(ingestion/trigger|sources/remove|source-reports/remove)", "manage_knowledge"),
     ({"GET", "POST"}, r"/api/adhoc(/.*)?", "upload_documents"),

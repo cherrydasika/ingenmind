@@ -52,6 +52,7 @@ import evaluation_archive as evaluation
 import embedding_viz
 import flows
 from flows import golden as golden_sets
+from flows import search_eval
 import pii
 import pipeline_flow
 from common import config, storage
@@ -748,6 +749,59 @@ async def golden_start(request: Request) -> Response:
 
 def golden_status(request: Request) -> Response:
     return _json({"run": golden_sets.status(), "counts": list(golden_sets.COUNTS)})
+
+
+def search_quality(request: Request) -> Response:
+    """Search quality (R20): the test sets, the saved runs, the job in progress."""
+    return _json({"job": search_eval.status(), "sets": search_eval.list_sets(), "runs": search_eval.list_runs(),
+                  "counts": list(search_eval.COUNTS), "current": search_eval.current_settings()})
+
+
+async def search_quality_generate(request: Request) -> Response:
+    """Write a search test set from the knowledge base, in the background."""
+    body = await request.json()
+    try:
+        return _json(search_eval.generate(int(body.get("count") or 0)), 202)
+    except (TypeError, ValueError) as error:
+        return _json({"error": str(error)}, 409 if "already" in str(error) else 400)
+
+
+def search_quality_set(request: Request) -> Response:
+    found = search_eval.get_set(request.path_params["set_id"])
+    return _json(found) if found else _json({"error": "no such set"}, 404)
+
+
+async def search_quality_set_change(request: Request) -> Response:
+    """Add a real question (with the page that answers it) or remove one by index."""
+    body = await request.json()
+    set_id = request.path_params["set_id"]
+    try:
+        if body.get("remove") is not None:
+            return _json(search_eval.remove_question(set_id, int(body["remove"])))
+        return _json(search_eval.add_question(set_id, body.get("question"), body.get("source")))
+    except (TypeError, ValueError) as error:
+        return _json({"error": str(error)}, 400)
+
+
+def search_quality_set_delete(request: Request) -> Response:
+    search_eval.delete_set(request.path_params["set_id"])
+    return _json({"ok": True})
+
+
+async def search_quality_run(request: Request) -> Response:
+    """Score a set over every search setting (no model calls), in the background."""
+    body = await request.json()
+    try:
+        return _json(search_eval.start_run(str(body.get("set_id") or "")), 202)
+    except LookupError as error:
+        return _json({"error": str(error)}, 404)
+    except ValueError as error:
+        return _json({"error": str(error)}, 409 if "already" in str(error) else 400)
+
+
+def search_quality_run_detail(request: Request) -> Response:
+    found = search_eval.get_run(request.path_params["run_id"])
+    return _json(found) if found else _json({"error": "no such run"}, 404)
 
 
 def eval_archive_sets(request: Request) -> Response:
@@ -1674,6 +1728,13 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/flow-evals/archive", eval_archive_sets),
     Route("/api/flow-evals/golden", golden_status),
     Route("/api/flow-evals/golden", golden_start, methods=["POST"]),
+    Route("/api/flow-evals/search", search_quality),
+    Route("/api/flow-evals/search/sets", search_quality_generate, methods=["POST"]),
+    Route("/api/flow-evals/search/sets/{set_id}", search_quality_set),
+    Route("/api/flow-evals/search/sets/{set_id}", search_quality_set_change, methods=["POST"]),
+    Route("/api/flow-evals/search/sets/{set_id}", search_quality_set_delete, methods=["DELETE"]),
+    Route("/api/flow-evals/search/runs", search_quality_run, methods=["POST"]),
+    Route("/api/flow-evals/search/runs/{run_id}", search_quality_run_detail),
     Route("/api/flow-evals/runs", eval_runs),
     Route("/api/flow-evals/runs", eval_start, methods=["POST"]),
     Route("/api/flow-evals/runs/{run_id}", eval_run_detail),

@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-21
+Last updated: 2026-10-22
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -226,6 +226,19 @@ on #120 that isn't waiting on the user.
   question. Found on the way: embedding similarity alone let "Off-Peak
   return" reuse the "Anytime return" answer (a wrong fare); the key-word
   signature now stops that, and a test covers it.
+
+- **R20 (#1) done:** Evaluations → **Search quality**
+  (`app/flows/search_eval.py`): a test set written from passages spread
+  over the knowledge base (each question knows its passage; real questions
+  added by hand with their page), and runs that search each question once
+  and score every setting (meaning / keywords / both with RRF_K 1–60 × top
+  3–10) by hit rate and MRR, with no model calls. Heatmap with the current
+  setting outlined, comparison with an earlier run, misses per cell; runs
+  saved. Checked on a demo preview (6 passages, too small to choose
+  settings): meaning-only and fused found every passage, **keywords-only
+  only 33–40%**: `plainto_tsquery` needs every word of the question in the
+  passage, so everyday questions rarely match; worth looking at with R21/R22
+  on a real knowledge base.
 
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):

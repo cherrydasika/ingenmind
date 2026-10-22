@@ -1512,6 +1512,29 @@ whole knowledge base.
   evaluation still writes at most 50. One set is written at a time, kept in
   memory until saved.
 
+**Search quality** (R20; `app/flows/search_eval.py`,
+`web/static/js/search_quality.js`, `/api/flow-evals/search/...`): measures
+the search on its own, before any model answers: is the passage that
+answers a question among the results?
+- **Test set:** 20, 50 or 100 passages picked as for the golden set; one
+  model call each writes the everyday question it answers (told not to copy
+  its wording). Each question knows its passage. Real questions can be added
+  by hand with the page that answers them: any passage of that page counts.
+  A passage gone since (the page re-chunked or removed) is matched by its
+  page too, and the run says how many.
+- **A run** embeds and searches each question once (30 deep, meaning and
+  keywords) and scores every setting from those results, with no model
+  calls: meaning only, keywords only, or both fused with `RRF_K` 1, 2, 5,
+  10, 30 or 60, each keeping the top 3, 5, 8 or 10 (candidates per search:
+  2 × top, as `hybrid_search` does). **Hit rate**: the share of questions
+  whose passage is among the results; **MRR**: 1 / its position, 0 when
+  missing, averaged.
+- **The heatmap** (hit rate or MRR) outlines what the Ask page uses; pick an
+  earlier run of the set to see each cell's change. Click a cell for the
+  questions it missed and where their passage came in each search.
+  Runs are kept in `search_eval_runs` (with the questions as they were), sets in
+  `search_eval_sets`.
+
 **Archived local-model evaluations:**
 `#/evaluations` (`web/static/js/evaluations.js`, `app/evaluation_archive.py`) displays
 past runs stored in `data/evaluations/<id>.json`. New runs and resumes are
