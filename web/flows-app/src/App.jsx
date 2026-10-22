@@ -408,10 +408,11 @@ function Playground({ open, onClose, record, flowId, dirty, session, onEvent, on
         question: q, session_id: sessionId, user_id: userId, version: target === "" ? undefined : Number(target),
       }, (event) => {
         if (event.type === "plan") update({ plan: event.tasks });   // a Planner's task graph, live (R31)
+        if (event.type === "board") update({ board: event.entries, boardNext: event.next || null });   // a Blackboard, live (R33)
         onEvent(event);
       });
       update({ answer: result.answer ?? "", flow: result.flow, total: result.total, budget: result.budget,
-        ...(result.plan ? { plan: result.plan } : {}) });
+        ...(result.plan ? { plan: result.plan } : {}), ...(result.board ? { board: result.board, boardNext: null } : {}) });
     } catch (err) {
       update({ error: err.message });
     } finally {
@@ -438,6 +439,7 @@ function Playground({ open, onClose, record, flowId, dirty, session, onEvent, on
             <div key={t.id} className="fl-turn">
               <div className="fl-q">{t.question}</div>
               {t.plan?.length > 0 && <PlanList tasks={t.plan} />}
+              {t.board?.length > 0 && <BoardList entries={t.board} next={t.boardNext} />}
               {t.answer !== null && <div className="fl-answer">{t.answer ? <AnswerText text={t.answer} /> : <span className="fl-faint">No answer.</span>}
                 {t.flow && <div className="fl-faint fl-turn-meta">{t.flow.id} {typeof t.flow.version === "number" ? `v${t.flow.version}` : t.flow.version}{t.total ? ` · ${t.total.toFixed(1)} s` : ""}</div>}
                 {t.budget && <BudgetUse budget={t.budget} />}</div>}
@@ -469,6 +471,26 @@ function PlanList({ tasks }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+// A Blackboard's board (R33): questions, facts and hypotheses, who posted each, how sure, and who acts next.
+const BOARD_MARK = { question: "?", fact: "✓", hypothesis: "~" };
+function BoardList({ entries, next }) {
+  return (
+    <div className="fl-board">
+      {next && <div className="fl-faint">Next: {next.agent} on {next.question}{next.reason ? ` · ${next.reason}` : ""}</div>}
+      <ol>
+        {entries.map((e) => (
+          <li key={e.id} className={`fl-board-entry is-${e.kind} ${e.status ? `is-${e.status}` : ""}`}>
+            <span className="fl-board-mark" title={e.kind}>{BOARD_MARK[e.kind]}</span>
+            <span>{e.text}</span>{" "}
+            <span className="fl-faint">· {e.id} · {e.author}{e.confidence != null ? ` · ${Math.round(e.confidence * 100)}%` : ""}
+              {e.status ? ` · ${e.status}` : ""}{e.answers ? ` · answers ${e.answers}` : ""}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
   );
 }
 

@@ -22,6 +22,8 @@ import flows
 import llm
 
 SUBAGENT_TOOL = "ask_"   # + the sub-agent's id
+# The components that run as one generic agent with sub-agents: the Agent, a Planner (R31), a Blackboard (R33).
+AGENT_TYPES = ("agent", "planner", "blackboard")
 
 
 @dataclass
@@ -41,7 +43,7 @@ def tree(spec: flows.FlowSpec) -> dict[str, Agent]:
     """Every agent node of the flow's main graph, with what is connected to it."""
     agents: dict[str, Agent] = {}
     for node in spec.nodes:
-        if node.type in ("agent", "planner"):      # a planner (R31) is an agent that plans its sub-agents' work
+        if node.type in AGENT_TYPES:      # a planner (R31) or a blackboard (R33) is an agent that runs its sub-agents
             config = flows.COMPONENTS[node.type].config.model_validate(node.config).model_dump()
             agents[node.id] = Agent(node.id, flows.compiler.node_name(node), config)
     for edge in spec.edges:
@@ -51,7 +53,7 @@ def tree(spec: flows.FlowSpec) -> dict[str, Agent]:
         target = agents[edge.target]
         if source is None:
             continue
-        if source.type in ("agent", "planner"):
+        if source.type in AGENT_TYPES:
             target.subagents.append(source.id)
             agents[source.id].parent = target.id
         elif source.type == "check":

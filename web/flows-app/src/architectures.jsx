@@ -6,16 +6,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 const TOOL_TEXT = { retriever: "knowledge base", web_search: "web search", scraper: "page reader", api_tools: "live APIs",
   mcp_tool: "MCP" };
 const BOX_W = 150, BOX_H = 58, GAP_X = 18, GAP_Y = 46, PAD = 12;
+// The components that run as an agent with sub-agents (app/agent_tree.py AGENT_TYPES): what the top one does with them.
+const AGENT_TYPES = { agent: null, planner: "plans their tasks", blackboard: "runs a shared board" };
 
 // The agent tree of a flow: {id: {name, tools, checks, subs}}, and its top agent.
 function agentTree(flow) {
   const nodes = Object.fromEntries(flow.nodes.map((n) => [n.id, n]));
   const agents = {};
-  for (const n of flow.nodes) if (n.type === "agent") agents[n.id] = { id: n.id, name: n.label || n.id, tools: [], checks: [], subs: [], parent: null };
+  for (const n of flow.nodes) {
+    if (n.type in AGENT_TYPES) agents[n.id] = { id: n.id, name: n.label || n.id, role: AGENT_TYPES[n.type], tools: [], checks: [], subs: [], parent: null };
+  }
   for (const e of flow.edges) {
     if (e.kind !== "resource" || !agents[e.target]) continue;
     const source = nodes[e.source];
-    if (source?.type === "agent") { agents[e.target].subs.push(e.source); agents[e.source].parent = e.target; }
+    if (source?.type in AGENT_TYPES) { agents[e.target].subs.push(e.source); agents[e.source].parent = e.target; }
     else if (source?.type === "check") agents[e.target].checks.push(source.label || source.id);
     else if (TOOL_TEXT[source?.type]) agents[e.target].tools.push(TOOL_TEXT[source.type]);
   }
@@ -66,7 +70,7 @@ export function ArchDiagram({ arch }) {
       <g key={a.id} className={`fl-arch-agent${a.id === top ? " is-top" : ""}`}>
         <rect x={x} y={y} width={BOX_W} height={BOX_H} rx={9} />
         <text x={x + 10} y={y + 19} className="fl-arch-name">◎ {a.name.length > 19 ? `${a.name.slice(0, 18)}…` : a.name}</text>
-        <text x={x + 10} y={y + 35} className="fl-arch-meta">{a.tools.length ? a.tools.join(" · ") : a.subs.length ? `${a.subs.length} sub-agents` : "reasons only"}</text>
+        <text x={x + 10} y={y + 35} className="fl-arch-meta">{a.tools.length ? a.tools.join(" · ") : a.role || (a.subs.length ? `${a.subs.length} sub-agents` : "reasons only")}</text>
         {a.checks.length > 0 && <text x={x + 10} y={y + 50} className="fl-arch-check">✓ {a.checks.join(", ")}</text>}
       </g>);
   }

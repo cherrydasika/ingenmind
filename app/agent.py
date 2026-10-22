@@ -74,6 +74,7 @@ import agent_tree
 import answer_eval
 import api_tools
 import citations
+import blackboard
 import contracts
 import planner
 import durable
@@ -1038,6 +1039,98 @@ class _Run:
                    "turns": out["turns"], "error": None if out["answer"] else "no answer"})
         return out
 
+    def run_board(self, node: str, question: str) -> dict:
+        """A Blackboard (R33): the question goes on a shared board; each step the controller
+        reads it and asks one sub-agent about one open question (their findings become facts,
+        what they couldn't find becomes new questions), until it finishes or the steps run
+        out; then the answer is written from the board's facts. The same shape as run_agent()."""
+        config = self.tree[node].config
+        with self.lock:
+            n = len(self.agent_runs) + 1
+            self.agent_runs.append({"n": n, "node": node, "parent": None})
+        self.emit({"type": "delegate", "state": "start", "agent": "agent", "n": n, "task": question, "round": 1})
+        started = time.monotonic()
+        usage = self.new_run(f"blackboard:{node}", n)
+
+        def count(used: dict) -> None:
+            with self.lock:
+                usage["input_tokens"] += used.get("input_tokens", 0)
+                usage["output_tokens"] += used.get("output_tokens", 0)
+                usage["turns"] += 1
+        team = [{"id": c, "name": self.tree[c].name,
+                 "what": (self.tree[c].config.get("instructions") or "answers tasks in its area")[:300]}
+                for c in self.tree[node].subagents]
+        self.board = board = blackboard.Board()
+        board.add("question", question, "user")
+        self.emit_board()
+        out = {"answer": "", "passed": True, "failed_check": None, "feedback": "", "checks": [], "n": n}
+        max_steps = int(config.get("max_steps", 6))
+        for step in range(1, max_steps + 1):
+            if not board.open_questions():
+                break
+            try:
+                with observation(as_type="span", name=f"control:{node}", input={"step": step}) as span:
+                    move, used = blackboard.decide(question, board, team, max_steps - step + 1)
+                    count(used)
+                    span.update(output=move)
+            except Exception as error:      # a broken move ends the work; the answer uses the board so far
+                log.warning("blackboard control failed: %s", error)
+                break
+            if move["action"] == "finish":
+                self.emit_board(finished=str(move.get("reason") or "")[:200])
+                break
+            posted = [board.add("question", q, "controller", step=step) for q in move.get("new_questions") or []]
+            if move.get("hypothesis"):
+                board.add("hypothesis", move["hypothesis"], "controller", step=step,
+                          confidence=move.get("hypothesis_confidence"))
+            ref = str(move.get("question_id") or "")
+            target = (posted[int(ref[1:]) - 1] if ref[:1] == "n" and ref[1:].isdigit()
+                      and 0 < int(ref[1:]) <= len(posted) else board.get(ref))
+            if target is None or target.kind != "question" or target.status != "open":
+                target = next(iter(board.open_questions()), None)
+            if target is None:
+                break
+            if target.author == move["agent"]:    # it posted this because it couldn't find it: not again
+                target.status = "stuck"
+                self.emit_board()
+                continue
+            self.emit_board(next_move={"agent": move["agent"], "question": target.id,
+                                       "reason": str(move.get("reason") or "")[:200]})
+            task = contracts.Task(goal=move["goal"], inputs={"Facts on the board so far": board.facts_for()}
+                                  if board.facts_for() else {})
+            result = self.delegate(move["agent"], task, n)
+            if (result.findings or "").strip() and result.status != "failed":
+                # An agent that can't look anything up (no tools, no sub-agents) reasons: a hypothesis, which
+                # steers the controller but never goes into the answer, not a fact.
+                child = self.tree[move["agent"]]
+                looks_up = bool(child.ports & EVIDENCE_PORTS or child.subagents)
+                board.add("fact" if looks_up else "hypothesis", result.findings, move["agent"],
+                          confidence=result.confidence, answers=target.id, step=step)
+                if looks_up and target.author != "user":   # the user's question stays open until the controller finishes
+                    target.status = "answered"
+            elif target.author != "user":
+                target.status = "stuck"
+            for missing in result.missing[:2]:   # what it couldn't find: open for another agent
+                board.add("question", missing, move["agent"], step=step)
+            self.emit_board()
+        try:
+            with observation(as_type="span", name=f"compose:{node}", input={"entries": len(board.entries)}):
+                answer, used = blackboard.compose(question, board, config.get("answer_word_limit") or 120)
+                count(used)
+            out["answer"] = _without_preamble(answer)
+        except Exception as error:
+            out.update(passed=False, failed_check="its answer", feedback=f"{type(error).__name__}: {error}")
+        out["turns"] = usage["turns"]
+        out["seconds"] = round(time.monotonic() - started, 3)
+        self.emit({"type": "delegate", "state": "done", "agent": "agent", "n": n, "seconds": out["seconds"],
+                   "turns": out["turns"], "error": None if out["answer"] else "no answer"})
+        return out
+
+    def emit_board(self, next_move: dict | None = None, finished: str | None = None) -> None:
+        """The board's entries (short text, author, confidence, status), for the playground and the Ask page."""
+        self.emit({"type": "board", "entries": self.board.public(),
+                   **({"next": next_move} if next_move else {}), **({"finished": finished} if finished else {})})
+
     def emit_plan(self, replanned: bool = False) -> None:
         """The plan and each task's status, for the Ask page and the playground (labels, agents, statuses)."""
         self.emit({"type": "plan", "tasks": [s.public() for s in getattr(self, "plan", [])],
@@ -1350,7 +1443,7 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
                         brief=config.brief, search_country=config.search_country.strip().lower())
     plugged = {e.source for e in spec.edges if e.kind == "resource" and (spec.node(e.source) or {}) and spec.node(e.source).type == "agent"}
     # The top agent, or a Planner (R31: an agent too), gives the brief, domain and word limit.
-    single = next((n for n in spec.nodes if n.type in ("agent", "planner") and n.id not in plugged), None)
+    single = next((n for n in spec.nodes if n.type in AGENT_TYPES and n.id not in plugged), None)
     if single and not supervisor:
         config = flows.COMPONENTS[single.type].config.model_validate(single.config)
         settings.update(word_limit=config.answer_word_limit, domain=config.domain,
@@ -1387,6 +1480,9 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
 
 
 # The agent role behind each agent component (specialists: their role setting).
+AGENT_TYPES = agent_tree.AGENT_TYPES
+# What an agent can find evidence with: a fact on a blackboard (R33) comes from one of these.
+EVIDENCE_PORTS = {"retriever", "web_search", "scraper", "api_tools", "mcp_tool"}
 AGENT_ROLES = {"supervisor": "supervisor", "retrieval_agent": "knowledge_base", "research_agent": "research",
                "agent": "agent"}
 
@@ -1649,6 +1745,23 @@ def _run_approved(run: "_Run", proposal: dict) -> str:
     if not result["ok"]:
         return f"{proposal['title']}: approved, but it failed ({result['error']})."
     return f"{proposal['title']}: done. {(result.get('display') or {}).get('headline') or ''}".strip()
+
+
+def _blackboard_node(node_id: str):
+    """The Blackboard component (R33): agents on a shared board, a controller picking who acts
+    next; leaves what the Agent component leaves, so the checks after it work unchanged."""
+    def node(state: State, config) -> dict:
+        run: _Run = config["configurable"]["run"]
+        with run.node(node_id, 0):
+            done = run.run_board(node_id, state["question"])
+            below = run.subtree(done["n"])
+            finding = {"n": done["n"], "agent": "agent", "task": state["question"], "round": 1,
+                       "answer": done["answer"], "turns": done.get("turns", 0), "seconds": done["seconds"],
+                       "error": None if done["answer"] else (done["feedback"] or "no answer"),
+                       "checks": done["checks"], "delegations": sorted(below),
+                       "search_ns": [s["n"] for s in run.searches if s and s["delegation"] in below]}
+        return {"answer": done["answer"], "findings": [finding], "round": 1, "tasks": [], "pending_uses": []}
+    return node
 
 
 def _agent_node(node_id: str):
@@ -2150,6 +2263,7 @@ def _runtime() -> flows.Runtime:
             "specialist": lambda node: _specialist_node(node.config["role"], node.id),
             "agent": lambda node: _agent_node(node.id),
             "planner": lambda node: _planner_node(node.id),
+            "blackboard": lambda node: _blackboard_node(node.id),
             "human": lambda node: _human_node(node.id, node.config),
             "output_guardrail": lambda node: _output_guardrail,
             "answer_evaluator": lambda node: _with_settings(_answer_evaluator, node.config),
@@ -2176,7 +2290,7 @@ def _runtime() -> flows.Runtime:
         },
         fan_out={"supervisor": _supervisor_fan_out},
         delegates=set(SPECIALISTS),
-        impl_states={**{impl: {"main"} for impl in ("supervisor", "specialist", "agent", "planner", "output_guardrail",
+        impl_states={**{impl: {"main"} for impl in ("supervisor", "specialist", "agent", "planner", "blackboard", "output_guardrail",
                                                    "answer_evaluator", "human")},
                      **{impl: {"task"} for impl in ("task_start", "retrieval_agent", "evidence_evaluator", "query_rewriter",
                                                     "research_agent", "source_validator", "ingest", "handoff", "report",
@@ -2319,13 +2433,13 @@ def live_shape(spec: flows.FlowSpec | None = None, version: int | None = None) -
                 parts.add(node.type)
         for edge in flow.edges:
             source, target = flow.node(edge.source), flow.node(edge.target)
-            if edge.kind == "resource" and source and target and target.type in ("agent", "planner"):
+            if edge.kind == "resource" and source and target and target.type in AGENT_TYPES:
                 parts.add(f"agent:{source.type}")
         for sub in flow.subflows.values():
             walk(sub)
     walk(spec)
     return {"flow_id": spec.id, "name": spec.name, "version": version,
-            "kind": "supervisor" if "supervisor" in parts else "agent" if parts & {"agent", "planner"} else "other",
+            "kind": "supervisor" if "supervisor" in parts else "agent" if parts & set(AGENT_TYPES) else "other",
             "parts": sorted(parts)}
 
 
@@ -2740,6 +2854,9 @@ def _public_progress(event: dict) -> dict | None:
         return {"type": "plan", "replanned": bool(event.get("replanned")),
                 "tasks": [{k: t.get(k) for k in ("id", "label", "agent", "depends_on", "status", "seconds")}
                           for t in event.get("tasks") or []]}
+    if kind == "board":   # R33: the blackboard's entries (short text the agents and controller wrote) and the next move
+        return {"type": "board", "entries": event.get("entries") or [],
+                **{k: event[k] for k in ("next", "finished") if event.get(k)}}
     if kind == "human":   # R32: a run waiting for a person, and when it goes on
         return {k: event.get(k) for k in ("type", "state", "kind", "expired") if k in event}
     if kind in ("node", "model", "guardrail", "answer_eval"):
@@ -2811,6 +2928,8 @@ def _drive(run_id: str, run: "_Run", config: dict, question: str, graph_input, s
     result["citations"] = citations.passages(result["answer"], internal["searches"]) if shown else {}
     if getattr(run, "plan", None):   # a Planner's task graph as it ended (R31)
         result["plan"] = [s.public() for s in run.plan]
+    if getattr(run, "board", None):  # a Blackboard's board as it ended (R33)
+        result["board"] = run.board.public()
     run.metrics = {"seconds": result["total"], "rounds": internal["rounds"], "tasks": len(internal["delegations"]),
                    "budget_hit": getattr(run, "budget_hit", None),
                    "input_tokens": internal["usage"]["input_tokens"], "output_tokens": internal["usage"]["output_tokens"],
