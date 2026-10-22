@@ -98,6 +98,7 @@ export const api = {
   agentSession: (sessionId) => request(`/api/agent/session?session_id=${encodeURIComponent(sessionId)}`),
   resetSession: (sessionId) => post("/api/session/reset", { session_id: sessionId }),
   currentSession: () => request("/api/sessions/current"),
+  newConversation: () => post("/api/sessions/new", {}),
   agentMemory: () => request("/api/agent-memory"),
   users: () => request("/api/users"),
   knowledgeFlagged: () => request("/api/knowledge/flagged"),

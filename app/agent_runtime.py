@@ -33,8 +33,11 @@ RUNTIME = (os.environ.get("AGENT_RUNTIME", "").strip().lower()
 DEFAULT_MAX_TOKENS = 2048
 DEFAULT_TEMPERATURE = 0.2
 DEFAULT_MAX_ITERATIONS = 6
-# Messages kept per session; older turns are dropped, whole exchanges at a time.
+# Messages kept per session; older turns are dropped, whole exchanges at a time,
+# also while the history's text is over MAX_HISTORY_CHARS (R26: tool results
+# carry passages, so a long session's prompt would otherwise keep growing).
 MAX_HISTORY_MESSAGES = 40
+MAX_HISTORY_CHARS = 60_000
 INTERRUPTED = "Interrupted: this tool call was not run."
 
 
@@ -129,16 +132,23 @@ def _pending_uses(messages: list[dict]) -> list[str]:
     return [b["toolUse"]["toolUseId"] for b in messages[-1]["content"] if "toolUse" in b]
 
 
+def _size(message: dict) -> int:
+    return len(json.dumps(message.get("content"), ensure_ascii=False))
+
+
 def _trim(messages: list[dict]) -> list[dict]:
-    """Keep the last MAX_HISTORY_MESSAGES, starting at a user message that
-    asks something (not one carrying tool results for a dropped turn)."""
-    if len(messages) <= MAX_HISTORY_MESSAGES:
-        return messages
-    for start in range(len(messages) - MAX_HISTORY_MESSAGES, len(messages)):
-        message = messages[start]
-        if message["role"] == "user" and not any("toolResult" in b for b in message["content"]):
+    """Keep the last MAX_HISTORY_MESSAGES, and no more than MAX_HISTORY_CHARS
+    of text, starting at a user message that asks something (not one carrying
+    tool results for a dropped turn). The newest exchange is always kept."""
+    starts = [i for i, m in enumerate(messages)
+              if m["role"] == "user" and not any("toolResult" in b for b in m["content"])]
+    if not starts:
+        return messages[-1:]
+    sizes = [_size(m) for m in messages]
+    for start in starts:
+        if len(messages) - start <= MAX_HISTORY_MESSAGES and sum(sizes[start:]) <= MAX_HISTORY_CHARS:
             return messages[start:]
-    return messages[-1:]
+    return messages[starts[-1]:]
 
 
 # ---------- the harness API ----------

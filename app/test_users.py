@@ -226,7 +226,7 @@ class AuditLog(UsersDatabase):
                     skipped.add(f"{method} {route.path}")
         # Only asking questions, one's own theme and read-only checks stay out; anything new is audited.
         self.assertEqual(skipped, {"POST /api/ask", "POST /api/ask/stream", "POST /api/agent/stream",
-                                   "POST /api/agent/resume", "POST /api/session/reset", "PUT /api/me/theme",
+                                   "POST /api/agent/resume", "POST /api/session/reset", "POST /api/sessions/new", "PUT /api/me/theme",
                                    "POST /api/flows/validate", "POST /api/flows/diff", "POST /api/adhoc/preview"})
 
     def test_a_change_is_recorded_with_who_what_and_fields(self):

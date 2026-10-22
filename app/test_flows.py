@@ -1051,23 +1051,20 @@ class FlowDomain(unittest.TestCase):
         self.assertEqual(result["answer"], "Ask me about cooking.")
 
     def test_the_input_check_sees_the_sessions_earlier_allowed_questions(self):
+        # Read from the session's stored turns (conversation.py, R26; test_conversation covers the store).
         seen = []
         def check(stage, question, content="", assessor=None, scope=None, previous=()):
             seen.append(list(previous))
-            decision = "BLOCK" if "poem" in question else "ALLOW"
-            return guardrails.Verdict(decision=decision, reason="fixture", stage=stage, message="no")
-        session, other = f"s-{uuid.uuid4()}", f"s-{uuid.uuid4()}"
+            return guardrails.Verdict(decision="ALLOW", reason="fixture", stage=stage, message="no")
+        stored = {"s1": ["Toilets at St Pancras?"], "s2": []}
         with patch.object(guardrails, "check", side_effect=check), patch.object(agent, "_record_run"), \
+                patch("conversation.recent_questions", side_effect=lambda sid: stored[sid]), \
+                patch("conversation.standalone", return_value=None), patch("conversation.context", return_value={}), \
                 patch.object(agent_runtime, "config_error", return_value="stop after the check"):
-            for question, sid in (("Toilets at St Pancras?", session), ("Write a poem", session),
-                                  ("And at Victoria?", session), ("Hello", other)):
-                try:
+            for question, sid in (("And at Victoria?", "s1"), ("Hello", "s2")):
+                with self.assertRaises(RuntimeError):     # allowed: the agents are not configured in this test
                     agent.answer(question, sid, None, None, lambda e: None, Mock(), flow=(self.cooking(), 3))
-                except RuntimeError:
-                    pass   # allowed: the agents are not configured in this test
-        # A blocked question never becomes context; sessions never share it.
-        self.assertEqual(seen, [[], ["Toilets at St Pancras?"], ["Toilets at St Pancras?"], []])
-        self.assertEqual(agent._recent_questions(session), ["Toilets at St Pancras?", "And at Victoria?"])
+        self.assertEqual(seen, [["Toilets at St Pancras?"], []])
 
     def test_saved_flows_with_the_old_policy_label_still_load(self):
         old = flows.COMPONENTS["input_guardrail"].config.model_validate({"stage": "input", "policy": "travel-only"})
