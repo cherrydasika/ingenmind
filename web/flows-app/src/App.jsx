@@ -237,6 +237,8 @@ function NodeDetails({ node, nodes, edges, trace, onSpec, onDelete, readOnly }) 
         </>
       )}
       {component?.provides && <><div className="fl-section">Provides</div><p><span className="fl-chip">{component.provides}</span></p></>}
+      {component?.contract && (plugged.some((e) => nodes.find((n) => n.id === e.source)?.data.node.type === "agent")
+        || edges.some((e) => e.source === node.id && e.data.resource)) && <Contract contract={component.contract} />}
       {!readOnly && <button type="button" className="fl-btn fl-btn-danger" onClick={onDelete}>Delete node</button>}
       </div>
       <div className="fl-col">
@@ -245,6 +247,25 @@ function NodeDetails({ node, nodes, edges, trace, onSpec, onDelete, readOnly }) 
           onChange={(config) => onSpec((s) => ({ ...s, config }))} />
       </div>
       {trace?.length > 0 && <div className="fl-col"><Trace entries={trace} /></div>}
+    </>
+  );
+}
+
+// What a parent asks a sub-agent and what it reports (R29, app/contracts.py).
+function Contract({ contract }) {
+  return (
+    <>
+      <div className="fl-section">Sub-agent contract</div>
+      <p className="fl-hint">A parent calls a sub-agent with a task; it reports back a result. Both are checked
+        against these fields on every call, and traced.</p>
+      <div className="fl-field-name">Task</div>
+      <ul className="fl-list">
+        {contract.task.map((f) => <li key={f.name}><code>{f.name}</code>{f.required ? " (required)" : ""} <span className="fl-faint">{f.description}</span></li>)}
+      </ul>
+      <div className="fl-field-name">Result</div>
+      <ul className="fl-list">
+        {contract.result.map((f) => <li key={f.name}><code>{f.name}</code> <span className="fl-faint">{f.description}</span></li>)}
+      </ul>
     </>
   );
 }

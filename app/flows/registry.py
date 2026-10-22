@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 import agent_runtime
 import api_tools
+import contracts
 import guardrails
 import llm
 
@@ -330,7 +331,8 @@ class Component:
                 "inputs": list(self.inputs), "provides": self.provides, "plugs": self.plugs,
                 "bounds_loops": self.bounds_loops,
                 "runnable": self.runnable, "applied": list(self.applied),
-                "config_schema": self.config.model_json_schema()}
+                "config_schema": self.config.model_json_schema(),
+                **({"contract": self.extra["contract"]} if "contract" in self.extra else {})}
 
 
 OK_ERROR = ("ok", "error")
@@ -361,7 +363,8 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
               "plugged into another agent it answers that agent's task.",
               AgentConfig, impl="agent",
               inputs=("llm", "memory", "retriever", "web_search", "scraper", "tools", "agents", "checks"),
-              plugs="agents", applied=("brief", "domain", "instructions", "answer_word_limit")),
+              plugs="agents", applied=("brief", "domain", "instructions", "answer_word_limit"),
+              extra={"contract": contracts.describe()}),
     Component("specialist_agent", "Specialist agent", "flow", "agent",
               "An agent with tools that works on one delegated task and reports back.", SpecialistConfig,
               impl="specialist", inputs=("llm", "memory", "tools"), applied=("role",)),
