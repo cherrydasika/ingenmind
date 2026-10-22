@@ -200,6 +200,11 @@ export class RetrievalPage {
       } else if (err.setup) {   // not a failure: nothing ran, the knowledge system is still being set up
         Object.assign(msg, { pending: false, notice: err.message });
         this.flow.reset();
+      } else if (err instanceof TypeError) {   // the connection dropped (the app restarted?): the run resumes there (R30)
+        Object.assign(msg, { pending: false, notice: "The connection was lost. If the app restarted, your question "
+          + "carries on there and its answer will appear here when it's done." });
+        this.flow.reset();
+        this.awaitResumed(msg);
       } else {
         Object.assign(msg, { pending: false, error: err.message });
         this.flow.fail(err.message);
@@ -208,6 +213,21 @@ export class RetrievalPage {
       this.busy = false;
       this.abort = null;
       this.render();
+    }
+  }
+
+  // After a lost connection: watch the session for the resumed run's answer (for up to five minutes).
+  async awaitResumed(msg, tries = 60) {
+    const known = this.messages.length - 1;
+    for (let i = 0; i < tries && this.messages.includes(msg); i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      const { session } = await api.currentSession().catch(() => ({ session: null }));
+      if ((session?.turns?.length || 0) > known) {
+        this.load(session);
+        if (this.latest) this.flow.show(this.latest);
+        this.render();
+        return;
+      }
     }
   }
 

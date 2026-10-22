@@ -16,6 +16,7 @@ import { SessionsPage } from "./sessions.js";
 import { SetupPage } from "./setup.js";
 import { UsersPage } from "./users.js";
 import { AuditPage } from "./audit.js";
+import { RunsPage } from "./runs.js";
 
 const STATUS_REFRESH_MS = 30_000;
 const SESSION_KEY = "rag.session";
@@ -53,6 +54,7 @@ const pages = {
   adhoc: [AdhocPage, "Data", "upload_documents"],
   monitoring: [MonitoringPage, "Monitoring", null],
   memory: [AgentMemoryPage, "Monitoring", "view_agent_memory"],
+  runs: [RunsPage, "Monitoring", "view_sessions"],
   users: [UsersPage, "Admin", "manage_users"],
   audit: [AuditPage, "Admin", "manage_users"],
   setup: [SetupPage, "Admin", "manage_settings"],

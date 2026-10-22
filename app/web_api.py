@@ -36,6 +36,7 @@ import agent
 import agent_memory as memory_store   # web_api.agent_memory is a route handler
 import answer_cache
 import conversation
+import durable
 import user_memory
 import audit
 import auth
@@ -1053,6 +1054,42 @@ def session_list(request: Request) -> Response:
                   "retention_days": sessions.RETENTION_DAYS})
 
 
+# ---------- Durable runs (durable.py, R30) ----------
+
+def _resume_and_record(run_id: str) -> dict:
+    """Resume a run; an Ask-page one's answer joins its session, as if it had finished."""
+    result = agent.resume_run(run_id, retrieval_view)
+    record = durable.get(run_id) or {}
+    trace_id = result.pop("trace_id", None)
+    if record.get("source") == "users" and record.get("session_id") and record.get("user_id"):
+        try:
+            sessions.record_turn(record["session_id"], record["user_id"], record["asked"], result, trace_id)
+            conversation.summarise_later(record["session_id"])
+        except Exception as error:
+            print(f"could not record the resumed turn: {error}", file=sys.stderr)
+    return result
+
+
+def runs_list(request: Request) -> Response:
+    """Monitoring → Runs: every run's status, steps, time and tokens (view_sessions: questions show)."""
+    return _json({"runs": durable.list_runs(source=request.query_params.get("source") or None),
+                  "durable": durable.durable(), "retention_days": durable.RETENTION_DAYS,
+                  "can_manage": auth.allowed(auth.current_user(request), "manage_agents")})
+
+
+async def runs_resume(request: Request) -> Response:
+    run_id = request.path_params["run_id"]
+    if not await run_in_threadpool(durable.resumable, run_id):
+        return _json({"error": "this run can't be resumed (finished, cancelled, or nothing was saved)"}, 409)
+    threading.Thread(target=_resume_and_record, args=(run_id,), name="durable-resume", daemon=True).start()
+    return _json({"ok": True, "status": "resuming"}, 202)
+
+
+async def runs_cancel(request: Request) -> Response:
+    done = await run_in_threadpool(durable.cancel, request.path_params["run_id"])
+    return _json({"ok": True}) if done else _json({"error": "nothing to cancel"}, 409)
+
+
 # ---------- The user's own long-term memory (user_memory.py, R28) ----------
 
 def _fact_view(f: dict) -> dict:
@@ -1764,6 +1801,14 @@ async def _lifespan(app):
         await run_in_threadpool(knowledge_system.ensure_schema)
     except Exception as exc:   # the database may still be starting; the first use retries
         print(f"knowledge system first run deferred: {exc}", file=sys.stderr)
+    # Runs a restart cut short (R30): marked interrupted; recent Ask-page ones resume in the background.
+    try:
+        resumed = await run_in_threadpool(durable.recover, _resume_and_record)
+        if resumed:
+            print(f"resuming {len(resumed)} interrupted run(s)", file=sys.stderr)
+        await run_in_threadpool(durable.prune)
+    except Exception as exc:
+        print(f"durable run recovery skipped: {exc}", file=sys.stderr)
     yield
 
 
@@ -1836,6 +1881,9 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/sessions", session_list),
     Route("/api/sessions/current", session_current),
     Route("/api/sessions/new", session_new, methods=["POST"]),
+    Route("/api/runs", runs_list),
+    Route("/api/runs/{run_id}/resume", runs_resume, methods=["POST"]),
+    Route("/api/runs/{run_id}/cancel", runs_cancel, methods=["POST"]),
     Route("/api/me/memory", my_memory),
     Route("/api/me/memory", my_memory_consent, methods=["PUT"]),
     Route("/api/me/memory", my_memory_clear, methods=["DELETE"]),
