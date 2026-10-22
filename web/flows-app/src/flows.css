@@ -420,3 +420,9 @@
 .fl-chip.is-ok { color: var(--ok); }
 .fl-chip.is-warn { color: var(--warn); border-color: rgba(245, 158, 11, 0.5); background: var(--warn-soft); }
 .fl-budget-hit { color: var(--warn); font-weight: 600; }
+
+/* A Planner's task graph in the Test panel (R31) */
+.fl-plan { margin: 6px 0; padding-left: 18px; font-size: 12.5px; }
+.fl-plan-task { margin: 3px 0; }
+.fl-plan-task.is-running strong { color: var(--fl-accent, #2563eb); }
+.fl-plan-task.is-failed strong, .fl-plan-task.is-skipped strong { text-decoration: line-through; opacity: 0.7; }

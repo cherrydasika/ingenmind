@@ -41,8 +41,8 @@ def tree(spec: flows.FlowSpec) -> dict[str, Agent]:
     """Every agent node of the flow's main graph, with what is connected to it."""
     agents: dict[str, Agent] = {}
     for node in spec.nodes:
-        if node.type == "agent":
-            config = flows.COMPONENTS["agent"].config.model_validate(node.config).model_dump()
+        if node.type in ("agent", "planner"):      # a planner (R31) is an agent that plans its sub-agents' work
+            config = flows.COMPONENTS[node.type].config.model_validate(node.config).model_dump()
             agents[node.id] = Agent(node.id, flows.compiler.node_name(node), config)
     for edge in spec.edges:
         if edge.kind != "resource" or edge.target not in agents:
@@ -51,7 +51,7 @@ def tree(spec: flows.FlowSpec) -> dict[str, Agent]:
         target = agents[edge.target]
         if source is None:
             continue
-        if source.type == "agent":
+        if source.type in ("agent", "planner"):
             target.subagents.append(source.id)
             agents[source.id].parent = target.id
         elif source.type == "check":

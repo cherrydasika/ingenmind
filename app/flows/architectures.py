@@ -17,9 +17,9 @@ WEB = ["web_search", "scraper"]
 LIVE = ["api_tools"]
 
 
-def _agent(id_, label, instructions, tools=(), checks=(), subs=()):
+def _agent(id_, label, instructions, tools=(), checks=(), subs=(), type_="agent"):
     return {"id": id_, "label": label, "instructions": instructions, "tools": list(tools),
-            "checks": list(checks), "subs": list(subs)}
+            "checks": list(checks), "subs": list(subs), "type": type_}
 
 
 def _check(id_, label, checks="answer", criteria="", max_attempts=2):
@@ -49,7 +49,7 @@ def _flow(top: dict, answer_check: bool = True) -> dict:
         edges.append({"source": "output_guardrail", "target": "end", "outcome": "ALLOW"})
 
     def add(agent: dict, parent: str | None) -> None:
-        nodes.append({"id": agent["id"], "type": "agent", "label": agent["label"],
+        nodes.append({"id": agent["id"], "type": agent.get("type", "agent"), "label": agent["label"],
                       "config": {"instructions": agent["instructions"]}})
         edges.append({"source": "llm", "target": agent["id"], "kind": "resource"})
         if parent:
@@ -165,6 +165,18 @@ def architectures() -> list[dict]:
                               "keeping their [n] citations."),
                        _agent("fact_checker", "Fact-checker", "Checks every sentence of a draft against the findings "
                               "it is given; returns the draft with anything unsupported removed.")])),
+        _entry("planner_executor", "Planner–executor (task graph)", "Multi-agent",
+               ["Plan a task graph", "Run independent tasks in parallel", "Pass results on", "Re-plan on failure",
+                "Answer"],
+               "A planner splits the question into tasks for its specialists, with the tasks each one waits "
+               "for; the ones that don't wait for each other run at the same time, results flow to the tasks "
+               "that need them, a failed task gets the rest planned again, and the planner writes the answer. "
+               "The plan and each task's status show on the Ask page as it runs.",
+               "Multi-part questions (a rule, a fare and the weather; find, then compare).",
+               _agent("planner", "Planner", "Plan tasks for your specialists, then answer from what they report.",
+                      (), (), [_agent("knowledge_base", "Knowledge base", KB_HELPER, KB),
+                               _agent("live_data", "Live data", "Gets live data (such as the weather) with its "
+                                      "tools.", LIVE)], type_="planner")),
         _entry("planner_executor_reviewer", "Planner–executor–reviewer", "Multi-agent",
                ["Planner", "Executor", "Reviewer", "Retry or finish"],
                "A planner breaks the question into steps and hands each to an executor; a reviewer checks the "

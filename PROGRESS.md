@@ -318,6 +318,19 @@ on #120 that isn't waiting on the user.
   are now logged. **Deploy note:** the image gains
   `langgraph-checkpoint-postgres` (CI builds it).
 
+- **Fix (#155, merged):** the checkpointer's setup ran at import and its
+  `CREATE INDEX CONCURRENTLY` deadlocked the demo seed on a fresh database
+  (new installs with the demo); now set up before the first run.
+- **R31 (#99) in review — PR from `planner-executor`, not merged yet:**
+  Planner component (`app/planner.py`, `_Run.run_plan`): a task graph for
+  its sub-agents, ready tasks in parallel through the R29 contract, results
+  passed to dependants, one re-plan after a failure, a composed answer; plan
+  panel under the Ask page's workflow chart and in the playground; gallery
+  architecture "Planner–executor". 550 tests pass. Real check on the demo:
+  3 tasks ran in parallel and all finished. **Left:** the answer check
+  sometimes fails the composed answer (it cited "[Live data]"; compose
+  prompt now forbids that; re-check), then merge and tick #120.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
