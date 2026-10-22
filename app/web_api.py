@@ -34,6 +34,7 @@ from starlette.staticfiles import StaticFiles
 import adhoc_ingest
 import agent
 import agent_memory as memory_store   # web_api.agent_memory is a route handler
+import answer_cache
 import audit
 import auth
 import identity
@@ -184,6 +185,14 @@ def app_config(request: Request) -> Response:
         },
         "sparse": {"model": config.SPARSE_MODEL_NAME, "vector_name": config.SPARSE_VECTOR_NAME},
     })
+
+
+def answer_cache_view(request: Request) -> Response:
+    return _json(answer_cache.stats())
+
+
+async def answer_cache_clear(request: Request) -> Response:
+    return _json({"cleared": await run_in_threadpool(answer_cache.clear)})
 
 
 def model_catalogue(request: Request) -> Response:
@@ -412,8 +421,29 @@ async def agent_stream(request: Request) -> Response:
     user_id = auth.current_user(request)["user_id"]
     session_id = await run_in_threadpool(sessions.current, user_id, request.session.get("sid"))
     request.session["sid"] = session_id
-    return _event_stream(lambda emit: _agent_payload(question, session_id, {**body, "session_id": session_id},
-                                                     max_iterations, emit, record=True))
+    return _event_stream(lambda emit: _ask_live(question, session_id, {**body, "session_id": session_id},
+                                                max_iterations, emit))
+
+
+def _ask_live(question: str, session_id: str, body: dict, max_iterations, emit) -> dict:
+    """A user's question: a cached answer when one fits (answer_cache.py), else the live flow."""
+    follow_up = bool(agent._recent_questions(session_id))
+    reusable = answer_cache.eligible_question(question, follow_up)
+    if reusable:
+        spec, version = agent.live_flow()
+        if cached := answer_cache.lookup(question, spec.id, version):
+            emit("stage", {"type": "cache", "state": "hit"})
+            agent._remember_question(session_id, question)
+            result = {**cached, "cached": True}
+            try:
+                sessions.record_turn(session_id, body["user_id"], question, result, None)
+            except Exception as error:
+                print(f"could not record the session turn: {error}", file=sys.stderr)
+            return result
+    result = _agent_payload(question, session_id, body, max_iterations, emit, record=True)
+    if reusable and result.get("flow"):
+        answer_cache.store(question, result["flow"]["id"], result["flow"]["version"], result)
+    return result
 
 
 # ---------- Flows (the agent graph as data) ----------
@@ -511,6 +541,7 @@ async def flow_set_live(request: Request) -> Response:
         return _json({"error": "unknown version"}, 404)
     except flows.FlowError as invalid:
         return _json({"error": "this version cannot run", "issues": invalid.issues}, 422)
+    await run_in_threadpool(answer_cache.clear)   # cached answers came from the version users had
     return _json({"live": _live()})
 
 
@@ -1022,6 +1053,7 @@ def _reset(request: Request, everything: bool) -> Response:
 
 def _set_aside(request: Request, everything: bool) -> Response:
     user_id = (auth.current_user(request) or {}).get("user_id")
+    answer_cache.clear()   # the domain's answers go with it
     try:
         result = knowledge_system.set_aside(user_id, everything)
     except (knowledge_system.Busy, ValueError) as exc:
@@ -1064,6 +1096,7 @@ async def setup_start_over(request: Request) -> Response:
 async def setup_restore(request: Request) -> Response:
     """Go back to the domain set aside: the unfinished setup is discarded."""
     user_id = (auth.current_user(request) or {}).get("user_id")
+    await run_in_threadpool(answer_cache.clear)
     try:
         info = await run_in_threadpool(knowledge_system.restore, user_id)
     except LookupError as exc:
@@ -1327,6 +1360,7 @@ async def setup_go_live(request: Request) -> Response:
         body = await request.json()
     except ValueError:
         body = {}
+    await run_in_threadpool(answer_cache.clear)
     user_id = (auth.current_user(request) or {}).get("user_id")
     body = body if isinstance(body, dict) else {}
     confirm = body.get("confirm_gaps") is True
@@ -1605,6 +1639,8 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/config", app_config),
     Route("/api/models", models),
     Route("/api/models/catalogue", model_catalogue),
+    Route("/api/answer-cache", answer_cache_view),
+    Route("/api/answer-cache/clear", answer_cache_clear, methods=["POST"]),
     Route("/api/status", status),
     Route("/api/ask", ask, methods=["POST"]),
     Route("/api/ask/stream", ask_stream, methods=["POST"]),

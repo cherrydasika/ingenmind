@@ -113,7 +113,8 @@ export class RetrievalPage {
             : msg.searching ? "Searching the knowledge base…" : "Working…"));
       return turn;
     }
-    const meta = [fmtTime(r.total), shortModel(this.info?.harness?.model), r.flow ? `flow ${r.flow.id} v${r.flow.version}` : null]
+    const meta = [r.cached ? "from the answer cache" : fmtTime(r.total), r.cached ? null : shortModel(this.info?.harness?.model),
+      r.flow ? `flow ${r.flow.id} v${r.flow.version}` : null]
       .filter(Boolean).join(" · ");
     const ae = r.answer_check;
     const verdict = ae ? h("span", { class: `ae-verdict ${ae.passed ? "pass" : "fail"}`,

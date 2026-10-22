@@ -123,6 +123,7 @@ RULES = [
     ({"GET", "POST"}, r"/api/adhoc(/.*)?", "upload_documents"),
     ({"GET", "POST", "PUT"}, r"/api/users(/.*)?", "manage_users"),
     ({"GET"}, r"/api/models/catalogue", ("manage_agents", "manage_settings")),
+    ({"GET", "POST"}, r"/api/answer-cache(/clear)?", "manage_settings"),
     ({"GET"}, r"/api/audit(\.csv)?", ("manage_users", "manage_settings")),
     # Own sessions: anyone signed in; others' need view_sessions (checked in web_api).
     ({"GET"}, r"/api/sessions(/[^/]+)?", ANY),

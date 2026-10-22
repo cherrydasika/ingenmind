@@ -292,6 +292,22 @@ closes the stream; the server then tells the run's agents to stop
 (`agent.CANCELLED`), so no further model or tool calls are made. The answer
 itself is shown only after the answer check passes it.
 
+### Answer cache
+
+A question on the Ask page reuses a checked answer when an earlier question
+meant the same, on the same live flow version and knowledge base
+(`app/answer_cache.py`): about 70 ms instead of seconds, and no model
+tokens. "Meant the same" is strict, because a wrong hit is a wrong answer:
+the key words (everything but question words, filler and words like
+*price* or *cost*) must match in order, and the embeddings must be at least
+`ANSWER_CACHE_SIMILARITY` (0.97) alike. Only answers that passed the answer
+check are kept, and never ones that used live tools or research, contained
+personal data, or followed on from an earlier question. Going live with
+another version, starting over and going live with a new domain clear it;
+a change to the knowledge base makes its entries miss. Monitoring →
+Overview shows the hit rate and can clear it (`ANSWER_CACHE=false` turns
+it off; `ANSWER_CACHE_HOURS`, default 24).
+
 ### Budgets and failing tools
 
 A flow's **Start** node sets the run's budget for one question: model

@@ -217,6 +217,16 @@ on #120 that isn't waiting on the user.
   only after the answer check (not token by token: nothing unreviewed is
   shown).
 
+- **R19 (#93) done:** `app/answer_cache.py` reuses checked answers on
+  the Ask page for questions that mean the same (same key words in order
+  *and* embeddings ≥ 0.97, same live version and knowledge base); never
+  live-tool, research, personal-data or follow-up answers. Cleared on going
+  live, start over, restore and setup go-live; hit rate and Clear on the
+  Overview. Real check on a demo preview: 15 s → 71 ms for a reworded
+  question. Found on the way: embedding similarity alone let "Off-Peak
+  return" reuse the "Anytime return" answer (a wrong fare); the key-word
+  signature now stops that, and a test covers it.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
