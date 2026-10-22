@@ -103,6 +103,23 @@ class PlannerConfig(AgentConfig):
     replan: bool = Field(True, description="When a task fails, plan the rest again once")
 
 
+class HumanConfig(BaseModel):
+    """Ask a human (R32): the run pauses for a person and resumes with their answer, after a restart too."""
+    mode: Literal["clarify", "approve"] = Field(
+        "approve", description="clarify: before the agent, ask the user when the question is ambiguous. approve: "
+                               "after the answer check, an approver (Build flows permission) approves the answer and "
+                               "any actions the agents proposed (tools that change things outside) before they happen")
+    approve_answers: bool = Field(True, description="approve: every answer waits for approval; off: only answers "
+                                                    "with proposed actions")
+    timeout_minutes: int = Field(60, ge=1, le=10080, description="Unanswered after this, the safe default applies: "
+                                                                 "clarify carries on as asked; approve rejects")
+    waiting_message: str = Field("A person needs to approve this answer first. It will appear here once they have.",
+                                 max_length=300, description="approve: what the user sees while it waits")
+    rejected_message: str = Field("This answer wasn't approved, so it can't be shown. Please ask in another way.",
+                                  max_length=300, description="approve: what the user gets when it is rejected "
+                                                              "or times out")
+
+
 class CheckConfig(BaseModel):
     """An evaluator plugged into an agent's checks (#66): it checks that agent's result."""
     checks: Literal["answer", "evidence", "criteria"] = Field(
@@ -392,6 +409,13 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
               "Judges the answer against the evidence used: correctness, faithfulness, completeness, citations "
               "(answer_eval.py). Fail → a standard message.", AnswerEvaluatorConfig, impl="answer_evaluator",
               applied=("correctness", "faithfulness", "completeness", "citation_quality")),
+    Component("human", "Ask a human", "flow", "step",
+              "Pauses the run for a person and resumes with their answer (R32). clarify, before the agent: asks the "
+              "user when the question is ambiguous. approve, after the answer check: an approver approves the "
+              "answer and any actions the agents proposed (API tools that change things outside), which run only "
+              "once approved. Approvals wait in Monitoring → Approvals; a timeout applies the safe default.",
+              HumanConfig, impl="human",
+              applied=("mode", "approve_answers", "timeout_minutes", "waiting_message", "rejected_message")),
     Component("task_start", "Task start", "flow", "step", "Opens one delegated task.", impl="task_start"),
     Component("retrieval_agent", "RAG retrieval agent", "flow", "agent",
               "Searches the knowledge base with hybrid retrieval and drafts findings with [n] citations.",

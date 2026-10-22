@@ -29,24 +29,34 @@ def _check(id_, label, checks="answer", criteria="", max_attempts=2):
     return out
 
 
-def _flow(top: dict, answer_check: bool = True) -> dict:
+def _flow(top: dict, answer_check: bool = True, human: tuple[str, ...] = ()) -> dict:
     """The main path (guardrails around the top agent, the answer evaluator) and
-    every agent's tools, checks and sub-agents as plugged-in nodes."""
+    every agent's tools, checks and sub-agents as plugged-in nodes. human: Ask a
+    human steps (R32), "clarify" before the top agent, "approve" before the end."""
     nodes = [{"id": "start", "type": "start"},
              {"id": "input_guardrail", "type": "input_guardrail", "config": {"stage": "input"}},
              {"id": "output_guardrail", "type": "output_guardrail", "config": {"stage": "output"}},
              {"id": "end", "type": "end"}, {"id": "llm", "type": "llm"}]
+    first = "clarify" if "clarify" in human else top["id"]
+    last = "approve" if "approve" in human else "end"
+    if "clarify" in human:
+        nodes.append({"id": "clarify", "type": "human", "label": "Clarify with the user", "config": {"mode": "clarify"}})
+    if "approve" in human:
+        nodes.append({"id": "approve", "type": "human", "label": "Approval", "config": {"mode": "approve"}})
     edges = [{"source": "start", "target": "input_guardrail"},
-             {"source": "input_guardrail", "target": top["id"], "outcome": "ALLOW"},
+             {"source": "input_guardrail", "target": first, "outcome": "ALLOW"},
              {"source": "input_guardrail", "target": "end", "outcome": "BLOCK"},
+             *([{"source": "clarify", "target": top["id"]}] if "clarify" in human else []),
              {"source": top["id"], "target": "output_guardrail"},
              {"source": "output_guardrail", "target": "end", "outcome": "BLOCK"}]
     if answer_check:
         nodes.append({"id": "answer_evaluator", "type": "answer_evaluator"})
         edges += [{"source": "output_guardrail", "target": "answer_evaluator", "outcome": "ALLOW"},
-                  {"source": "answer_evaluator", "target": "end"}]
+                  {"source": "answer_evaluator", "target": last}]
     else:
-        edges.append({"source": "output_guardrail", "target": "end", "outcome": "ALLOW"})
+        edges.append({"source": "output_guardrail", "target": last, "outcome": "ALLOW"})
+    if last != "end":
+        edges.append({"source": last, "target": "end"})
 
     def add(agent: dict, parent: str | None) -> None:
         nodes.append({"id": agent["id"], "type": agent.get("type", "agent"), "label": agent["label"],
@@ -70,9 +80,9 @@ def _flow(top: dict, answer_check: bool = True) -> dict:
             "nodes": nodes, "edges": edges, "subflows": {}}
 
 
-def _entry(id_, name, group, steps, summary, when, top=None, answer_check=True, ready=True):
+def _entry(id_, name, group, steps, summary, when, top=None, answer_check=True, ready=True, human=()):
     return {"id": id_, "name": name, "group": group, "steps": steps, "summary": summary, "when": when,
-            "ready": ready, "flow": _flow(top, answer_check) if ready else None}
+            "ready": ready, "flow": _flow(top, answer_check, human) if ready else None}
 
 
 KB_HELPER = "Searches the knowledge base and reports what it says, with [n] citations; says what is missing."
@@ -227,10 +237,16 @@ def architectures() -> list[dict]:
                               [_agent("accessibility", "Accessibility", "Covers accessibility and assistance. "
                                       + KB_HELPER, KB),
                                _agent("live", "Live", "Gets live data with its tools.", LIVE)])])),
-        _entry("human_in_the_loop", "Human-in-the-loop", "Coming soon",
-               ["Propose an action", "Human approves", "Execute"],
-               "An agent proposes an action and waits for a person to approve it before it runs.",
-               "Sensitive or irreversible actions. Needs an approval step in the runtime first.", ready=False),
+        _entry("human_in_the_loop", "Human-in-the-loop", "Multi-agent",
+               ["Clarify if ambiguous", "Answer, proposing actions", "A person approves", "Execute"],
+               "Ask a human steps pause the run for a person and resume with their answer, after a restart too: "
+               "an ambiguous question gets one clarifying question to the user first; then an approver sees the "
+               "answer, and any action the agent proposed (an API tool that changes things outside), in "
+               "Monitoring → Approvals before the user gets it or the action runs. A timeout applies the safe "
+               "default.",
+               "Sensitive or irreversible actions; answers someone must sign off.",
+               _agent("assistant", "Assistant", "Answer the question; propose any action the user asks for.",
+                      KB + LIVE), human=("clarify", "approve")),
         _entry("self_learning", "Self-learning", "Coming soon",
                ["Execute", "Evaluate", "Store lessons", "Apply next time"],
                "Lessons from evaluated answers are stored and applied to later questions, after an admin "

@@ -346,7 +346,7 @@ class AnswerCache(UsersDatabase):
         client = self.signed_in(user)
         with patch.object(web_api, "_not_set_up", AsyncMock(return_value=None)), \
                 patch.object(web_api.answer_cache, "lookup", return_value=self.GOOD), \
-                patch.object(web_api.agent, "live_flow", return_value=(Mock(id="f"), 1)), \
+                patch.object(web_api.agent, "live_flow", return_value=(Mock(id="f", nodes=[]), 1)), \
                 patch.object(web_api.agent, "answer", side_effect=AssertionError("ran the agents")):
             response = client.post("/api/agent/stream", json={"question": "fare?"})
         result = json.loads(response.text.split("event: result\ndata: ")[1].split("\n")[0])

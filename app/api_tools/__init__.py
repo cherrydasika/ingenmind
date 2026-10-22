@@ -17,8 +17,9 @@ arguments must match the tool's schema (no unknown ones, the right types,
 strings at most MAX_STRING characters), carry no personal data, no links
 and nothing that reads like instructions to an AI; each tool may be called
 at most max_calls times in a run; and a tool with side_effects (one that
-changes something outside, such as a booking) is refused until a person
-can approve calls (R32).
+changes something outside, such as a booking) is refused unless the flow
+has an approval step (Ask a human, R32): then the call is only proposed,
+and runs once a person approves it.
 """
 
 import re
@@ -91,13 +92,14 @@ def _strings(value):
             yield from _strings(v)
 
 
-def check(name: str, args, calls_so_far: int = 0) -> str | None:
-    """Why this call must not run, or None (the tool guardrails)."""
+def check(name: str, args, calls_so_far: int = 0, approval: bool = False) -> str | None:
+    """Why this call must not run (or, with side effects, be proposed), or None (the tool guardrails).
+    approval: the flow has an approval step, so a side-effecting call may be proposed."""
     tool = TOOLS.get(name)
     if tool is None:
         return f"there is no tool {name!r}"
-    if tool.side_effects:
-        return f"{name} changes things outside this app and needs a person's approval, which isn't available yet"
+    if tool.side_effects and not approval:
+        return f"{name} changes things outside this app and needs a person's approval, which this flow doesn't have"
     if calls_so_far >= tool.max_calls:
         return f"{name} was already called {calls_so_far} times for this question (the most is {tool.max_calls})"
     if not isinstance(args, dict):

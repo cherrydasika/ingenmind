@@ -65,7 +65,7 @@ from typing import Annotated, TypedDict
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError, EventStreamError
-from langgraph.types import RetryPolicy, Send
+from langgraph.types import Command, RetryPolicy, Send, interrupt
 from pydantic import ValidationError
 
 import agent_memory
@@ -82,6 +82,7 @@ import user_memory
 import evidence
 import flows
 import guardrails
+import human
 import injection
 import pii
 import llm
@@ -489,6 +490,7 @@ class _Run:
         self.rewriter = evidence.diagnose_and_rewrite
         self.rewrites: list[dict] = []
         self.contracts: list[dict] = []   # sub-agent tasks and results (R29)
+        self.proposals: list[dict] = []   # side-effecting tool calls awaiting a person's approval (R32)
         self.searches: list[dict | None] = []
         self.calls: list[dict] = []
         self.evaluations: list[dict] = []
@@ -799,7 +801,7 @@ class _Run:
             elif name in api_tools.TOOLS:
                 with self.lock:
                     used = sum(1 for c in getattr(self, "calls", []) if c["tool"] == name)
-                reason = api_tools.check(name, _input(use), used)
+                reason = api_tools.check(name, _input(use), used, approval=bool((getattr(self, "settings", None) or {}).get("approval")))
             if reason is None and (hit := self.over_budget()):
                 reason = hit if hit == CANCEL_REASON else f"{hit} has run out: answer with what you have"
             if reason is None:
@@ -1202,6 +1204,14 @@ class _Run:
         allowed = self.settings.get("api_tools")
         if allowed is not None and name not in allowed:
             return _result(use, f"Tool {name!r} is not available in this flow.", error=True)
+        tool = api_tools.TOOLS.get(name)
+        if tool and tool.side_effects:   # passed the guardrail only because the flow has an approval step (R32)
+            with self.lock:
+                self.proposals.append({"n": len(self.proposals) + 1, "tool": name, "title": tool.title,
+                                       "input": args, "delegation": delegation})
+            self.emit({"type": "proposal", "agent": "agent", "delegation": delegation, "tool": name})
+            return _result(use, f"Proposed, not done: {tool.title} runs only once a person approves it. Tell the "
+                                "user it is waiting for approval; don't say it is done.")
         # A tool that failed most of its recent calls is skipped this run (agent memory, R27).
         if why := agent_memory.tool_unreliable(name):
             return _result(use, f"Skipped: {why}. Say it is unavailable right now rather than retrying.", error=True)
@@ -1213,7 +1223,6 @@ class _Run:
                    "delegation": delegation, "tool": name, "input": args})
         result = api_tools.run(name, args)
         record.update(result)
-        tool = api_tools.TOOLS.get(name)
         self.emit({"type": "call", "state": "done", "agent": "external_apis", "n": n, "turn": use["turn"],
                    "tool": name, "input": args, "ok": result["ok"], "cached": result["cached"],
                    "error": result["error"], "seconds": result["seconds"],
@@ -1236,6 +1245,7 @@ class State(TypedDict, total=False):
     final_answer: str            # what the user gets: the draft if it passed, else a standard message
     output_guardrail: dict
     answer_evaluation: dict
+    human: dict                  # what a person decided at an Ask a human step (R32)
 
 
 def _restricted_supervisor(system: list[dict], agents: set[str]) -> tuple[list[dict], list[dict]]:
@@ -1370,6 +1380,9 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
     models = _agent_models(spec)
     if models:
         settings["models"] = models
+    # An approval step (R32): side-effecting API calls may be proposed, to run once a person approves.
+    if any(n.type == "human" and (n.config or {}).get("mode", "approve") == "approve" for n in spec.nodes):
+        settings["approval"] = True
     return settings
 
 
@@ -1558,6 +1571,84 @@ def _planner_node(node_id: str):
                        "search_ns": [s["n"] for s in run.searches if s and s["delegation"] in below]}
         return {"answer": done["answer"], "findings": [finding], "round": 1, "tasks": [], "pending_uses": []}
     return node
+
+
+def _human_node(node_id: str, raw: dict):
+    """Ask a human (R32, human.py): pause the run for a person, resume with their answer.
+    Only questions asked on the Ask page wait; the playground and evaluations pass straight through
+    (an approval step there shows the answer but never runs proposed actions)."""
+    settings = flows.COMPONENTS["human"].config.model_validate(raw or {})
+
+    def wait(run: "_Run", request: dict, payload: dict):
+        run.emit({"type": "human", "state": "waiting", "kind": request["kind"]})
+        response = interrupt({"request_id": request["request_id"], **payload}) or {}
+        run.emit({"type": "human", "state": "done", "kind": request["kind"], "expired": bool(response.get("expired"))})
+        return response
+
+    def clarify(state: State, run: "_Run") -> dict:
+        request = human.find(run.run_id, node_id)
+        if request is None:
+            with run.node(node_id, state.get("round", 0)):
+                try:
+                    ask = human.needs_clarifying(_checked_question(state, run), (run.settings or {}).get("brief") or "")
+                except Exception as error:   # the question goes on as asked
+                    log.warning("clarification check failed: %s", error)
+                    ask = None
+            if not ask:
+                return {}
+            request = human.open_request(run.run_id, node_id, "clarify", session_id=run.session_id,
+                                         user_id=run.user_id, asked=state["question"], question=ask,
+                                         timeout_minutes=settings.timeout_minutes)
+        response = wait(run, request, {"kind": "clarify", "message": request["question"]})
+        reply = pii.mask(str(response.get("reply") or "").strip()[:human.REPLY_CHARS])
+        if not reply:                         # timed out: carry on with the question as asked
+            return {"human": {"kind": "clarify", "expired": True}}
+        return {"question": f"{state['question']}\n\n(Asked to clarify \"{request['question']}\", the user "
+                            f"replied: {reply})", "human": {"kind": "clarify", "replied": True}}
+
+    def approve(state: State, run: "_Run") -> dict:
+        proposals = list(getattr(run, "proposals", []))
+        shown = (state.get("final_answer") or "") == (state.get("answer") or "") and bool(state.get("answer"))
+        if not proposals and not (shown and settings.approve_answers):
+            return {}                         # a standard message or a blocked answer needs no approval
+        request = human.find(run.run_id, node_id) or human.open_request(
+            run.run_id, node_id, "approve", session_id=run.session_id, user_id=run.user_id,
+            asked=getattr(run, "question", None) or state["question"], draft=state.get("final_answer") or "",
+            actions=proposals, timeout_minutes=settings.timeout_minutes)
+        response = wait(run, request, {"kind": "approve", "message": settings.waiting_message})
+        if not response.get("approved") or response.get("expired"):
+            return {"final_answer": settings.rejected_message,
+                    "human": {"kind": "approve", "approved": False, "expired": bool(response.get("expired"))}}
+        chosen = set(response.get("actions") or [p["n"] for p in proposals])
+        outcomes = [_run_approved(run, p) for p in proposals if p["n"] in chosen]
+        outcomes += [f"{p['title']}: not approved, so not done." for p in proposals if p["n"] not in chosen]
+        answer = "\n\n".join([state.get("final_answer") or "", *outcomes]).strip()
+        return {"final_answer": answer, "human": {"kind": "approve", "approved": True, "actions": len(chosen)}}
+
+    def node(state: State, config) -> dict:
+        run: _Run = config["configurable"]["run"]
+        if getattr(run, "source", "users") != "users" or not getattr(run, "run_id", None):
+            return {}
+        return clarify(state, run) if settings.mode == "clarify" else approve(state, run)
+    return node
+
+
+def _run_approved(run: "_Run", proposal: dict) -> str:
+    """A proposed side-effecting call a person approved: run now, recorded like any call."""
+    with run.lock:
+        n = len(run.calls) + 1
+        record = {"n": n, "turn": 0, "delegation": proposal["delegation"], "tool": proposal["tool"],
+                  "input": proposal["input"], "ok": None, "approved": True}
+        run.calls.append(record)
+    run.emit({"type": "call", "state": "start", "agent": "external_apis", "n": n, "tool": proposal["tool"],
+              "input": proposal["input"]})
+    result = api_tools.run(proposal["tool"], proposal["input"])
+    record.update(result)
+    run.emit({"type": "call", "state": "done", "agent": "external_apis", "n": n, "tool": proposal["tool"],
+              "ok": result["ok"], "error": result["error"], "seconds": result["seconds"]})
+    if not result["ok"]:
+        return f"{proposal['title']}: approved, but it failed ({result['error']})."
+    return f"{proposal['title']}: done. {(result.get('display') or {}).get('headline') or ''}".strip()
 
 
 def _agent_node(node_id: str):
@@ -2059,6 +2150,7 @@ def _runtime() -> flows.Runtime:
             "specialist": lambda node: _specialist_node(node.config["role"], node.id),
             "agent": lambda node: _agent_node(node.id),
             "planner": lambda node: _planner_node(node.id),
+            "human": lambda node: _human_node(node.id, node.config),
             "output_guardrail": lambda node: _output_guardrail,
             "answer_evaluator": lambda node: _with_settings(_answer_evaluator, node.config),
             "task_start": lambda node: _start_task,
@@ -2085,7 +2177,7 @@ def _runtime() -> flows.Runtime:
         fan_out={"supervisor": _supervisor_fan_out},
         delegates=set(SPECIALISTS),
         impl_states={**{impl: {"main"} for impl in ("supervisor", "specialist", "agent", "planner", "output_guardrail",
-                                                   "answer_evaluator")},
+                                                   "answer_evaluator", "human")},
                      **{impl: {"task"} for impl in ("task_start", "retrieval_agent", "evidence_evaluator", "query_rewriter",
                                                     "research_agent", "source_validator", "ingest", "handoff", "report",
                                                     "placeholder", "task_finish")}},
@@ -2568,6 +2660,10 @@ def _run_to_end(run: "_Run", graph, spec: flows.FlowSpec, version, source: str, 
         _record_run(spec, version, source, {"failed": True, "seconds": round(time.time() - started, 3)})
         durable.finish(run_id, "cancelled" if cancelled() else "failed", error=f"{type(error).__name__}: {error}"[:500])
         raise
+    if result["status"] == "waiting":
+        durable.wait(run_id)          # its checkpoints stay until a person answers (R32)
+        result.update(flow={"id": spec.id, "version": version}, question=question)
+        return result
     _record_run(spec, version, source, run.metrics)
     if on_metrics:
         on_metrics(run.metrics)
@@ -2588,11 +2684,15 @@ def _run_to_end(run: "_Run", graph, spec: flows.FlowSpec, version, source: str, 
     return result
 
 
-def resume_run(run_id: str, retrieval_view, on_event=lambda event: None) -> dict:
+def resume_run(run_id: str, retrieval_view, on_event=lambda event: None, answer=None) -> dict:
     """Pick up a run that a restart (or a failure) cut short, from its last
-    checkpoint, with its own state put back (R30). The result as answer()'s."""
+    checkpoint, with its own state put back (R30). answer: a person's answer
+    to the Ask a human step a waiting run paused at (R32). The result as answer()'s."""
     record = durable.get(run_id)
-    if not record or not durable.resumable(run_id):
+    if answer is not None:
+        if not record or record["status"] != "waiting":
+            raise ValueError("this run isn't waiting for an answer")
+    elif not record or not durable.resumable(run_id):
         raise ValueError("this run can't be resumed (finished, cancelled, or nothing was saved)")
     spec = flows.FlowSpec.model_validate(record["spec"])
     version = int(record["version"]) if record["version"].isdigit() else record["version"]
@@ -2621,9 +2721,10 @@ def resume_run(run_id: str, retrieval_view, on_event=lambda event: None) -> dict
                       asked=record["asked"], read_as=record["read_as"])
         config = {"configurable": {"thread_id": run_id}}
         fresh = CHECKPOINTER.get_tuple(config) is None    # cut short before its first step finished
+        graph_input = Command(resume=answer) if answer is not None else (
+            {"question": record["question"], "round": 0, "findings": []} if fresh else None)
         result = _run_to_end(run, graph, spec, version, record["source"], None, record["asked"], record["read_as"],
-                             activities, {"question": record["question"], "round": 0, "findings": []} if fresh else None,
-                             time.time() - (record["seconds"] or 0))
+                             activities, graph_input, time.time() - (record["seconds"] or 0))
         root.update(output={"answer": result["answer"], "resumed": True})
     return {**result, "resumed": True, "trace_id": trace_id}
 
@@ -2639,6 +2740,8 @@ def _public_progress(event: dict) -> dict | None:
         return {"type": "plan", "replanned": bool(event.get("replanned")),
                 "tasks": [{k: t.get(k) for k in ("id", "label", "agent", "depends_on", "status", "seconds")}
                           for t in event.get("tasks") or []]}
+    if kind == "human":   # R32: a run waiting for a person, and when it goes on
+        return {k: event.get(k) for k in ("type", "state", "kind", "expired") if k in event}
     if kind in ("node", "model", "guardrail", "answer_eval"):
         return {key: value for key, value in event.items() if key in (
             "type", "state", "stage", "node", "agent", "round", "turn", "delegation", "seconds",
@@ -2692,6 +2795,11 @@ def _drive(run_id: str, run: "_Run", config: dict, question: str, graph_input, s
         final = (graph or GRAPH).invoke(graph_input, config=config)
         root.update(output={"answer": final.get("answer"),
                             "path": [p["node"] for p in run.path]})
+    if final.get("__interrupt__"):     # paused at an Ask a human step (R32): resumed by the person's answer
+        waiting = final["__interrupt__"][0].value
+        result = _public_result(question, waiting.get("message") or "", {}, round(time.time() - started, 3))
+        return {**result, "status": "waiting", "run_id": run_id,
+                "waiting": {"kind": waiting.get("kind"), "request_id": waiting.get("request_id")}}
     result = _public_result(question, final.get("final_answer") or _scope(getattr(run, "settings", None)).output_message,
                             {"output": final.get("output_guardrail")}, round(time.time() - started, 3))
     internal = _result_of(run, final, question, result["total"])

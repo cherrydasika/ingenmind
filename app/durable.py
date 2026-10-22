@@ -8,6 +8,8 @@ by a restart can be picked up where it stopped, and every run has a history.
     begin(...)         a run starts: its record, with what it needs to resume
     snapshot(run)      after each graph step: the run's own state, as JSON
     finish(...)        done / failed / cancelled, with the public result
+    wait(run_id)       paused for a person (R32, human.py): "waiting", resumed
+                       with their answer (agent.resume_run(answer=...))
     recover()          at startup: runs left "running" by a dead process become
                        "interrupted"; those asked on the Ask page in the last
                        RESUME_MINUTES are resumed in the background
@@ -44,7 +46,7 @@ FINAL = ("done", "failed", "cancelled")
 # The run's own state kept with each snapshot (agent._Run attributes).
 SNAPSHOT_FIELDS = ("searches", "calls", "evaluations", "rewrites", "contracts", "web_searches", "research",
                    "candidates", "data_candidates", "budgets", "role_limits", "known_sources", "runs", "path",
-                   "agent_runs", "trace_id", "budget_hit", "question", "user_facts")
+                   "agent_runs", "trace_id", "budget_hit", "question", "user_facts", "proposals")
 
 _lock = threading.Lock()
 _saver = None
@@ -238,6 +240,17 @@ def finish(run_id: str, status: str, result: dict | None = None, error: str | No
         if status == "done":
             saver().delete_thread(run_id)          # the record keeps the history
     _safe(work, "finish")
+    LIVE.pop(run_id, None)
+
+
+def wait(run_id: str) -> None:
+    """Paused at an Ask a human step (R32): its checkpoints stay until a person answers."""
+    def work():
+        with _connect() as connection:
+            connection.execute("""
+                UPDATE agent_run_records SET status = 'waiting', updated_at = now()
+                WHERE run_id = %s AND status = 'running'""", (run_id,))
+    _safe(work, "wait")
     LIVE.pop(run_id, None)
 
 
