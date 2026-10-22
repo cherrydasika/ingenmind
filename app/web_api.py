@@ -1803,6 +1803,7 @@ async def _lifespan(app):
         print(f"knowledge system first run deferred: {exc}", file=sys.stderr)
     # Runs a restart cut short (R30): marked interrupted; recent Ask-page ones resume in the background.
     try:
+        await run_in_threadpool(durable.ensure_setup)
         resumed = await run_in_threadpool(durable.recover, _resume_and_record)
         if resumed:
             print(f"resuming {len(resumed)} interrupted run(s)", file=sys.stderr)

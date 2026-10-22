@@ -60,12 +60,12 @@ def _connect():
 
 def reset() -> None:
     """For tests that switch databases."""
-    global _saver, _pool, _ready
+    global _saver, _pool, _ready, _setup_done
     with _lock:
         if _pool is not None:
             _pool.close()
         _saver = _pool = None
-        _ready = False
+        _ready = _setup_done = False
 
 
 def saver():
@@ -82,17 +82,7 @@ def saver():
                     f"host={config.PGHOST} port={config.PGPORT} user={config.PGUSER} "
                     f"password={config.PGPASSWORD} dbname={config.PGDATABASE}",
                     min_size=1, max_size=8, kwargs={"autocommit": True, "prepare_threshold": 0}, open=True)
-                _saver = PostgresSaver(_pool)
-                # Two processes starting at once take turns. A session lock, outside any transaction:
-                # setup() creates indexes CONCURRENTLY, which waits for every open transaction to end.
-                with psycopg.connect(host=config.PGHOST, port=config.PGPORT, user=config.PGUSER,
-                                     password=config.PGPASSWORD, dbname=config.PGDATABASE,
-                                     autocommit=True) as connection:
-                    connection.execute("SELECT pg_advisory_lock(72616740)")
-                    try:
-                        _saver.setup()
-                    finally:
-                        connection.execute("SELECT pg_advisory_unlock(72616740)")
+                _saver = PostgresSaver(_pool)    # its tables: ensure_setup(), before the first run
                 return _saver
             except Exception as error:
                 log.warning("durable runs unavailable, checkpoints kept in memory: %s", error)
@@ -102,6 +92,31 @@ def saver():
         from langgraph.checkpoint.memory import MemorySaver
         _saver = MemorySaver()
         return _saver
+
+
+_setup_done = False
+
+
+def ensure_setup() -> None:
+    """The checkpointer's tables, once per process, before the first run that needs them; never at
+    import: setup() creates indexes CONCURRENTLY, which waits for every open transaction to end,
+    including one its caller may hold (the demo seed makes its flow live inside one). Two processes
+    starting at once take turns with a session lock, outside any transaction."""
+    global _setup_done
+    if _setup_done or not durable():
+        return
+    checkpointer = saver()                 # before _lock: saver() takes it too
+    with _lock:
+        if _setup_done:
+            return
+        with psycopg.connect(host=config.PGHOST, port=config.PGPORT, user=config.PGUSER, password=config.PGPASSWORD,
+                             dbname=config.PGDATABASE, autocommit=True) as connection:
+            connection.execute("SELECT pg_advisory_lock(72616740)")
+            try:
+                checkpointer.setup()
+            finally:
+                connection.execute("SELECT pg_advisory_unlock(72616740)")
+        _setup_done = True
 
 
 def durable() -> bool:
@@ -156,6 +171,8 @@ def _safe(work, what: str):
 
 def begin(run_id: str, *, source: str, session_id: str, user_id: str | None, flow_id: str, version,
           spec: dict, question: str, asked: str, read_as: str | None) -> None:
+    ensure_setup()
+
     def work():
         with _connect() as connection:
             connection.execute("""
