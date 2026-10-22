@@ -267,6 +267,11 @@ on #120 that isn't waiting on the user.
   characters (README Guardrail Scope updated). Checked on a demo preview
   with a real question: the right two sentences were marked.
 
+- **R24 (#36) done:** page addresses in Sources lists (Ask, Sessions,
+  evaluations, golden and search sets) show the site as well as the path
+  (`thetrainline.com/via/trips/…`, no scheme or "www."); the full address
+  on hover.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

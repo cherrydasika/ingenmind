@@ -36,9 +36,14 @@ export function round(n, digits = 3) {
   return Number(n.toFixed(digits));
 }
 
+// A page's address without the scheme and "www.": its site, so pages of
+// different sites can be told apart (R24), then its path.
 export function shortUrl(url) {
   try {
-    return new URL(url).pathname || url;
+    const u = new URL(url);
+    if (!/^https?:$/.test(u.protocol)) return url;
+    const path = u.pathname === "/" ? "" : u.pathname.replace(/\/$/, "");
+    return `${u.hostname.replace(/^www\./, "")}${path}`;
   } catch {
     return url;
   }
@@ -198,7 +203,7 @@ export function md(text, cls = "prose") {
 // who published it and its date when the page is labelled (#15), and the
 // citation numbers that point to it.
 export function sourceItem({ url, cited, organisation, effective_date }) {
-  const page = /^https?:\/\//.test(url) ? h("a", { href: url, target: "_blank", rel: "noopener" }, shortUrl(url)) : h("span", {}, url);
+  const page = /^https?:\/\//.test(url) ? h("a", { href: url, target: "_blank", rel: "noopener", title: url }, shortUrl(url)) : h("span", {}, url);
   const about = [organisation, effective_date].filter(Boolean).join(", ");
   return h("li", {}, page, h("span", { class: "faint" }, `${about ? ` · ${about}` : ""} · ${cited.map((n) => `[${n}]`).join(" ")}`));
 }
