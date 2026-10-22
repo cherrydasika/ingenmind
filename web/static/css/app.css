@@ -941,3 +941,22 @@ table.audit td { vertical-align: top; }
 .flagged-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; font-size: 13px; }
 .flagged-excerpt { margin: 4px 0 0; padding: 6px 10px; border-left: 3px solid var(--err); background: var(--surface-2);
   border-radius: var(--radius-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Citation previews (R23, citations.js) */
+button.cite { font: inherit; font-size: 0.85em; font-weight: 600; color: var(--primary); background: var(--primary-soft);
+  border: 0; border-radius: 4px; padding: 0 3px; margin: 0 1px; cursor: pointer; vertical-align: baseline; }
+button.cite:hover, button.cite[aria-expanded="true"] { background: var(--primary); color: #fff; }
+button.cite:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.cite-card { position: fixed; z-index: 50; display: block; width: min(440px, calc(100vw - 16px)); max-height: 60vh; overflow: auto;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-sm, 8px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25); padding: 12px 14px; font-size: 13px; line-height: 1.5; white-space: normal; }
+.cite-card > span { display: block; }
+.cite-head { font-weight: 600; }
+.cite-num { color: var(--primary); margin-right: 6px; }
+.cite-path { font-size: 12px; margin-top: 2px; }
+.cite-text { margin: 8px 0; padding-left: 10px; border-left: 3px solid var(--border-strong); white-space: pre-wrap; color: var(--muted); }
+.cite-text mark { background: #fde68a; color: #1f2937; border-radius: 2px; padding: 0 1px; }
+.cite-foot { display: flex !important; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+@media (max-width: 640px) {
+  .cite-card { left: 8px !important; right: 8px; top: auto !important; bottom: 8px; width: auto; max-height: 55vh; }
+}

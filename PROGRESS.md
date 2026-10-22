@@ -259,6 +259,14 @@ on #120 that isn't waiting on the user.
   0.92 but hit rate top 5 0.99 → 0.97 (~0.2 s a question); bge-reranker-base
   no better at ~1.3 s. No clear gain, so it stays off.
 
+- **R23 (#5) done:** citation previews on the Ask and Sessions pages: each
+  `[n]` shows its passage with the supporting sentences highlighted (hover,
+  keyboard focus, phone tap; Escape closes), and "Open the page" scrolls to
+  them (text fragment). The browser now receives cited chunk text, only for
+  answers that passed both checks, never instruction-like chunks, ≤1,200
+  characters (README Guardrail Scope updated). Checked on a demo preview
+  with a real question: the right two sentences were marked.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

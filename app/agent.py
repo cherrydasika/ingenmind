@@ -73,6 +73,7 @@ import agent_runtime
 import agent_tree
 import answer_eval
 import api_tools
+import citations
 import evidence
 import flows
 import guardrails
@@ -2443,6 +2444,10 @@ def _drive(run_id: str, run: "_Run", config: dict, question: str, graph_input, s
     internal = _result_of(run, final, question, result["total"])
     evaluation = final.get("answer_evaluation") or {}
     result["sources"] = _cited_sources(result["answer"], internal["searches"])
+    # The passage behind each citation (R23): only for an answer users see as written.
+    shown = ((final.get("output_guardrail") or {}).get("decision") in (None, "ALLOW")
+             and evaluation.get("passed") is not False)
+    result["citations"] = citations.passages(result["answer"], internal["searches"]) if shown else {}
     run.metrics = {"seconds": result["total"], "rounds": internal["rounds"], "tasks": len(internal["delegations"]),
                    "budget_hit": getattr(run, "budget_hit", None),
                    "input_tokens": internal["usage"]["input_tokens"], "output_tokens": internal["usage"]["output_tokens"],

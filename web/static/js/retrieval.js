@@ -5,9 +5,16 @@
 
 import { agentReady } from "./agent.js";
 import { api } from "./api.js";
+import { linkCitations } from "./citations.js";
 import { AgenticFlow, shortModel } from "./flow.js";
 import { card, errorBox, fmtTime, h, markdown, section, sourceItem } from "./ui.js";
 import { whyButton } from "./why.js";
+
+// The answer's [n] become previews of the passages they cite (R23).
+function linked(body, citations) {
+  linkCitations(body, citations);
+  return body;
+}
 
 export class RetrievalPage {
   title = "Ask";
@@ -132,7 +139,7 @@ export class RetrievalPage {
     }
     turn.append(h("div", { class: `reply ${ae && !ae.passed ? "withheld" : ""}` },
       h("div", { class: "reply-role" }, "◆ Answer", verdict),
-      h("div", { class: "reply-body", html: markdown(r.answer) }),
+      linked(h("div", { class: "reply-body", html: markdown(r.answer) }), r.citations),
       h("div", { class: "reply-meta" }, meta)));
     if (r.sources?.length) {
       turn.append(h("details", { class: "sources" },

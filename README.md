@@ -283,6 +283,18 @@ the classic one's 320–410k.
 
 ![An evaluation run on the Evaluations page: the summary (expectations met, answer check, scores, blocks, time, tokens) and the results per knowledge area](docs/images/flow-evaluation.png)
 
+### Citation previews
+
+Each `[n]` in an answer opens the passage it cites (`app/citations.py`,
+`web/static/js/citations.js`): hover or focus it, or tap it on a phone (a
+sheet at the bottom); Escape or a tap elsewhere closes it. The sentences
+that back the claim are highlighted: the answer's sentence holding `[n]` is
+the claim, and the passage's sentences sharing enough of its content words
+(numbers count double) and nearly as many as the best one are marked; no
+model call. "Open the page" links to the page scrolled to the first marked
+sentence (a text fragment, in browsers that support them). Sessions keep
+the previews with the answer.
+
 ### Streaming and cancelling
 
 Questions stream their progress as server-sent events: the first arrives
@@ -1015,8 +1027,12 @@ guardrails using the configured chat model (`app/llm.py`), not an AWS
 Bedrock Guardrail resource.
 
 Only reviewed answers and safe progress/usage metadata reach the browser,
-plus the page URLs the answer's citations point to and the answer check's
-verdict and scores (no chunk text).
+plus the page URLs the answer's citations point to, the answer check's
+verdict and scores, and (R23) the text of the chunks the answer cites: only
+when the answer passed the output guardrail and the answer check, at most
+1,200 characters each, never a chunk that reads like instructions to an AI
+(those never reach the agents either), with the page's title and site and
+the chunk's headings. Uncited chunks, drafts and tool replies never do.
 Raw generated text is not streamed; drafts, specialist findings and tool
 content are withheld from public results. Raw agent memory and internal
 prompts are restricted from the web API; detailed diagnostics remain in
