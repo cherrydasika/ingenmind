@@ -1456,3 +1456,41 @@ class HarnessUsage(unittest.TestCase):
         record = self.read(self.TOOL_TURN + [{"metadata": {"usage": {"inputTokens": 1234, "outputTokens": 56}}}])
         self.assertEqual((record["input_tokens"], record["output_tokens"]), (1234, 56))
         self.assertNotIn("estimated_turns", record)
+
+
+class Cancelling(unittest.TestCase):
+    """R18: a cancelled question stops its agents and tools; quiet streams get heartbeats."""
+
+    def test_a_cancelled_run_stops_before_its_next_turn_and_tool(self):
+        stop = threading.Event()
+        token = agent.CANCELLED.set(stop)
+        try:
+            run = agent._Run.__new__(agent._Run)
+            run.cancelled = agent.CANCELLED.get()
+        finally:
+            agent.CANCELLED.reset(token)
+        run.lock, run.runs, run.calls, run.settings, run.emit = threading.Lock(), [], [], {}, (lambda e: None)
+        self.assertIsNone(run.over_budget())
+        stop.set()
+        self.assertEqual(run.over_budget(), agent.CANCEL_REASON)
+        guarded = run._guarded({"offered": {"get_weather"}}, "external_apis", lambda use, n: agent._result(use, "ran"))
+        reply = guarded({"toolUseId": "a", "name": "get_weather", "input": '{"location": "York"}', "turn": 1}, 1)
+        self.assertIn("cancelled", json.dumps(reply))
+
+    def test_a_quiet_stream_sends_heartbeats_and_a_closed_one_sets_the_stop(self):
+        import asyncio
+        seen = {}
+
+        def work(emit):
+            seen["stop"] = agent.CANCELLED.get()
+            time.sleep(0.3)
+            return {"answer": "done"}
+
+        async def collect():
+            with patch.object(web_api, "HEARTBEAT_SECONDS", 0.05):
+                response = web_api._event_stream(work)
+                return [chunk async for chunk in response.body_iterator]
+        chunks = asyncio.run(collect())
+        self.assertIn(": keep-alive\n\n", chunks)
+        self.assertTrue(chunks[-1].startswith("event: result"))
+        self.assertTrue(seen["stop"].is_set())   # set once the stream ends, so nothing runs on

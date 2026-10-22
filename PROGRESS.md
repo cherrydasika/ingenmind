@@ -209,6 +209,14 @@ on #120 that isn't waiting on the user.
   type and any usage it carries (never text), to find where AgentCore puts
   the real numbers: needs EC2 running.
 
+- **R18 (#92) done:** progress already streamed; added heartbeats (a
+  comment line every 15 s, for the SSM tunnel and proxies) and **Cancel**
+  on the Ask page: closing the stream sets a stop the agents and tools
+  check like a budget (`agent.CANCELLED`), so nothing more is spent. First
+  progress arrives in ~80 ms on a demo preview. The answer still appears
+  only after the answer check (not token by token: nothing unreviewed is
+  shown).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

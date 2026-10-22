@@ -73,8 +73,10 @@ export class RetrievalPage {
         if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this.ask(); }
       },
     });
-    const button = h("button", { class: "btn", id: "ask-btn", type: "button", disabled: !ready || this.busy,
-      onclick: () => this.ask() }, this.busy ? "Working…" : "Ask");
+    const button = this.busy
+      ? h("button", { class: "btn btn-ghost", id: "ask-btn", type: "button", title: "Stop this question: its agents stop",
+        onclick: () => this.abort?.abort() }, "Cancel")
+      : h("button", { class: "btn", id: "ask-btn", type: "button", disabled: !ready, onclick: () => this.ask() }, "Ask");
     const problem = ready ? null : errorBox(`Agent unavailable: ${this.info?.error || "not configured"}. ${this.info?.harness?.runtime === "local"
       ? "Configure the chat model in .env (see .env.example)."
       : this.info?.configured === false
@@ -152,19 +154,23 @@ export class RetrievalPage {
     input.value = "";
     this.flow.start(question);
     this.busy = true;
+    this.abort = new AbortController();
     this.render();
     try {
       const result = await api.agentStream({ question, session_id: this.session.id, user_id: this.session.userId },
         (event) => {
           this.flow.event(event);
           this.onEvent(msg, event);
-        });
+        }, this.abort.signal);
       this.latest = result;
       msg.result = result;
       Object.assign(msg, { pending: false, checking: undefined, writing: undefined, searching: undefined });
       this.flow.finish(result);
     } catch (err) {
-      if (err.setup) {   // not a failure: nothing ran, the knowledge system is still being set up
+      if (err.name === "AbortError") {   // the person cancelled: the server stops the run
+        Object.assign(msg, { pending: false, notice: "Cancelled." });
+        this.flow.reset();
+      } else if (err.setup) {   // not a failure: nothing ran, the knowledge system is still being set up
         Object.assign(msg, { pending: false, notice: err.message });
         this.flow.reset();
       } else {
@@ -173,6 +179,7 @@ export class RetrievalPage {
       }
     } finally {
       this.busy = false;
+      this.abort = null;
       this.render();
     }
   }
