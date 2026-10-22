@@ -100,6 +100,7 @@ export const api = {
   currentSession: () => request("/api/sessions/current"),
   newConversation: () => post("/api/sessions/new", {}),
   agentMemory: () => request("/api/agent-memory"),
+  agentMemoryEntry: (entry, action) => post("/api/agent-memory/entry", { ...entry, action }),
   users: () => request("/api/users"),
   knowledgeFlagged: () => request("/api/knowledge/flagged"),
   modelCatalogue: () => request("/api/models/catalogue"),

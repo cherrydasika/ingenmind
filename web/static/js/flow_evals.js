@@ -14,8 +14,11 @@ const MAX_VERSIONS = 3;
 const SECONDS_PER_QUESTION = 35;   // typical agent run, for the cost hint
 
 const versionLabel = (v) => (v === "draft" ? "draft" : `v${v}`);
+// A run's label: its version, and "memory off" for a comparison run (R27).
+const runLabel = (r) => `${versionLabel(r.version)}${r.options?.memory === false ? " · memory off" : ""}`;
 // Published versions in order, then the draft.
-const byVersion = (a, b) => String(a.version).localeCompare(String(b.version), undefined, { numeric: true });
+const byVersion = (a, b) => String(a.version).localeCompare(String(b.version), undefined, { numeric: true })
+  || Number(a.options?.memory === false) - Number(b.options?.memory === false);
 const plain = (text) => text.replace(/\*\*/g, "").replace(/\s+/g, " ");
 const pct = (v) => (v === null || v === undefined ? "—" : `${Math.round(v * 100)}%`);
 const num = (v, d = 2) => (v === null || v === undefined ? "—" : Number(v).toFixed(d));
@@ -55,7 +58,7 @@ export class FlowEvals {
     this.runs = [];
     this.batch = null;          // the batch being compared
     this.batchRuns = [];        // its runs, in detail
-    this.form = { set: "travel_basics", flow: "travel_assistant", versions: new Set() };
+    this.form = { set: "travel_basics", flow: "travel_assistant", versions: new Set(), memory: "on" };
     this.editor = null;         // {id, name, text} while editing a set
     this.archive = null;
     this.error = null;
@@ -112,7 +115,7 @@ export class FlowEvals {
     this.error = null;
     try {
       const versions = [...this.form.versions];
-      const { runs } = await api.evalStart({ set_id: this.form.set, flow_id: this.form.flow, versions });
+      const { runs } = await api.evalStart({ set_id: this.form.set, flow_id: this.form.flow, versions, memory: this.form.memory });
       this.runs = await api.evalRuns();
       this.batch = this.runs.find((r) => r.id === runs[0])?.batch || this.batch;
       await this.loadBatch();
@@ -168,7 +171,7 @@ export class FlowEvals {
       ...this.flowDetail.versions.map((v) => v.version),
     ] : [];
     const picked = [...this.form.versions];
-    const runs = (set?.count || 0) * picked.length;
+    const runs = (set?.count || 0) * picked.length * (this.form.memory === "both" ? 2 : 1);
     const busy = this.runs.some((r) => ACTIVE.has(r.status));
     return h("div", { class: "fe-controls" },
       h("label", { class: "fe-field" }, h("span", {}, "Question set"),
@@ -187,6 +190,11 @@ export class FlowEvals {
             disabled: !this.form.versions.has(v) && this.form.versions.size >= MAX_VERSIONS,
             onchange: (e) => { e.target.checked ? this.form.versions.add(v) : this.form.versions.delete(v); this.render(); } }),
           versionLabel(v))) : h("span", { class: "faint" }, "Nothing published yet."))),
+      h("label", { class: "fe-field", title: "What the agents learned in earlier runs (Agent memory page). Compare runs each version with it on and off." },
+        h("span", {}, "Agent memory"),
+        h("select", { onchange: (e) => { this.form.memory = e.target.value; this.render(); } },
+          [["on", "On"], ["off", "Off"], ["both", "Compare on and off"]].map(([v, label]) =>
+            h("option", { value: v, selected: this.form.memory === v }, label)))),
       set?.description ? h("p", { class: "faint fe-desc" }, set.description) : null,
       h("div", { class: "fe-run" },
         h("button", { type: "button", class: "btn", disabled: !picked.length || !set || busy,
@@ -246,7 +254,7 @@ export class FlowEvals {
           onclick: async () => { this.batch = b.batch; await this.loadBatch(); this.render(); } },
         h("div", { class: "eval-run-head" }, h("strong", {}, `${first.set_name} · ${first.flow_id}`)),
         h("div", { class: "fe-chips" }, b.runs.slice().sort(byVersion).map((r) => h("span", { class: "fe-chip" },
-          versionLabel(r.version), " ", badge(ACTIVE.has(r.status) ? `${r.completed}/${r.total}` : r.status, STATUS_KIND[r.status] || "neutral"),
+          runLabel(r), " ", badge(ACTIVE.has(r.status) ? `${r.completed}/${r.total}` : r.status, STATUS_KIND[r.status] || "neutral"),
           r.summary?.pass_rate !== undefined && r.summary?.pass_rate !== null ? ` ${pct(r.summary.pass_rate)}` : ""))),
         h("div", { class: "faint" }, String(first.created_at).slice(0, 16).replace("T", " ")));
       })),
@@ -278,7 +286,7 @@ export class FlowEvals {
     };
     const summary = h("div", { class: "table-wrap" }, h("table", { class: "fe-summary" },
       h("thead", {}, h("tr", {}, h("th", {}, ""), runs.map((r) => h("th", { class: "num" },
-        `${r.flow_id} ${versionLabel(r.version)}`, " ", badge(ACTIVE.has(r.status) ? `${r.completed}/${r.total}` : r.status,
+        `${r.flow_id} ${runLabel(r)}`, " ", badge(ACTIVE.has(r.status) ? `${r.completed}/${r.total}` : r.status,
           STATUS_KIND[r.status] || "neutral"))))),
       h("tbody", {}, rows.map(([label, pick, fmt, higher]) => {
         const top = best(pick, higher);
@@ -309,7 +317,7 @@ export class FlowEvals {
           h("div", { class: "eval-answer", html: markdown(r.answer) })) : null);
     };
     const table = h("div", { class: "table-wrap eval-table" }, h("table", {},
-      h("thead", {}, h("tr", {}, h("th", {}, "Question"), runs.map((r) => h("th", {}, `${versionLabel(r.version)}`)))),
+      h("thead", {}, h("tr", {}, h("th", {}, "Question"), runs.map((r) => h("th", {}, `${runLabel(r)}`)))),
       h("tbody", {}, questions.map((q, i) => h("tr", {},
         h("td", { class: "eval-q" }, h("div", {}, h("span", { class: "faint" }, `${i + 1}. `), q.question,
           q.expect_blocked ? h("span", { class: "faint" }, " · should be blocked") : null),
@@ -320,7 +328,7 @@ export class FlowEvals {
         runs.map((r) => cell(r, i)))))));
 
     const byArea = runs.filter((r) => r.summary?.areas).map((r) => h("div", { class: "stack" },
-      h("h3", {}, `By knowledge area · ${versionLabel(r.version)}`), areaTable(r.summary.areas)));
+      h("h3", {}, `By knowledge area · ${runLabel(r)}`), areaTable(r.summary.areas)));
     return h("section", { class: "section" },
       h("div", { class: "section-head" }, h("h2", {}, `${runs[0].set_name} · ${runs[0].flow_id}`),
         active ? h("button", { type: "button", class: "btn btn-ghost btn-sm", onclick: () => this.cancel() }, "Cancel") : null,

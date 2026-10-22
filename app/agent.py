@@ -1014,6 +1014,8 @@ class _Run:
                 self.web_searches.append(record)
             self.emit({"type": "research", "step": "search", "state": "done", "delegation": delegation, "query": query,
                        "results": len(results), "seconds": record["seconds"]})
+            # Sites that validated well before first, with their record (agent memory, R27).
+            results = agent_memory.rank_results(results)
             shown = [{**r, "snippet": "[withheld: possible prompt injection]"} if injection.flags(r.get("snippet") or "")
                      else r for r in results]
             return _result(use, injection.quote("Web search results (JSON)", json.dumps(shown, ensure_ascii=False)))
@@ -1049,6 +1051,9 @@ class _Run:
         allowed = self.settings.get("api_tools")
         if allowed is not None and name not in allowed:
             return _result(use, f"Tool {name!r} is not available in this flow.", error=True)
+        # A tool that failed most of its recent calls is skipped this run (agent memory, R27).
+        if why := agent_memory.tool_unreliable(name):
+            return _result(use, f"Skipped: {why}. Say it is unavailable right now rather than retrying.", error=True)
         with self.lock:
             n = len(self.calls) + 1
             record = {"n": n, "turn": use["turn"], "delegation": delegation, "tool": name, "input": args, "ok": None}

@@ -89,6 +89,8 @@ def ensure_schema() -> None:
                 tokens int NOT NULL DEFAULT 0,
                 PRIMARY KEY (run_id, idx)
             )""")
+        # Run options (R27): {"memory": false} runs it with agent memory off, for comparing.
+        connection.execute("ALTER TABLE agent_eval_runs ADD COLUMN IF NOT EXISTS options jsonb NOT NULL DEFAULT '{}'")
         # What a question of a setup-written set tests and found (#16): its kind and area, frozen
         # with the result, the pages retrieved and cited (URLs only), and the live tools called.
         for column in ("kind text", "area text", "retrieved jsonb", "cited jsonb", "live_tools jsonb",
@@ -176,10 +178,11 @@ def save_set(set_id: str, name: str, description: str, questions: list[dict]) ->
 
 # ---------- runs ----------
 
-def start(set_id: str, flow_id: str, targets: list[tuple], execute) -> list[str]:
+def start(set_id: str, flow_id: str, targets: list[tuple], execute, memory: tuple[bool, ...] = (True,)) -> list[str]:
     """Queue one run per (version label, flow JSON) — the flow is frozen now,
     so editing a draft does not change a run — and make sure the worker runs.
-    execute(run, index, question) → result dict (see _store_result)."""
+    execute(run, index, question) → result dict (see _store_result).
+    memory: agent memory on and/or off (R27); both: each version runs twice."""
     question_set = get_set(set_id)
     if question_set is None:
         raise LookupError(f"unknown question set {set_id!r}")
@@ -188,13 +191,15 @@ def start(set_id: str, flow_id: str, targets: list[tuple], execute) -> list[str]
     ids = []
     with store._connect() as connection:
         for version, spec in targets:
-            run_id = uuid.uuid4().hex[:12]
-            connection.execute("""
-                INSERT INTO agent_eval_runs (id, batch, set_id, set_name, flow_id, version, status, total, spec)
-                VALUES (%s, %s, %s, %s, %s, %s, 'queued', %s, %s)""",
-                (run_id, batch, set_id, question_set["name"], flow_id, str(version), len(question_set["questions"]),
-                 Jsonb(spec)))
-            ids.append(run_id)
+            for use_memory in memory:
+                run_id = uuid.uuid4().hex[:12]
+                connection.execute("""
+                    INSERT INTO agent_eval_runs (id, batch, set_id, set_name, flow_id, version, status, total, spec,
+                                                 options)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'queued', %s, %s, %s)""",
+                    (run_id, batch, set_id, question_set["name"], flow_id, str(version), len(question_set["questions"]),
+                     Jsonb(spec), Jsonb({} if use_memory else {"memory": False})))
+                ids.append(run_id)
     _ensure_worker(execute)
     return ids
 
@@ -392,7 +397,7 @@ def _run_view(row: dict) -> dict:
     return {"id": row["id"], "batch": row["batch"], "set_id": row["set_id"], "set_name": row["set_name"],
             "flow_id": row["flow_id"], "version": row["version"], "status": row["status"], "total": row["total"],
             "completed": row["completed"], "created_at": _iso(row["created_at"]), "started_at": _iso(row["started_at"]),
-            "finished_at": _iso(row["finished_at"]), "summary": row["summary"]}
+            "finished_at": _iso(row["finished_at"]), "summary": row["summary"], "options": row.get("options") or {}}
 
 
 def list_runs(flow_id: str | None = None, limit: int = 50) -> list[dict]:

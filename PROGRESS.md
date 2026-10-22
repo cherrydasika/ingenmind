@@ -281,6 +281,14 @@ on #120 that isn't waiting on the user.
   and New conversation on the Ask page. Checked on a demo preview across a
   web app restart.
 
+- **R27 (#95) done:** the agents read agent memory (`AGENT_MEMORY_USE`,
+  default on): search results ranked by and labelled with each site's
+  validation record, tools failing most recent calls skipped, the rewriter
+  told which kinds of rewrite worked (strategies only, no queries). Counts
+  decay (30-day half-life); admins pin or forget entries; evaluations run
+  with memory on, off or both. Demo comparison (8 questions): 7/8 met both
+  ways, no gain shown yet (nothing for memory to steer on the demo).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
