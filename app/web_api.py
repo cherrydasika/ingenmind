@@ -37,6 +37,7 @@ import agent_memory as memory_store   # web_api.agent_memory is a route handler
 import answer_cache
 import conversation
 import durable
+import human
 import user_memory
 import audit
 import auth
@@ -430,11 +431,21 @@ async def agent_stream(request: Request) -> Response:
 
 
 def _ask_live(question: str, session_id: str, body: dict, max_iterations, emit) -> dict:
-    """A user's question: a cached answer when one fits (answer_cache.py), else the live flow."""
+    """A user's question: their reply when the session waits for one (R32), a cached
+    answer when one fits (answer_cache.py), else the live flow."""
+    try:
+        waiting = [w for w in human.waiting_for(session_id, body["user_id"]) if w["kind"] == "clarify"]
+    except Exception as error:   # the question is still answered
+        print(f"could not check for a waiting clarification: {error}", file=sys.stderr)
+        waiting = []
+    for request in waiting:
+        if replied := _reply_live(request, question, session_id, body, emit):
+            return replied
     follow_up = bool(conversation.recent_questions(session_id))
-    reusable = answer_cache.eligible_question(question, follow_up)
+    spec, version = agent.live_flow()
+    # A flow that asks a human never answers from the cache: every answer gets its approval.
+    reusable = answer_cache.eligible_question(question, follow_up) and not any(n.type == "human" for n in spec.nodes)
     if reusable:
-        spec, version = agent.live_flow()
         if cached := answer_cache.lookup(question, spec.id, version):
             emit("stage", {"type": "cache", "state": "hit"})
             result = {**cached, "cached": True}
@@ -444,9 +455,26 @@ def _ask_live(question: str, session_id: str, body: dict, max_iterations, emit) 
                 print(f"could not record the session turn: {error}", file=sys.stderr)
             return result
     result = _agent_payload(question, session_id, body, max_iterations, emit, record=True)
-    if reusable and result.get("flow"):
+    if reusable and result.get("flow") and result.get("status") == "done":
         answer_cache.store(question, result["flow"]["id"], result["flow"]["version"], result)
     return result
+
+
+def _reply_live(request: dict, reply: str, session_id: str, body: dict, emit) -> dict | None:
+    """The user's message answers the clarifying question their run waits on (R32):
+    the run goes on with it. None when the request was no longer open."""
+    if not human.respond(request["request_id"], {"reply": reply}, body["user_id"]):
+        return None
+    sessions.settle_waiting(request["run_id"])
+    result = agent.resume_run(request["run_id"], retrieval_view, lambda event: emit("stage", event),
+                              answer={"reply": reply})
+    trace_id = result.pop("trace_id", None)
+    try:
+        sessions.record_turn(session_id, body["user_id"], pii.mask(reply), result, trace_id)
+        conversation.summarise_later(session_id)
+    except Exception as error:
+        print(f"could not record the session turn: {error}", file=sys.stderr)
+    return _shape_agent_result(result)
 
 
 # ---------- Flows (the agent graph as data) ----------
@@ -1056,14 +1084,16 @@ def session_list(request: Request) -> Response:
 
 # ---------- Durable runs (durable.py, R30) ----------
 
-def _resume_and_record(run_id: str) -> dict:
-    """Resume a run; an Ask-page one's answer joins its session, as if it had finished."""
-    result = agent.resume_run(run_id, retrieval_view)
+def _resume_and_record(run_id: str, answer: dict | None = None) -> dict:
+    """Resume a run; an Ask-page one's answer joins its session, as if it had finished.
+    answer: a person's decision for a run waiting on them (R32); its answer replaces the waiting turn."""
+    result = agent.resume_run(run_id, retrieval_view, answer=answer)
     record = durable.get(run_id) or {}
     trace_id = result.pop("trace_id", None)
     if record.get("source") == "users" and record.get("session_id") and record.get("user_id"):
         try:
-            sessions.record_turn(record["session_id"], record["user_id"], record["asked"], result, trace_id)
+            if answer is None or not sessions.complete_waiting(run_id, result, trace_id):
+                sessions.record_turn(record["session_id"], record["user_id"], record["asked"], result, trace_id)
             conversation.summarise_later(record["session_id"])
         except Exception as error:
             print(f"could not record the resumed turn: {error}", file=sys.stderr)
@@ -1087,7 +1117,52 @@ async def runs_resume(request: Request) -> Response:
 
 async def runs_cancel(request: Request) -> Response:
     done = await run_in_threadpool(durable.cancel, request.path_params["run_id"])
+    if done:
+        await run_in_threadpool(human.cancel_for, request.path_params["run_id"])
     return _json({"ok": True}) if done else _json({"error": "nothing to cancel"}, 409)
+
+
+# ---------- Approvals (Ask a human, human.py, R32) ----------
+
+def approvals_list(request: Request) -> Response:
+    """Monitoring → Approvals: answers and actions waiting for a person, then the latest decided."""
+    return _json({"requests": [human.public(r) for r in human.inbox()]})
+
+
+async def approvals_decide(request: Request) -> Response:
+    """Approve or reject one request; the run goes on in the background with the decision."""
+    body = await request.json()
+    if not isinstance(body.get("approved"), bool):
+        return _json({"error": "approved (true or false) is required"}, 400)
+    actions = body.get("actions")
+    if actions is not None and not (isinstance(actions, list) and all(isinstance(a, int) for a in actions)):
+        return _json({"error": "actions must be a list of action numbers"}, 400)
+    decision = {"approved": body["approved"], "note": str(body.get("note") or "")[:human.NOTE_CHARS],
+                **({"actions": actions} if actions is not None else {})}
+    request_id = request.path_params["request_id"]
+    found = await run_in_threadpool(human.get, request_id)
+    if not found or found["kind"] != "approve":
+        return _json({"error": "No such approval"}, 404)
+    done = await run_in_threadpool(human.respond, request_id, decision, auth.current_user(request)["user_id"])
+    if not done:
+        return _json({"error": "This was already decided, timed out or cancelled"}, 409)
+    threading.Thread(target=_resume_and_record, args=(done["run_id"], decision), name="human-resume",
+                     daemon=True).start()
+    return _json({"ok": True, "status": "resuming"}, 202)
+
+
+def _expire_human_requests() -> None:
+    """Every minute: requests nobody answered in time go on with the safe default."""
+    while True:
+        time.sleep(60)
+        try:
+            for request in human.expire_due():
+                try:
+                    _resume_and_record(request["run_id"], {"expired": True})
+                except Exception as error:
+                    print(f"could not resume expired run {request['run_id']}: {error}", file=sys.stderr)
+        except Exception as error:   # the database may be restarting: try again next minute
+            print(f"human request expiry skipped: {error}", file=sys.stderr)
 
 
 # ---------- The user's own long-term memory (user_memory.py, R28) ----------
@@ -1810,6 +1885,7 @@ async def _lifespan(app):
         await run_in_threadpool(durable.prune)
     except Exception as exc:
         print(f"durable run recovery skipped: {exc}", file=sys.stderr)
+    threading.Thread(target=_expire_human_requests, name="human-expiry", daemon=True).start()
     yield
 
 
@@ -1885,6 +1961,8 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/runs", runs_list),
     Route("/api/runs/{run_id}/resume", runs_resume, methods=["POST"]),
     Route("/api/runs/{run_id}/cancel", runs_cancel, methods=["POST"]),
+    Route("/api/approvals", approvals_list),
+    Route("/api/approvals/{request_id}", approvals_decide, methods=["POST"]),
     Route("/api/me/memory", my_memory),
     Route("/api/me/memory", my_memory_consent, methods=["PUT"]),
     Route("/api/me/memory", my_memory_clear, methods=["DELETE"]),

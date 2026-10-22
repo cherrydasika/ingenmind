@@ -92,7 +92,7 @@ const GENERIC = {
   guardrail: [null, "Input or output guardrail: the scope and safety checks around the answer."],
 };
 const TOOL_CATEGORIES = ["model", "memory", "data", "tool"];
-const PRIMARY = new Set(["agent", "check", "input_guardrail", "output_guardrail", "start", "end"]);
+const PRIMARY = new Set(["agent", "check", "input_guardrail", "output_guardrail", "start", "end", "human"]);
 
 function PaletteItem({ c, drag, label }) {
   return (
@@ -129,6 +129,7 @@ function Palette({ components }) {
       <div className="fl-palette-group">
         <div className="fl-palette-label">Control</div>
         {of(["control"]).map((c) => <PaletteItem key={c.type} c={c} />)}
+        {components.filter((c) => c.type === "human").map((c) => <PaletteItem key={c.type} c={c} />)}
       </div>
       {classic.length > 0 && (
         <details className="fl-palette-group fl-classic">

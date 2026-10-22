@@ -31,7 +31,8 @@ PRUNE_EVERY_SECONDS = 3600
 TITLE_CHARS = 80
 # What of a public result a turn keeps: enough to show the answer again and
 # redraw the workflow graph; numbers, labels and URLs, no chunk text.
-RESULT_KEYS = ("answer", "read_as", "sources", "citations", "answer_check", "guardrails", "activities", "rounds", "total", "flow", "status")
+RESULT_KEYS = ("answer", "read_as", "sources", "citations", "answer_check", "guardrails", "activities", "rounds", "total", "flow", "status",
+               "run_id", "waiting")
 
 _schema_ready = False
 _schema_lock = threading.Lock()
@@ -131,6 +132,27 @@ def record_turn(session_id: str, user_id: str, question: str, result: dict, trac
             (question.strip()[:TITLE_CHARS], session_id))
     prune()
     return row
+
+
+def settle_waiting(run_id: str) -> None:
+    """A run's turns waiting for the user's reply (R32) are answered: they stop waiting."""
+    ensure_schema()
+    with _connect() as connection:
+        connection.execute("""UPDATE app_session_turns SET result = jsonb_set(result, '{status}', '"done"')
+                              WHERE result->>'run_id' = %s AND result->>'status' = 'waiting'""", (run_id,))
+
+
+def complete_waiting(run_id: str, result: dict, trace_id: str | None = None) -> bool:
+    """The answer a waiting run (R32) finished with replaces its latest waiting turn."""
+    ensure_schema()
+    kept = {key: result.get(key) for key in RESULT_KEYS if key in result}
+    with _connect() as connection:
+        return bool(connection.execute("""
+            UPDATE app_session_turns SET answer = %s, result = %s, trace_id = coalesce(%s, trace_id)
+            WHERE turn_id = (SELECT turn_id FROM app_session_turns
+                             WHERE result->>'run_id' = %s AND result->>'status' = 'waiting'
+                             ORDER BY turn_id DESC LIMIT 1)""",
+                                       (result.get("answer") or "", Jsonb(kept), trace_id, run_id)).rowcount)
 
 
 def prune(force: bool = False) -> int:

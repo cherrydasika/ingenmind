@@ -341,6 +341,25 @@ on #120 that isn't waiting on the user.
   Local Compose note: the webapp container's bind mounts had gone stale
   (empty `/app/dags`); `up -d --force-recreate webapp worker` fixed it.
 
+- **R32 (#100) done:** Ask a human component (`app/human.py`, flow node
+  `human`): **clarify** (before the agent: an ambiguous question gets one
+  question to the user; their next Ask-page message is the reply) and
+  **approve** (after the answer check: an approver with manage_agents
+  approves the answer and any proposed side-effecting tool calls in
+  **Monitoring → Approvals**; they run only once approved). LangGraph
+  `interrupt()` + the R30 PostgreSQL checkpoints: the run is `waiting`, a
+  restart leaves it waiting, the answer resumes it (`Command(resume=…)`).
+  Timeout (`timeout_minutes`, swept every minute): clarify goes on as asked,
+  approve rejects. Playground and evaluations never wait; a flow with the
+  step skips the answer cache. Gallery: Human-in-the-loop is ready (clarify
+  + approve). **Done-when checked on the local stack:** a real run paused for
+  approval, the web app restarted, the approval (HTTP, and again by clicking
+  Approve in the browser) resumed it and it finished; a second decision is
+  refused. Clarify → reply → approve ran through `web_api` with a real
+  session (turns settle and update in place). Not in this issue: approving
+  researched pages before ingestion (follow-up issue), and notifying
+  approvers (R55 alerts, #113).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

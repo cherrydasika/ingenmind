@@ -42,6 +42,11 @@ export class RetrievalPage {
     this.load(current.session);
     if (this.latest) this.flow.show(this.latest);
     this.render();
+    this.awaitApproval();
+  }
+
+  unmount() {
+    this.gone = true;
   }
 
   // The conversation is the server's current session (sessions.py): it
@@ -136,6 +141,7 @@ export class RetrievalPage {
             : msg.searching ? "Searching the knowledge base…" : "Working…"));
       return turn;
     }
+    if (r.status === "waiting") return this.renderWaiting(turn, r);
     const meta = [r.cached ? "from the answer cache" : fmtTime(r.total), r.cached ? null : shortModel(this.info?.harness?.model),
       r.flow ? `flow ${r.flow.id} v${r.flow.version}` : null]
       .filter(Boolean).join(" · ");
@@ -172,6 +178,39 @@ export class RetrievalPage {
     return turn;
   }
 
+  // A run paused at an Ask a human step (R32): a question for the user, or an answer awaiting approval.
+  renderWaiting(turn, r) {
+    if (r.waiting?.kind === "clarify") {
+      turn.append(h("div", { class: "reply" }, h("div", { class: "reply-role" }, "◆ A question first"),
+        h("div", { class: "reply-body", html: markdown(r.answer) })),
+      h("div", { class: "read-as", role: "note" }, "Reply in the box above and your question goes on with it."));
+    } else {
+      turn.append(h("div", { class: "run-status" }, h("span", { class: "spinner" }), r.answer));
+    }
+    return turn;
+  }
+
+  // While an answer waits for approval, watch the session: the approved (or rejected) answer replaces it.
+  async awaitApproval() {
+    if (this.watching) return;
+    this.watching = true;
+    const waiting = (turns) => turns.some((t) => t.result?.status === "waiting" && t.result?.waiting?.kind === "approve");
+    try {
+      while (!this.gone && waiting(this.messages)) {
+        await new Promise((r) => setTimeout(r, 10000));
+        if (this.busy) continue;
+        const { session } = await api.currentSession().catch(() => ({ session: null }));
+        if (session && !waiting((session.turns || []).map((t) => ({ result: t.result })))) {
+          this.load(session);
+          if (this.latest) this.flow.show(this.latest);
+          this.render();
+        }
+      }
+    } finally {
+      this.watching = false;
+    }
+  }
+
   async ask() {
     const input = document.getElementById("question");
     const question = input.value.trim();
@@ -193,6 +232,7 @@ export class RetrievalPage {
       msg.result = result;
       Object.assign(msg, { pending: false, checking: undefined, writing: undefined, searching: undefined });
       this.flow.finish(result);
+      if (result.status === "waiting") setTimeout(() => this.awaitApproval());
     } catch (err) {
       if (err.name === "AbortError") {   // the person cancelled: the server stops the run
         Object.assign(msg, { pending: false, notice: "Cancelled." });

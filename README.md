@@ -202,7 +202,7 @@ Details: [Knowledge system: setup and reset](#knowledge-system-setup-and-reset).
 
 Next on the list (see the [issues](https://github.com/cherrydasika/ingenmind/issues)):
 a reranker, approving
-researched pages in the app before they are added, an analytics page (where
+researched pages in the app before they are added (with Ask a human), an analytics page (where
 questions fail and which sources help), and suggestions learnt from live
 use, approved by an admin.
 
@@ -341,6 +341,31 @@ are kept `DURABLE_RETENTION_DAYS` (7). `DURABLE_RUNS=false` keeps
 checkpoints in memory (no resume). Checked by killing the web app mid-run
 on the demo and starting it again: the run resumed and its answer appeared.
 
+### Ask a human
+
+An **Ask a human** step (`app/human.py`, R32) pauses a run for a person and
+resumes it with their answer, after a restart too: the run is **waiting**,
+its checkpoints stay in PostgreSQL, and the request is in `human_requests`.
+Two modes:
+
+- **clarify**, before the agent: when the question is ambiguous (one small
+  model call, given the flow's brief), the user is asked one question; their
+  next message on the Ask page is the reply, and the question goes on with
+  it.
+- **approve**, after the answer check: an approver (manage_agents) sees the
+  answer, and any actions the agents proposed (side-effecting API tools), in
+  **Monitoring → Approvals**. Approve: the user gets the answer (the waiting
+  turn is replaced; an open Ask page picks it up) and the ticked actions
+  run. Reject: nothing runs and the user gets the step's rejection message.
+
+Unanswered after `timeout_minutes`, the safe default applies: clarify goes
+on with the question as asked; approve rejects. Only Ask-page questions
+wait: the playground and evaluations pass straight through (proposed
+actions never run there), and a flow with this step never answers from the
+answer cache. The gallery's **Human-in-the-loop** architecture uses both.
+Checked on the local stack: a run paused for approval, the web app was
+restarted, the approval (in the browser) resumed it and it finished.
+
 ### Streaming and cancelling
 
 Questions stream their progress as server-sent events: the first arrives
@@ -453,7 +478,9 @@ only call the tools it was offered (what is plugged into it in the flow);
 an API tool's arguments must match its schema and carry no personal data,
 links or instruction-like text; each tool may be called at most
 `max_calls` times per question; and a tool marked `side_effects` (one that
-books, sends or pays) is refused until a person can approve its calls.
+books, sends or pays) is refused unless the flow has an approval step (see
+[Ask a human](#ask-a-human)): then the call is only proposed, and runs once a
+person approves it.
 A refused call is in the trace with its reason.
 
 ### Retrieval and ingestion
