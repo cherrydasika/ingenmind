@@ -1524,10 +1524,19 @@ START → supervisor ──assign_tasks──▶ Send × n (parallel) → knowle
   `answer_handoff` (GOOD_EVIDENCE: the findings go to the supervisor),
   `query_rewriter` (RETRIEVAL_FAILURE: diagnose why the searches missed,
   rewrite the queries and retrieve again — once; a second miss is reported
-  as KNOWLEDGE_GAP), `research_agent` (KNOWLEDGE_GAP, below), or a
-  placeholder for an agent not built yet: `investigation_placeholder`
-  (CONFLICTING_EVIDENCE), `insufficient_evidence_placeholder`
-  (INSUFFICIENT_EVIDENCE).
+  as KNOWLEDGE_GAP), `research_agent` (KNOWLEDGE_GAP, below), the
+  **investigation agent** (CONFLICTING_EVIDENCE: works out from the
+  passages' sources, organisations and dates why they disagree — different
+  operators or routes, a newer source, a more authoritative one — and passes
+  on what they support, cited; unresolved, each version with its source) or
+  the **clarification agent** (INSUFFICIENT_EVIDENCE: passes on what the
+  passages do support, cited, says what is missing, and writes one question
+  for the user when the answer depends on a detail they didn't give)
+  (`app/evidence_agents.py`, R34; their routes keep the ids
+  `investigation_placeholder` and `insufficient_evidence_placeholder`, and
+  flows saved with the old placeholders run the agents too). The supervisor
+  never fills a gap they report from its own knowledge, and never
+  generalises past the findings ("all operators", "standard").
 - **⑤ Summarizer → ⑦ Answer evaluator** (`app/answer_eval.py`): the
   supervisor writes a brief answer (at most 120 words, no headings) from the
   approved evidence and API results,

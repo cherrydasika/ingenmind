@@ -23,10 +23,10 @@ prompt, inline tools and runtime session (its own memory).
             ▲                               ├─ RETRIEVAL_FAILURE → query_rewriter ─┐ (once: diagnose,
             └───────────────────────────────┼──────────────────────────────────────┘  rewrite, retrieve again)
                                             ├─ KNOWLEDGE_GAP → research_agent (see below)
-                                            ├─ CONFLICTING_EVIDENCE → investigation_placeholder
-                                            └─ INSUFFICIENT_EVIDENCE → insufficient_evidence_placeholder
+                                            ├─ CONFLICTING_EVIDENCE → investigation agent
+                                            └─ INSUFFICIENT_EVIDENCE → clarification agent
 
-  Only GOOD_EVIDENCE passes the draft on. A retrieval failure is retried once;
+  Only GOOD_EVIDENCE passes the draft on as it is. A retrieval failure is retried once;
   if the retry also misses, the evaluator reports a knowledge gap. A
   knowledge gap goes to the research agent (once per task):
 
@@ -36,8 +36,11 @@ prompt, inline tools and runtime session (its own memory).
                 metadata) → retrieval_agent again → evidence_evaluator …
             no valid source or a second gap → research_report
 
-  The placeholders for conflicting and insufficient evidence return a status
-  (the agents behind them are not built yet).
+  Conflicting evidence goes to the investigation agent and insufficient
+  evidence to the clarification agent (evidence_agents.py, R34): what the
+  passages support goes on, cited, with what is missing (and a question for
+  the user), instead of being withheld. Their route ids keep the old
+  *_placeholder names.
 - external_apis_agent: generic; its tools are every API in the api_tools
   registry (today canienter.com entry requirements and Open-Meteo weather).
 
@@ -76,6 +79,7 @@ import api_tools
 import citations
 import blackboard
 import contracts
+import evidence_agents
 import planner
 import durable
 import conversation
@@ -142,11 +146,15 @@ SUPERVISOR_PROMPT = (
     "If a specialist could not answer, say so plainly, and never describe a missing, rejected or empty "
     "result as a technical problem. When the information is not available, say so in one sentence and stop: "
     "do not point the user to websites, organisations, phone numbers or apps the findings do not name — the "
-    "answer evaluator rejects such referrals and the user then sees nothing. When the knowledge-base "
-    "findings carry a status such as 'Research Agent not implemented', the evidence was judged not good "
-    "enough: tell the user what is missing and do not fill the gap from your own knowledge. When such "
-    "findings include partial findings, answer with those (keeping their [n] citations) and say plainly "
-    "what the knowledge base does not cover, instead of only asking the user a question. A live-data "
+    "answer evaluator rejects such referrals and the user then sees nothing. Never generalise beyond the "
+    "findings: if they name some operators, stations or tickets, say it for those, not for 'all' or as "
+    "'standard'. A knowledge-base finding may come from the investigation agent (the evidence conflicted: "
+    "give what it says the evidence supports, and when the sources disagree give each version with its "
+    "citation and say they differ) or the clarification agent (the evidence was only partly sufficient: "
+    "answer with what is supported, keeping its [n] citations, say in one sentence what the knowledge base "
+    "does not cover, and end with its question for the user if it has one). Never fill a gap a finding "
+    "reports from your own knowledge. When the knowledge-base findings report a gap (missing, not "
+    "covered), tell the user what is missing, in one sentence. A live-data "
     "lookup that fails (for example a place the weather service cannot find) does not make the "
     "knowledge-base findings wrong: lead with what the knowledge base says, with its citations, and "
     "mention in one sentence that live data was unavailable. Never suggest that a place the knowledge "
@@ -490,6 +498,7 @@ class _Run:
         self.assessor = evidence.assess_with_llm
         self.rewriter = evidence.diagnose_and_rewrite
         self.rewrites: list[dict] = []
+        self.followups: list[dict] = []   # investigation and clarification agents' calls (R34)
         self.contracts: list[dict] = []   # sub-agent tasks and results (R29)
         self.proposals: list[dict] = []   # side-effecting tool calls awaiting a person's approval (R32)
         self.searches: list[dict | None] = []
@@ -1818,6 +1827,8 @@ PLACEHOLDERS = {
     "investigation_placeholder": "Investigation (Debugging) Agent not implemented",
     "insufficient_evidence_placeholder": "Retry / clarification not implemented",
 }
+# The route ids keep their old names (traces and saved flows use them); the agents behind them are real (R34).
+LEGACY_FOLLOWUPS = {"investigation_placeholder": "investigation", "insufficient_evidence_placeholder": "clarification"}
 
 
 def _guarded(fn):
@@ -2167,6 +2178,38 @@ def _research_report(state: KbState) -> dict:
     return {"result": {"answer": "\n".join(lines), "status": status, "partial": bool(draft)}}
 
 
+def _evidence_followup(kind: str):
+    """CONFLICTING_EVIDENCE → the investigation agent; INSUFFICIENT_EVIDENCE → the clarification
+    agent (R34, evidence_agents.py): what the evidence supports goes to the supervisor, cited, with
+    what is missing (and, for clarification, a question for the user), instead of being withheld."""
+    def node(state: KbState, config) -> dict:
+        run: _Run = config["configurable"]["run"]
+        task, evaluation = state["task"], state["evaluation"]
+        run.emit({"type": "followup", "state": "start", "agent": "knowledge_base", "kind": kind,
+                  "delegation": task["n"]})
+        started = time.monotonic()
+        found = evidence_agents.passages(state.get("searches") or [])
+        try:
+            result, usage = (evidence_agents.investigate if kind == "investigation" else evidence_agents.clarify)(
+                task["task"], found, evaluation)
+        except Exception as error:   # the old behaviour: withhold, and say what is missing
+            log.warning("%s agent failed: %s", kind, error)
+            return _placeholder("", f"The {kind} agent failed ({type(error).__name__})")(state)
+        record = {"kind": kind, **result, "delegation": task["n"], "usage": usage,
+                  "seconds": round(time.monotonic() - started, 3)}
+        with run.lock:
+            run.followups.append(record)
+        supported = bool(result.get("findings") if kind == "investigation" else result.get("supported"))
+        run.emit({"type": "followup", "state": "done", "agent": "knowledge_base", "kind": kind,
+                  "delegation": task["n"], "status": result.get("resolution") or ("partial" if supported else "none"),
+                  "seconds": record["seconds"]})
+        label = (f"CONFLICTING_EVIDENCE: investigated ({result['resolution']})" if kind == "investigation"
+                 else "INSUFFICIENT_EVIDENCE: partial findings" + (", ask the user" if result.get("question") else ""))
+        # partial: its searches may be cited, like good evidence (_finish_task)
+        return {"result": {"answer": evidence_agents.report(kind, result), "status": label, "partial": supported}}
+    return node
+
+
 def _placeholder(node: str, message: str | None = None):
     message = message or PLACEHOLDERS.get(node, "Not implemented")
 
@@ -2276,7 +2319,11 @@ def _runtime() -> flows.Runtime:
             "ingest": lambda node: _with_settings(_ingest_sources, node.config),
             "handoff": lambda node: _answer_handoff,
             "report": lambda node: _research_report,
-            "placeholder": lambda node: _placeholder(node.id, node.config.get("message")),
+            "investigation_agent": lambda node: _evidence_followup("investigation"),
+            "clarification_agent": lambda node: _evidence_followup("clarification"),
+            # Flows saved before R34 still have placeholders on these routes: they run the agents now.
+            "placeholder": lambda node: (_evidence_followup(LEGACY_FOLLOWUPS[node.id]) if node.id in LEGACY_FOLLOWUPS
+                                         else _placeholder(node.id, node.config.get("message"))),
             "task_finish": lambda node: _finish_task,
         },
         routers={
@@ -2294,7 +2341,8 @@ def _runtime() -> flows.Runtime:
                                                    "answer_evaluator", "human")},
                      **{impl: {"task"} for impl in ("task_start", "retrieval_agent", "evidence_evaluator", "query_rewriter",
                                                     "research_agent", "source_validator", "ingest", "handoff", "report",
-                                                    "placeholder", "task_finish")}},
+                                                    "investigation_agent", "clarification_agent", "placeholder",
+                                                    "task_finish")}},
         subflow_state="task",
     )
 
@@ -3020,7 +3068,7 @@ def _result_of(run: "_Run", final: dict, question: str, total: float) -> dict:
             "turns": sum(r["turns"] for r in runs),
         }
     searches = [s for s in run.searches if s]
-    extra_usage = run.evaluations + run.rewrites + [r["validation"] for r in run.research] \
+    extra_usage = run.evaluations + run.rewrites + getattr(run, "followups", []) + [r["validation"] for r in run.research] \
         + ([final["answer_evaluation"]] if final.get("answer_evaluation") else [])
     return {
         "question": question,

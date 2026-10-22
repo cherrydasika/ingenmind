@@ -377,6 +377,24 @@ on #120 that isn't waiting on the user.
   nodes as having sub-agents, so applying a Planner or Blackboard card
   threw "reading 'x'" and left the canvas blank.
 
+- **R34 (#38) done:** the investigation and clarification agents
+  (`app/evidence_agents.py`) replace the knowledge-base subflow's two
+  placeholders: conflicting evidence is investigated from the passages'
+  sources, organisations and dates (conditions / newer / more authoritative
+  / unresolved → both versions, cited); insufficient evidence passes on what
+  is supported (cited, so the answer check can verify it), what is missing,
+  and a question for the user only when the answer depends on a missing
+  detail. Old saved flows with the placeholder nodes run the agents too
+  (same route ids). Supervisor prompt: never fill a reported gap from its
+  own knowledge, never generalise past the findings. Real checks (local
+  rail domain, live built-in flow): "Are children under 5 free on all UK
+  trains?" failed before (the supervisor added "standard across National
+  Rail"), passes now from the clarification agent's cited findings; "How
+  much does a 16-25 Railcard cost?" now says what the knowledge base has.
+  The travel_basics set (no conflicting/insufficient cases) was 8/15 after
+  vs 10/15 before, within run-to-run noise (the two new failures passed 3
+  of 4 reruns).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

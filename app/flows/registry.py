@@ -462,6 +462,16 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
               impl="handoff"),
     Component("report", "Research report", "flow", "step", "Reports a gap research could not close.",
               impl="report"),
+    Component("investigation_agent", "Investigation agent", "flow", "agent",
+              "Conflicting evidence (R34): works out from the passages why they disagree (different operators, "
+              "routes or dates; a newer source; a more authoritative one) and passes on what they support, cited; "
+              "unresolved, it gives each version with its source. Never adds facts of its own.",
+              impl="investigation_agent"),
+    Component("clarification_agent", "Clarification agent", "flow", "agent",
+              "Insufficient evidence (R34): passes on what the passages do support, cited, says what is missing, "
+              "and writes one question for the user when a detail from them (operator, route, station, ticket, "
+              "date) would let the knowledge base answer. Never fills a gap from its own knowledge.",
+              impl="clarification_agent"),
     Component("placeholder", "Placeholder", "flow", "step", "Stands in for an agent not built yet.",
               PlaceholderConfig, impl="placeholder", applied=("message",)),
     Component("task_finish", "Task finish", "flow", "step", "Closes the task and returns its finding.",
