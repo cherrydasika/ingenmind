@@ -360,6 +360,23 @@ on #120 that isn't waiting on the user.
   researched pages before ingestion (follow-up issue), and notifying
   approvers (R55 alerts, #113).
 
+- **R33 (#101) done:** Blackboard component (`app/blackboard.py`,
+  `_Run.run_board`): a shared board of typed entries (question, fact,
+  hypothesis; author, confidence, status); a controller picks one agent and
+  one open question per step (may post sub-questions and hypotheses) or
+  finishes; findings → facts, what's missing → open questions; tool-less
+  agents post hypotheses only; the user's question stays open until the
+  controller finishes; a question never goes back to the agent that posted
+  it. Board live in the playground; gallery card ready (Controller +
+  Knowledge base, Live data, Analyst). **Done-when checked in the browser:**
+  applied from the gallery to a new draft flow ("Board check", left in the
+  local database), saved, run in the playground with the board updating.
+  Answer check on a two-part question: 2 of 4 board runs passed vs 0 of 2
+  for the live flow. **Fixed on the way (also broke R31's Planner card):**
+  the gallery diagram and the builder's auto-layout only treated `agent`
+  nodes as having sub-agents, so applying a Planner or Blackboard card
+  threw "reading 'x'" and left the canvas blank.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

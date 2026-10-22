@@ -426,3 +426,10 @@
 .fl-plan-task { margin: 3px 0; }
 .fl-plan-task.is-running strong { color: var(--fl-accent, #2563eb); }
 .fl-plan-task.is-failed strong, .fl-plan-task.is-skipped strong { text-decoration: line-through; opacity: 0.7; }
+.fl-board { margin: 6px 0; font-size: 12.5px; }
+.fl-board ol { list-style: none; margin: 4px 0; padding: 0; }
+.fl-board-entry { display: flex; gap: 6px; margin: 3px 0; }
+.fl-board-mark { flex: none; width: 14px; text-align: center; font-weight: 700; }
+.fl-board-entry.is-fact .fl-board-mark { color: var(--ok); }
+.fl-board-entry.is-hypothesis { font-style: italic; }
+.fl-board-entry.is-stuck > span:nth-child(2) { text-decoration: line-through; opacity: 0.7; }

@@ -187,6 +187,24 @@ def architectures() -> list[dict]:
                       (), (), [_agent("knowledge_base", "Knowledge base", KB_HELPER, KB),
                                _agent("live_data", "Live data", "Gets live data (such as the weather) with its "
                                       "tools.", LIVE)], type_="planner")),
+        _entry("blackboard", "Blackboard / shared state", "Multi-agent",
+               ["Question on the board", "Controller picks who acts", "Agents post facts and open questions",
+                "Finish when answered"],
+               "Agents work on a shared board instead of passing messages: the question goes on the board, a "
+               "controller reads it and asks one agent at a time about an open question; findings become facts "
+               "with the agent's confidence, what it couldn't find becomes a new open question for another agent, "
+               "an agent without tools (the Analyst) posts hypotheses that steer the controller but never go into "
+               "the answer, and the controller finishes when the facts answer the question. The board shows live "
+               "in the playground.",
+               "Investigations whose order isn't known up front (why was my journey disrupted; is this ticket "
+               "valid on this route today).",
+               _agent("board", "Controller", "Run the board: ask the agent whose area fits each open question, "
+                      "then answer from the facts.", (), (),
+                      [_agent("knowledge_base", "Knowledge base", KB_HELPER, KB),
+                       _agent("live_data", "Live data", "Gets live data (such as the weather) with its tools.", LIVE),
+                       _agent("analyst", "Analyst", "Reasons over the facts it is given: compares them, spots what "
+                              "conflicts or is missing, and says what follows; never invents facts.")],
+                      type_="blackboard")),
         _entry("planner_executor_reviewer", "Planner–executor–reviewer", "Multi-agent",
                ["Planner", "Executor", "Reviewer", "Retry or finish"],
                "A planner breaks the question into steps and hands each to an executor; a reviewer checks the "
@@ -253,8 +271,4 @@ def architectures() -> list[dict]:
                "approves them (#18).",
                "Mature deployments with steady traffic. Agent memory exists; applying lessons does not yet.",
                ready=False),
-        _entry("blackboard", "Blackboard / shared state", "Coming soon",
-               ["Agents read and write shared state", "Coordinator decides when complete"],
-               "Agents work on a shared board instead of passing messages; a coordinator ends the run.",
-               "Open-ended work with many contributors. Needs shared state in the runtime first.", ready=False),
     ])

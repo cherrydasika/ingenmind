@@ -100,7 +100,8 @@ function placeSubAgents(flow, byRaw, positions, subs) {
     return bottom;
   };
   for (const raw of Object.keys(positions)) {
-    if (!subs.has(raw) && byRaw[raw]?.component?.plugs) place(byRaw[raw]);
+    // Under anything with an agents port: an Agent, a Planner (R31), a Blackboard (R33).
+    if (!subs.has(raw) && byRaw[raw]?.component?.inputs?.includes("agents")) place(byRaw[raw]);
   }
 }
 

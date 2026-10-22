@@ -103,6 +103,12 @@ class PlannerConfig(AgentConfig):
     replan: bool = Field(True, description="When a task fails, plan the rest again once")
 
 
+class BlackboardConfig(AgentConfig):
+    """An Agent that runs a blackboard (R33): its sub-agents post to a shared board; a controller picks who acts next."""
+    max_steps: int = Field(6, ge=2, le=12, description="Agent turns on the board at most (the controller picks one "
+                                                         "agent per step)")
+
+
 class HumanConfig(BaseModel):
     """Ask a human (R32): the run pauses for a person and resumes with their answer, after a restart too."""
     mode: Literal["clarify", "approve"] = Field(
@@ -395,6 +401,15 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
               "need them, plans again once if a task fails, then writes the answer from the results.",
               PlannerConfig, impl="planner", inputs=("llm", "memory", "agents", "checks"),
               applied=("brief", "domain", "instructions", "answer_word_limit", "max_tasks", "parallel", "replan"),
+              extra={"contract": contracts.describe()}),
+    Component("blackboard", "Blackboard", "flow", "agent",
+              "An agent that runs a shared board (R33): the question goes on the board; each step a controller "
+              "reads it and asks one sub-agent (plugged into its agents port) about one open question. Findings "
+              "become facts with the agent's confidence, what it couldn't find becomes new open questions, and "
+              "the controller may post hypotheses and sub-questions. It finishes when the facts answer the "
+              "question, then writes the answer from them. For investigations whose order isn't known up front.",
+              BlackboardConfig, impl="blackboard", inputs=("llm", "memory", "agents", "checks"),
+              applied=("brief", "domain", "instructions", "answer_word_limit", "max_steps"),
               extra={"contract": contracts.describe()}),
     Component("specialist_agent", "Specialist agent", "flow", "agent",
               "An agent with tools that works on one delegated task and reports back.", SpecialistConfig,

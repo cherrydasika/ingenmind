@@ -261,11 +261,22 @@ the classic one's 320–410k.
   the flow, how it flows and when to use it: tool-calling agent,
   evaluator–refinement, self-correcting, generator–critic, fallback,
   supervisor–worker, router–specialists, parallel agents, sequential
-  agents (orchestrated), planner–executor–reviewer, research–synthesis,
-  debate/consensus and hierarchical delegation. **Apply** puts its agents,
-  sub-agents, evaluators and tools on the canvas, keeping the flow's name,
-  guardrail scope, brief and domain; save the draft to keep it, or undo.
-  Human-in-the-loop, self-learning and blackboard are shown as coming soon.
+  agents (orchestrated), planner–executor (task graph, R31),
+  planner–executor–reviewer, research–synthesis, debate/consensus,
+  hierarchical delegation, human-in-the-loop (R32) and blackboard (R33).
+  **Apply** puts its agents, sub-agents, evaluators and tools on the canvas,
+  keeping the flow's name, guardrail scope, brief and domain; save the draft
+  to keep it, or undo. Self-learning is shown as coming soon.
+- **Blackboard** (`app/blackboard.py`, R33) — a component whose sub-agents
+  work on a shared board instead of passing messages. The question goes on
+  the board; each step a controller reads it and asks one agent about one
+  open question (it may first split the question into sub-questions or post
+  a hypothesis). An agent's findings become a fact with its confidence; what
+  it couldn't find becomes an open question for another agent (never back
+  to the same one); an agent without tools (an analyst) posts hypotheses,
+  which steer the controller but never go into the answer. The controller
+  finishes when the facts answer every part, and the answer is written from
+  the facts. The board shows live in the playground.
 - **Versions** — one working draft per flow and immutable published
   versions, with a diff between any two, duplication, and templates to start
   from. Older versions open read-only.
