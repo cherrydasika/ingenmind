@@ -114,6 +114,9 @@ const METHOD_TEXT = {
   api_tool: "a new API tool", feed_consumer: "a feed consumer", bulk_ingest: "a scheduled download",
   page_ingest: "ingesting pages", none: "no source",
 };
+// A plan task's status (R31) as a chart state.
+const PLAN_STATE = { waiting: "idle", running: "active", done: "done", partial: "done", failed: "error",
+  needs_input: "error", skipped: "skipped" };
 const STATE_TEXT = { idle: "waiting", active: "running", done: "done", error: "failed", skipped: "skipped" };
 
 export function shortModel(model) {
@@ -202,6 +205,7 @@ export class AgenticFlow {
     this.steps = h("ol", { class: "dag-steps" });
     this.stepsCount = h("span", { class: "faint" });
     this.live = h("div", { class: "sr-only", "aria-live": "polite" });
+    this.planBox = h("div", { class: "dag-plan", hidden: true });
     const legend = h("div", { class: "dag-legend" }, ["idle", "active", "done", "error", "skipped"].map((state) =>
       h("span", { class: "dag-key", "data-state": state }, h("i"), STATE_TEXT[state])));
     return h("div", { class: "dag" },
@@ -210,6 +214,7 @@ export class AgenticFlow {
       h("div", { class: "dag-scroll" },
         svg("svg", { class: "dag-svg", viewBox: `0 0 ${width} ${height}`, role: "img", "aria-label": "Workflow graph",
           style: `--dag-w:${width}px` }, svg("defs", {}, marker("dag-arrow")), edgeLayer, nodeLayer)),
+      this.planBox,
       h("details", { class: "dag-log" }, h("summary", {}, "Steps ", this.stepsCount), this.steps),
       this.live);
   }
@@ -292,6 +297,7 @@ export class AgenticFlow {
     for (const key of Object.keys(this.nodes)) this.draw(key);
     this.steps.replaceChildren();
     this.stepsCount.textContent = "";
+    if (this.planBox) this.plan(null);
     this.el.dataset.run = "idle";
     this.tick();
   }
@@ -319,8 +325,35 @@ export class AgenticFlow {
       return undefined;
     }
     if (e.type === "answer_eval") return this.answerCheck(e);
+    if (e.type === "plan") return this.plan(e.tasks, e.replanned);
     if (e.type === "activity") return this.activity(e, true);
     return undefined;
+  }
+
+  // A Planner's task graph (R31): each task, the tasks it waits for, its agent and status, live.
+  plan(tasks, replanned = false) {
+    if (!tasks?.length) {
+      this.planBox.hidden = true;
+      return;
+    }
+    if (replanned) this.step("Planner: a task failed, so it planned the rest again", "err");
+    const label = Object.fromEntries(tasks.map((t) => [t.id, t.label]));
+    // Waves: a task runs once everything it waits for is done; tasks in one wave run together.
+    const level = {};
+    const depth = (t) => (level[t.id] ??= t.depends_on.length
+      ? 1 + Math.max(...t.depends_on.map((d) => depth(tasks.find((x) => x.id === d) || { id: d, depends_on: [] })))
+      : 0);
+    tasks.forEach(depth);
+    const waves = [...new Set(Object.values(level))].sort((a, b) => a - b);
+    this.planBox.hidden = false;
+    this.planBox.replaceChildren(
+      h("div", { class: "dag-plan-head" }, h("strong", {}, "Plan "), h("span", { class: "faint" },
+        `${tasks.length} task${tasks.length === 1 ? "" : "s"} · ${waves.length} wave${waves.length === 1 ? "" : "s"}: tasks in a wave run at the same time`)),
+      h("div", { class: "dag-plan-waves" }, waves.map((w) => h("div", { class: "dag-plan-wave" },
+        tasks.filter((t) => level[t.id] === w).map((t) => h("div", { class: "dag-plan-task", "data-state": PLAN_STATE[t.status] || "idle",
+          title: t.depends_on.length ? `Waits for: ${t.depends_on.map((d) => label[d] || d).join(", ")}` : "Waits for nothing" },
+        h("div", { class: "dag-plan-label" }, t.label),
+        h("div", { class: "faint" }, [t.agent, t.status, t.seconds ? fmtTime(t.seconds) : null].filter(Boolean).join(" · "))))))));
   }
 
   guardrail(e) {
@@ -480,6 +513,7 @@ export class AgenticFlow {
   show(result) {
     this.start(result.question);
     this.restored = true;
+    this.plan(result.plan);
     for (const [stage, verdict] of Object.entries(result.guardrails || {})) {
       if (stage === "input") this.guardrail({ stage, state: "done", decision: verdict.decision });
     }

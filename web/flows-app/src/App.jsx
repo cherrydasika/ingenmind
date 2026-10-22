@@ -405,8 +405,12 @@ function Playground({ open, onClose, record, flowId, dirty, session, onEvent, on
       const { id: sessionId, userId } = session();
       const result = await flowsApi.run(flowId, {
         question: q, session_id: sessionId, user_id: userId, version: target === "" ? undefined : Number(target),
-      }, onEvent);
-      update({ answer: result.answer ?? "", flow: result.flow, total: result.total, budget: result.budget });
+      }, (event) => {
+        if (event.type === "plan") update({ plan: event.tasks });   // a Planner's task graph, live (R31)
+        onEvent(event);
+      });
+      update({ answer: result.answer ?? "", flow: result.flow, total: result.total, budget: result.budget,
+        ...(result.plan ? { plan: result.plan } : {}) });
     } catch (err) {
       update({ error: err.message });
     } finally {
@@ -432,6 +436,7 @@ function Playground({ open, onClose, record, flowId, dirty, session, onEvent, on
           {turns.map((t) => (
             <div key={t.id} className="fl-turn">
               <div className="fl-q">{t.question}</div>
+              {t.plan?.length > 0 && <PlanList tasks={t.plan} />}
               {t.answer !== null && <div className="fl-answer">{t.answer ? <AnswerText text={t.answer} /> : <span className="fl-faint">No answer.</span>}
                 {t.flow && <div className="fl-faint fl-turn-meta">{t.flow.id} {typeof t.flow.version === "number" ? `v${t.flow.version}` : t.flow.version}{t.total ? ` · ${t.total.toFixed(1)} s` : ""}</div>}
                 {t.budget && <BudgetUse budget={t.budget} />}</div>}
@@ -448,6 +453,21 @@ function Playground({ open, onClose, record, flowId, dirty, session, onEvent, on
       </form>
       {blocked && <div className="fl-field-help">Save the draft to run your changes, or pick a published version.</div>}
     </aside>
+  );
+}
+
+// A Planner's task graph (R31): each task, its agent, what it waits for, and its status.
+function PlanList({ tasks }) {
+  const label = Object.fromEntries(tasks.map((t) => [t.id, t.label]));
+  return (
+    <ol className="fl-plan">
+      {tasks.map((t) => (
+        <li key={t.id} className={`fl-plan-task is-${t.status}`}>
+          <strong>{t.label}</strong> <span className="fl-faint">· {t.agent} · {t.status}{t.seconds ? ` · ${t.seconds.toFixed(1)} s` : ""}</span>
+          {t.depends_on.length > 0 && <div className="fl-faint">after {t.depends_on.map((d) => label[d] || d).join(", ")}</div>}
+        </li>
+      ))}
+    </ol>
   );
 }
 

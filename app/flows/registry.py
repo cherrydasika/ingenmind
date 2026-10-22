@@ -96,6 +96,13 @@ class AgentConfig(BaseModel):
     answer_word_limit: int = Field(120, ge=40, le=400, description="The answer's hard word limit (in its prompt)")
 
 
+class PlannerConfig(AgentConfig):
+    """An Agent that plans (R31): a task graph for its sub-agents, run in parallel where it can."""
+    max_tasks: int = Field(6, ge=2, le=8, description="Tasks in a plan at most")
+    parallel: int = Field(3, ge=1, le=4, description="Tasks that may run at the same time")
+    replan: bool = Field(True, description="When a task fails, plan the rest again once")
+
+
 class CheckConfig(BaseModel):
     """An evaluator plugged into an agent's checks (#66): it checks that agent's result."""
     checks: Literal["answer", "evidence", "criteria"] = Field(
@@ -364,6 +371,13 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
               AgentConfig, impl="agent",
               inputs=("llm", "memory", "retriever", "web_search", "scraper", "tools", "agents", "checks"),
               plugs="agents", applied=("brief", "domain", "instructions", "answer_word_limit"),
+              extra={"contract": contracts.describe()}),
+    Component("planner", "Planner", "flow", "agent",
+              "An agent that plans: it splits the question into a graph of tasks for its sub-agents (plugged into "
+              "its agents port), runs the independent ones at the same time, passes results to the tasks that "
+              "need them, plans again once if a task fails, then writes the answer from the results.",
+              PlannerConfig, impl="planner", inputs=("llm", "memory", "agents", "checks"),
+              applied=("brief", "domain", "instructions", "answer_word_limit", "max_tasks", "parallel", "replan"),
               extra={"contract": contracts.describe()}),
     Component("specialist_agent", "Specialist agent", "flow", "agent",
               "An agent with tools that works on one delegated task and reports back.", SpecialistConfig,

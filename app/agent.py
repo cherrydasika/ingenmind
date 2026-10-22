@@ -75,6 +75,7 @@ import answer_eval
 import api_tools
 import citations
 import contracts
+import planner
 import durable
 import conversation
 import user_memory
@@ -903,30 +904,142 @@ class _Run:
             except ValidationError as error:
                 problems = "; ".join(f"{'.'.join(map(str, e['loc'])) or 'task'}: {e['msg']}" for e in error.errors()[:3])
                 return _result(use, f"Invalid task for {child}: {problems}", error=True)
-            deadline = time.monotonic() + task.deadline_seconds if task.deadline_seconds else None
-            done = self.run_agent(child, task.prompt()[:MAX_TEXT_CHARS], parent=delegation,
-                                  max_turns=task.max_turns, deadline=deadline)
-            result = contracts.result_of(
-                done["answer"], passed=done["passed"], failed_check=done["failed_check"],
-                error=done["feedback"] if done["failed_check"] == "its run" else None, stopped=done.get("stopped"),
-                checks=done.get("checks"), cost={"seconds": done.get("seconds", 0), "turns": done.get("turns", 0),
-                                                 "input_tokens": done.get("input_tokens", 0),
-                                                 "output_tokens": done.get("output_tokens", 0)})
-            with self.lock:
-                self.contracts.append({"n": done["n"], "parent": delegation, "agent": child,
-                                       "task": task.model_dump(), "result": result.model_dump()})
-            # Public-safe: status, counts and cost only (never the goal or the findings).
-            self.emit({"type": "contract", "n": done["n"], "agent": child, "status": result.status,
-                       "citations": len(result.citations), "missing": len(result.missing),
-                       "confidence": result.confidence, "turns": result.cost.turns})
-            with observation(as_type="span", name=f"contract:{child}", input=task.model_dump()) as span:
-                span.update(output=result.model_dump())
+            result = self.delegate(child, task, delegation)
             return _result(use, result.for_parent(), error=result.status == "failed")
         if name == "search_knowledge_base":
             return self._search(use, delegation)
         if name in ("web_search", "fetch_source"):
             return self._research_tool(use, delegation)
         return self._call(use, delegation)
+
+    def delegate(self, child: str, task: "contracts.Task", parent: int) -> "contracts.Result":
+        """A sub-agent's run under the typed contract (R29): the Task in, a Result out, both recorded and traced."""
+        deadline = time.monotonic() + task.deadline_seconds if task.deadline_seconds else None
+        done = self.run_agent(child, task.prompt()[:MAX_TEXT_CHARS], parent=parent,
+                              max_turns=task.max_turns, deadline=deadline)
+        result = contracts.result_of(
+            done["answer"], passed=done["passed"], failed_check=done["failed_check"],
+            error=done["feedback"] if done["failed_check"] == "its run" else None, stopped=done.get("stopped"),
+            checks=done.get("checks"), cost={"seconds": done.get("seconds", 0), "turns": done.get("turns", 0),
+                                             "input_tokens": done.get("input_tokens", 0),
+                                             "output_tokens": done.get("output_tokens", 0)})
+        with self.lock:
+            self.contracts.append({"n": done["n"], "parent": parent, "agent": child,
+                                   "task": task.model_dump(), "result": result.model_dump()})
+        # Public-safe: status, counts and cost only (never the goal or the findings).
+        self.emit({"type": "contract", "n": done["n"], "agent": child, "status": result.status,
+                   "citations": len(result.citations), "missing": len(result.missing),
+                   "confidence": result.confidence, "turns": result.cost.turns})
+        with observation(as_type="span", name=f"contract:{child}", input=task.model_dump()) as span:
+            span.update(output=result.model_dump())
+        return result
+
+    def run_plan(self, node: str, question: str) -> dict:
+        """A Planner (R31): plan a task graph for the sub-agents, run the ready tasks in
+        parallel (each with its dependencies' findings as inputs), re-plan once after a
+        failure, then write the answer from the results. The same shape as run_agent()."""
+        agent = self.tree[node]
+        config = agent.config
+        with self.lock:
+            n = len(self.agent_runs) + 1
+            self.agent_runs.append({"n": n, "node": node, "parent": None})
+        self.emit({"type": "delegate", "state": "start", "agent": "agent", "n": n, "task": question, "round": 1})
+        started = time.monotonic()
+        usage = self.new_run(f"planner:{node}", n)
+
+        def count(used: dict) -> None:
+            with self.lock:
+                usage["input_tokens"] += used.get("input_tokens", 0)
+                usage["output_tokens"] += used.get("output_tokens", 0)
+                usage["turns"] += 1
+        team = [{"id": c, "name": self.tree[c].name,
+                 "what": (self.tree[c].config.get("instructions") or "answers tasks in its area")[:300]}
+                for c in agent.subagents]
+        out = {"answer": "", "passed": True, "failed_check": None, "feedback": "", "checks": [], "n": n}
+        try:
+            with observation(as_type="span", name=f"plan:{node}", input={"question": question}) as span:
+                steps, used = planner.make_plan(question, team, config.get("max_tasks", 6))
+                count(used)
+                span.update(output=[s.public() for s in steps])
+        except Exception as error:
+            out.update(passed=False, failed_check="its plan", feedback=f"{type(error).__name__}: {error}")
+            self.emit({"type": "delegate", "state": "done", "agent": "agent", "n": n, "error": "its plan",
+                       "seconds": round(time.monotonic() - started, 3)})
+            out["seconds"] = round(time.monotonic() - started, 3)
+            return out
+        self.plan = steps
+        self.emit_plan()
+        results: dict[str, "contracts.Result"] = {}
+        replanned = not config.get("replan", True)
+        parallel = max(1, int(config.get("parallel", 3)))
+        while True:
+            finished = {s.id for s in self.plan if s.status not in ("waiting", "running")}
+            wave = planner.ready(self.plan, finished)[:parallel]
+            if not wave:
+                break
+            for step in wave:
+                step.status = "running"
+            self.emit_plan()
+
+            def work(step):
+                task = contracts.Task(goal=step.goal, inputs={
+                    (next((s.label for s in self.plan if s.id == d), d))[:60]: results[d].findings[:1500]
+                    for d in step.depends_on if d in results and results[d].findings})
+                began = time.monotonic()
+                result = self.delegate(step.agent, task, n)
+                return step, result, time.monotonic() - began
+            contexts = [contextvars.copy_context() for _ in wave]
+            with ThreadPoolExecutor(max_workers=len(wave)) as pool:
+                done = list(pool.map(lambda pair: pair[0].run(work, pair[1]), zip(contexts, wave)))
+            failures = []
+            for step, result, seconds in done:
+                results[step.id], step.status, step.seconds = result, result.status, seconds
+                # Nothing found counts as failed: its dependants would run with no input.
+                if result.status == "failed" or not (result.findings or "").strip():
+                    step.status = "failed"
+                    failures.append(step)
+            # Whatever waits on a failed task can't run as planned.
+            blocked = {s.id for s in failures}
+            for s in self.plan:
+                if s.status == "waiting" and blocked & set(s.depends_on):
+                    s.status = "skipped"
+            self.emit_plan()
+            if failures and not replanned:
+                replanned = True
+                kept = [s for s in self.plan if s.status not in ("waiting", "skipped")]
+                try:
+                    more, used = planner.make_plan(
+                        question, team, max(1, config.get("max_tasks", 6) - len(kept)),
+                        done=[{"id": s.id, "label": s.label, "findings": results[s.id].findings}
+                              for s in kept if s.id in results and s.status != "failed"],
+                        failed=[{"id": s.id, "label": s.label,
+                                 "why": results[s.id].error or "; ".join(results[s.id].missing) or "failed"}
+                                for s in failures])
+                    count(used)
+                    self.plan = kept + more
+                    self.emit_plan(replanned=True)
+                except Exception as error:     # keep what there is
+                    log.warning("re-plan failed: %s", error)
+        reports = [{"label": s.label, "agent": self.tree[s.agent].name, "status": results[s.id].status,
+                    "findings": results[s.id].findings, "missing": results[s.id].missing}
+                   for s in self.plan if s.id in results]
+        try:
+            with observation(as_type="span", name=f"compose:{node}", input={"tasks": len(reports)}):
+                answer, used = planner.compose(question, reports, config.get("answer_word_limit") or 120)
+                count(used)
+            out["answer"] = _without_preamble(answer)
+        except Exception as error:
+            out.update(passed=False, failed_check="its answer", feedback=f"{type(error).__name__}: {error}")
+        out["turns"] = usage["turns"]
+        out["seconds"] = round(time.monotonic() - started, 3)
+        self.emit({"type": "delegate", "state": "done", "agent": "agent", "n": n, "seconds": out["seconds"],
+                   "turns": out["turns"], "error": None if out["answer"] else "no answer"})
+        return out
+
+    def emit_plan(self, replanned: bool = False) -> None:
+        """The plan and each task's status, for the Ask page and the playground (labels, agents, statuses)."""
+        self.emit({"type": "plan", "tasks": [s.public() for s in getattr(self, "plan", [])],
+                   **({"replanned": True} if replanned else {})})
 
     def subtree(self, n: int) -> set[int]:
         """An agent run's delegation number and every one below it."""
@@ -1226,9 +1339,10 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
                         domain=config.domain, instructions=config.instructions,
                         brief=config.brief, search_country=config.search_country.strip().lower())
     plugged = {e.source for e in spec.edges if e.kind == "resource" and (spec.node(e.source) or {}) and spec.node(e.source).type == "agent"}
-    single = next((n for n in spec.nodes if n.type == "agent" and n.id not in plugged), None)
+    # The top agent, or a Planner (R31: an agent too), gives the brief, domain and word limit.
+    single = next((n for n in spec.nodes if n.type in ("agent", "planner") and n.id not in plugged), None)
     if single and not supervisor:
-        config = flows.COMPONENTS["agent"].config.model_validate(single.config)
+        config = flows.COMPONENTS[single.type].config.model_validate(single.config)
         settings.update(word_limit=config.answer_word_limit, domain=config.domain,
                         instructions=config.instructions, brief=config.brief)
     gate = next((n for n in spec.nodes if n.type == "input_guardrail"), None)
@@ -1426,6 +1540,23 @@ def _specialist_node(agent: str, node_id: str | None = None):
                       "n": task["n"], "seconds": finding["seconds"], "turns": finding["turns"],
                       "error": finding["error"]})
         return {"findings": [finding]}
+    return node
+
+
+def _planner_node(node_id: str):
+    """The Planner component (R31): plans and runs a task graph, then answers;
+    leaves what the Agent component leaves, so the checks after it work unchanged."""
+    def node(state: State, config) -> dict:
+        run: _Run = config["configurable"]["run"]
+        with run.node(node_id, 0):
+            done = run.run_plan(node_id, state["question"])
+            below = run.subtree(done["n"])
+            finding = {"n": done["n"], "agent": "agent", "task": state["question"], "round": 1,
+                       "answer": done["answer"], "turns": done.get("turns", 0), "seconds": done["seconds"],
+                       "error": None if done["answer"] else (done["feedback"] or "no answer"),
+                       "checks": done["checks"], "delegations": sorted(below),
+                       "search_ns": [s["n"] for s in run.searches if s and s["delegation"] in below]}
+        return {"answer": done["answer"], "findings": [finding], "round": 1, "tasks": [], "pending_uses": []}
     return node
 
 
@@ -1927,6 +2058,7 @@ def _runtime() -> flows.Runtime:
             "supervisor": lambda node: _with_settings(_supervisor, node.config),
             "specialist": lambda node: _specialist_node(node.config["role"], node.id),
             "agent": lambda node: _agent_node(node.id),
+            "planner": lambda node: _planner_node(node.id),
             "output_guardrail": lambda node: _output_guardrail,
             "answer_evaluator": lambda node: _with_settings(_answer_evaluator, node.config),
             "task_start": lambda node: _start_task,
@@ -1952,7 +2084,7 @@ def _runtime() -> flows.Runtime:
         },
         fan_out={"supervisor": _supervisor_fan_out},
         delegates=set(SPECIALISTS),
-        impl_states={**{impl: {"main"} for impl in ("supervisor", "specialist", "agent", "output_guardrail",
+        impl_states={**{impl: {"main"} for impl in ("supervisor", "specialist", "agent", "planner", "output_guardrail",
                                                    "answer_evaluator")},
                      **{impl: {"task"} for impl in ("task_start", "retrieval_agent", "evidence_evaluator", "query_rewriter",
                                                     "research_agent", "source_validator", "ingest", "handoff", "report",
@@ -2095,13 +2227,13 @@ def live_shape(spec: flows.FlowSpec | None = None, version: int | None = None) -
                 parts.add(node.type)
         for edge in flow.edges:
             source, target = flow.node(edge.source), flow.node(edge.target)
-            if edge.kind == "resource" and source and target and target.type == "agent":
+            if edge.kind == "resource" and source and target and target.type in ("agent", "planner"):
                 parts.add(f"agent:{source.type}")
         for sub in flow.subflows.values():
             walk(sub)
     walk(spec)
     return {"flow_id": spec.id, "name": spec.name, "version": version,
-            "kind": "supervisor" if "supervisor" in parts else "agent" if "agent" in parts else "other",
+            "kind": "supervisor" if "supervisor" in parts else "agent" if parts & {"agent", "planner"} else "other",
             "parts": sorted(parts)}
 
 
@@ -2503,6 +2635,10 @@ def resume(run_id: str, decisions: dict, on_event) -> dict:
 
 def _public_progress(event: dict) -> dict | None:
     kind = event.get("type")
+    if kind == "plan":   # R31: the task graph's shape and progress (short labels the planner wrote, agent ids)
+        return {"type": "plan", "replanned": bool(event.get("replanned")),
+                "tasks": [{k: t.get(k) for k in ("id", "label", "agent", "depends_on", "status", "seconds")}
+                          for t in event.get("tasks") or []]}
     if kind in ("node", "model", "guardrail", "answer_eval"):
         return {key: value for key, value in event.items() if key in (
             "type", "state", "stage", "node", "agent", "round", "turn", "delegation", "seconds",
@@ -2565,6 +2701,8 @@ def _drive(run_id: str, run: "_Run", config: dict, question: str, graph_input, s
     shown = ((final.get("output_guardrail") or {}).get("decision") in (None, "ALLOW")
              and evaluation.get("passed") is not False)
     result["citations"] = citations.passages(result["answer"], internal["searches"]) if shown else {}
+    if getattr(run, "plan", None):   # a Planner's task graph as it ended (R31)
+        result["plan"] = [s.public() for s in run.plan]
     run.metrics = {"seconds": result["total"], "rounds": internal["rounds"], "tasks": len(internal["delegations"]),
                    "budget_hit": getattr(run, "budget_hit", None),
                    "input_tokens": internal["usage"]["input_tokens"], "output_tokens": internal["usage"]["output_tokens"],
