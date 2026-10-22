@@ -837,6 +837,9 @@ class _Run:
                                  rrf_k=retrieval.get("rrf_k", 2), dense=retrieval.get("dense", True),
                                  full_text=retrieval.get("full_text", True), filters=chosen or None,
                                  prefer=prefer or None,
+                                 # The flow's Retriever decides (R22); a flow without the setting: RERANK.
+                                 rerank=(None if "rerank" not in retrieval else
+                                         retrieval.get("rerank_candidates", 20) if retrieval["rerank"] else 0),
                                  on_stage=lambda stage, state, **info: self.emit(
                 {"type": "stage", "agent": "knowledge_base", "n": n, "stage": stage, "state": state, **info}))
         unfiltered = False
@@ -2387,7 +2390,7 @@ def _public_progress(event: dict) -> dict | None:
             "type", "state", "stage", "node", "agent", "round", "turn", "delegation", "seconds",
             "decision", "passed", "overall", "scores", "failed_on", "answer_type", "stop_reason")}
     node = None
-    if kind == "stage" and event.get("stage") in ("embedding", "retrieval"):
+    if kind == "stage" and event.get("stage") in ("embedding", "retrieval", "rerank"):
         node = event["stage"]
     elif kind == "research":
         node = {"agent": "research", "search": "r_search", "fetch": "r_extract", "validate": "r_validate",

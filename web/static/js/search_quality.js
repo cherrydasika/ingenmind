@@ -17,6 +17,7 @@ const fmtWhen = (iso) => (iso ? String(iso).slice(0, 16).replace("T", " ") : "�
 const MODE_LABEL = { dense: "Meaning only", keyword: "Keywords only", hybrid: "Both" };
 
 function rowLabel(cell) {
+  if (cell.mode === "rerank") return `Both, RRF_K ${cell.rrf_k}, reranked`;
   return cell.mode === "hybrid" ? `Both, RRF_K ${cell.rrf_k}` : MODE_LABEL[cell.mode];
 }
 
@@ -40,6 +41,7 @@ export class SearchQuality {
     this.compare = null;
     this.metric = "hit_rate";
     this.cell = null;          // the cell whose misses are listed
+    this.rerank = true;        // also score the reranker (R22)
     this.error = null;
     this.timer = null;
   }
@@ -113,7 +115,7 @@ export class SearchQuality {
     ];
     if (running) {
       const j = d.job;
-      children.push(waiting(j.kind === "run" ? `Searching: ${j.done} of ${j.total} questions…`
+      children.push(waiting(j.kind === "run" ? `${j.phase === "reranking" ? "Reranking" : "Searching"}: ${j.done} of ${j.total} questions…`
         : j.phase === "picking" ? "Choosing passages across the knowledge base…" : `Writing questions: ${j.done} of ${j.total}…`));
     } else if (d.job?.status === "failed") {
       children.push(errorBox(`The last ${d.job.kind === "run" ? "run" : "set"} didn't finish: ${d.job.error}`));
@@ -138,7 +140,10 @@ export class SearchQuality {
       h("div", { class: "toolbar", style: "justify-content:flex-start;gap:10px;flex-wrap:wrap" },
         pick,
         h("button", { class: "btn btn-primary", type: "button", disabled: running || !questions.length,
-          onclick: () => this.act(() => api.searchRun(this.setId)) }, "Run the search test"),
+          onclick: () => this.act(() => api.searchRun(this.setId, this.rerank)) }, "Run the search test"),
+        h("label", { class: "check-inline", title: `Re-sort the top ${d.reranker.candidates} with ${d.reranker.model} (downloaded the first time)` },
+          h("input", { type: "checkbox", checked: this.rerank, disabled: running,
+            onchange: (e) => { this.rerank = e.target.checked; } }), " with the reranker"),
         h("button", { class: "btn btn-ghost btn-sm", type: "button", disabled: running, onclick: () => {
           if (confirm("Delete this test set and its runs?")) this.act(() => api.searchSetDelete(this.setId));
         } }, "Delete set")),
@@ -176,7 +181,10 @@ export class SearchQuality {
     return h("div", { class: "stack", style: "margin-top:16px" },
       h("div", { class: "toolbar", style: "justify-content:flex-start;gap:10px;flex-wrap:wrap" },
         h("span", { class: "metric-label" }, "Run"), runPick, h("span", { class: "metric-label" }, "Compare with"), comparePick),
+      run.settings?.rerank?.error ? errorBox(`The reranker didn't run: ${run.settings.rerank.error}`) : null,
       h("div", { class: "note" }, `${run.questions} questions · ${(k.chunks || 0).toLocaleString()} passages · ${k.embedding_model || ""}`
+        + (run.settings?.rerank?.seconds_median != null ? ` · reranker ${run.settings.rerank.model}: `
+          + `${Math.round(run.settings.rerank.seconds_median * 1000)} ms a question (p90 ${Math.round(run.settings.rerank.seconds_p90 * 1000)} ms)` : "")
         + ` · ${run.seconds.toFixed(1)} s` + (k.chunking ? ` · chunking: ${Object.entries(k.chunking).map(([s, n]) => `${s} (${n.toLocaleString()})`).join(", ")}` : "")
         + (k.gone ? ` · ${k.gone} passage${k.gone === 1 ? "" : "s"} changed since the set was written (matched by their text)` : "")),
       now ? h("div", { class: `alert ${now.hit_rate >= 0.8 ? "ok" : ""}` },
@@ -236,14 +244,16 @@ export class SearchQuality {
       h("div", { class: "table-wrap" }, h("table", {},
         h("thead", {}, h("tr", {}, h("th", {}, "Question"), h("th", {}, "Its page"),
           h("th", { class: "num", title: "Where the right passage came in the meaning search (top 30)" }, "Meaning"),
-          h("th", { class: "num", title: "Where it came in the keyword search (top 30)" }, "Keywords"))),
+          h("th", { class: "num", title: "Where it came in the keyword search (top 30)" }, "Keywords"),
+          per[0]?.reranked !== undefined ? h("th", { class: "num", title: `Where it came after reranking the top candidates` }, "Reranked") : null)),
         h("tbody", {}, cell.missed.map((i) => {
           const q = per[i];
           return h("tr", {},
             h("td", { class: "wrap" }, q.question, " ", q.by === "hand" ? badge("by hand", "info") : null,
               q.gone ? badge("passage changed", "warn") : null),
             h("td", {}, h("a", { href: q.source, target: "_blank", rel: "noopener" }, shortUrl(q.source))),
-            h("td", { class: "num" }, where(q.dense)), h("td", { class: "num" }, where(q.keyword)));
+            h("td", { class: "num" }, where(q.dense)), h("td", { class: "num" }, where(q.keyword)),
+            q.reranked !== undefined ? h("td", { class: "num" }, q.reranked ? `#${q.reranked}` : "not in the pool") : null);
         })))));
   }
 }

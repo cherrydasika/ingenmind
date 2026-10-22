@@ -38,6 +38,7 @@ from concurrent.futures import ThreadPoolExecutor
 from psycopg.types.json import Jsonb
 
 import llm
+import rerank as reranker
 import retrieval
 from common import config, embedding, storage
 
@@ -245,15 +246,26 @@ def current_settings() -> dict:
     return {"mode": "hybrid", "rrf_k": retrieval.RRF_K, "top_k": retrieval.TOP_K}
 
 
-def combinations() -> list[dict]:
-    """The settings compared: rows (method, RRF_K) × columns (results kept)."""
+def combinations(rerank: bool = False) -> list[dict]:
+    """The settings compared: rows (method, RRF_K) × columns (results kept);
+    rerank: and both fused with the current RRF_K, then reranked (R22)."""
     rows = [{"mode": "dense", "rrf_k": None}, {"mode": "keyword", "rrf_k": None}]
     rows += [{"mode": "hybrid", "rrf_k": k} for k in RRF_KS]
+    rows += [{"mode": "rerank", "rrf_k": retrieval.RRF_K}] if rerank else []
     return [{**row, "top_k": top_k} for row in rows for top_k in TOP_KS]
 
 
-def ranked(dense_hits: list[dict], text_hits: list[dict], mode: str, rrf_k: int | None, top_k: int) -> list[dict]:
+def rerank_pool(dense_hits: list[dict], text_hits: list[dict]) -> list[dict]:
+    """The candidates hybrid_search hands the reranker (RERANK_CANDIDATES of them)."""
+    n = reranker.CANDIDATES
+    return retrieval._fuse(dense_hits[:n], text_hits[:n], n, retrieval.RRF_K)[0]
+
+
+def ranked(dense_hits: list[dict], text_hits: list[dict], mode: str, rrf_k: int | None, top_k: int,
+           reranked: list[dict] | None = None) -> list[dict]:
     """The results hybrid_search would return with these settings, from deeper rankings."""
+    if mode == "rerank":
+        return (reranked or [])[:top_k]
     prefetch = top_k * 2
     dense = dense_hits[:prefetch] if mode in ("dense", "hybrid") else []
     text = text_hits[:prefetch] if mode in ("keyword", "hybrid") else []
@@ -288,20 +300,22 @@ def position(hits: list[dict], target: dict) -> int | None:
     return None
 
 
-def score(questions: list[dict], searches: list[tuple[list[dict], list[dict]]]) -> tuple[list[dict], list[dict]]:
-    """(cells, per question) from each question's deep (dense, keyword) results."""
+def score(questions: list[dict], searches: list[tuple]) -> tuple[list[dict], list[dict]]:
+    """(cells, per question) from each question's deep (dense, keyword[, reranked]) results."""
     cells = []
-    for combo in combinations():
-        found = [position(ranked(d, t, combo["mode"], combo["rrf_k"], combo["top_k"]), q)
-                 for q, (d, t) in zip(questions, searches)]
+    rerank = bool(searches) and all(len(s) > 2 and s[2] is not None for s in searches)
+    for combo in combinations(rerank):
+        found = [position(ranked(s[0], s[1], combo["mode"], combo["rrf_k"], combo["top_k"], s[2] if rerank else None), q)
+                 for q, s in zip(questions, searches)]
         n = max(1, len(questions))
         cells.append({**combo, "hit_rate": round(sum(1 for p in found if p) / n, 4),
                       "mrr": round(sum(1 / p for p in found if p) / n, 4),
                       "missed": [i for i, p in enumerate(found) if not p]})
     per_question = [{"question": q["question"], "source": q["source"], "by": q.get("by"), "gone": bool(q.get("gone")),
-                     "dense": position(d, q), "keyword": position(t, q),
-                     "current": position(ranked(d, t, "hybrid", retrieval.RRF_K, retrieval.TOP_K), q)}
-                    for q, (d, t) in zip(questions, searches)]
+                     "dense": position(s[0], q), "keyword": position(s[1], q),
+                     "current": position(ranked(s[0], s[1], "hybrid", retrieval.RRF_K, retrieval.TOP_K), q),
+                     **({"reranked": position(s[2], q)} if rerank else {})}
+                    for q, s in zip(questions, searches)]
     return cells, per_question
 
 
@@ -326,7 +340,7 @@ def _targets(questions: list[dict]) -> list[dict]:
     return out
 
 
-def _run(set_row: dict) -> None:
+def _run(set_row: dict, rerank: bool = False) -> None:
     job = _job
     try:
         started = time.perf_counter()
@@ -339,6 +353,7 @@ def _run(set_row: dict) -> None:
             for q, vector in zip(batch, vectors):
                 searches.append((storage.search_dense(client, vector, DEEP), storage.search_text(client, q["question"], DEEP)))
                 job["done"] += 1
+        rerank_info = _rerank_all(questions, searches, job) if rerank else None
         cells, per_question = score(questions, searches)
         run_id = f"sr_{uuid.uuid4().hex[:12]}"
         with store._connect() as connection:
@@ -351,7 +366,8 @@ def _run(set_row: dict) -> None:
                                               per_question, seconds)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                 (run_id, set_row["id"], set_row["name"], len(questions),
-                 Jsonb({"top_k": retrieval.TOP_K, "rrf_k": retrieval.RRF_K, "top_ks": TOP_KS, "rrf_ks": RRF_KS}),
+                 Jsonb({"top_k": retrieval.TOP_K, "rrf_k": retrieval.RRF_K, "top_ks": TOP_KS, "rrf_ks": RRF_KS,
+                        "rerank": rerank_info}),
                  Jsonb({"chunks": chunks, "embedding_model": config.EMBEDDING_MODEL, "chunking": chunking,
                         "gone": sum(1 for q in questions if q.get("gone"))}),
                  Jsonb(cells), Jsonb(per_question), time.perf_counter() - started))
@@ -360,7 +376,33 @@ def _run(set_row: dict) -> None:
         job.update(status="failed", error=str(exc), finished_at=time.time())
 
 
-def start_run(set_id: str, work=_run, thread: bool = True) -> dict:
+def _rerank_all(questions: list[dict], searches: list[tuple], job: dict) -> dict:
+    """Rerank each question's candidates once (in place: searches gain a third
+    item); {model, candidates, seconds per question} or {model, error}."""
+    job.update(phase="reranking", done=0)
+    timings = []
+    try:
+        for i, (q, (dense_hits, text_hits)) in enumerate(zip(questions, list(searches))):
+            pool = rerank_pool(dense_hits, text_hits)
+            started = time.perf_counter()
+            scores = reranker.scores(q["question"], [hit["payload"]["text"] for hit in pool])
+            timings.append(time.perf_counter() - started)
+            order = sorted(range(len(pool)), key=lambda n: -scores[n])
+            searches[i] = (dense_hits, text_hits, [pool[n] for n in order])
+            job["done"] += 1
+    except Exception as exc:
+        for i, s in enumerate(searches):
+            searches[i] = s[:2]
+        return {"model": reranker.MODEL, "error": f"{type(exc).__name__}: {exc}"}
+    timings.sort()
+    return {"model": reranker.MODEL, "candidates": reranker.CANDIDATES,
+            "seconds_median": round(timings[len(timings) // 2], 4) if timings else None,
+            "seconds_p90": round(timings[int(len(timings) * 0.9)], 4) if timings else None}
+
+
+def start_run(set_id: str, work=_run, thread: bool = True, rerank: bool = False) -> dict:
+    """rerank: also score the reranker (R22): its model is loaded (downloaded
+    the first time) and each question's candidates re-sorted once."""
     set_row = get_set(set_id)
     if not set_row:
         raise LookupError("no such set")
@@ -369,9 +411,9 @@ def start_run(set_id: str, work=_run, thread: bool = True) -> dict:
     _begin({"kind": "run", "status": "running", "phase": "searching", "set_id": set_id,
             "total": len(set_row["questions"]), "done": 0, "started_at": time.time()})
     if thread:
-        threading.Thread(target=work, args=(set_row,), name="search-test-run", daemon=True).start()
+        threading.Thread(target=work, args=(set_row, rerank), name="search-test-run", daemon=True).start()
     else:
-        work(set_row)
+        work(set_row, rerank)
     return status()
 
 

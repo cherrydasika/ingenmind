@@ -260,6 +260,9 @@ class RetrieverConfig(BaseModel):
     rrf_k: int = Field(2, ge=1, le=100, description="Reciprocal rank fusion constant: higher flattens rank differences")
     dense: bool = Field(True, description="Vector (semantic) search")
     full_text: bool = Field(True, description="PostgreSQL full-text (keyword) search")
+    rerank: bool = Field(False, description="Re-sort the fused results with a cross-encoder (RERANK_MODEL) "
+                                            "before keeping top_k: slower, often more precise")
+    rerank_candidates: int = Field(20, ge=5, le=50, description="Fused results the reranker re-sorts")
 
     @model_validator(mode="after")
     def _one_search(self):
@@ -420,9 +423,10 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
     Component("memory", "Memory", "resource", "memory",
               "Each agent's conversation per browser session: PostgreSQL on the local runtime, AgentCore Memory "
               "(with long-term facts and summaries) on AgentCore.", MemoryConfig, provides="memory"),
-    Component("retriever", "Retriever", "resource", "data", "Hybrid search: dense + full-text, fused by RRF.",
+    Component("retriever", "Retriever", "resource", "data",
+              "Hybrid search: dense + full-text, fused by RRF, optionally re-sorted by a reranker.",
               RetrieverConfig, provides="retriever", inputs=("vector_db",),
-              applied=("top_k", "prefetch", "rrf_k", "dense", "full_text")),
+              applied=("top_k", "prefetch", "rrf_k", "dense", "full_text", "rerank", "rerank_candidates")),
     Component("vector_db", "Vector DB", "resource", "data", "pgvector tables of embedded chunks.", VectorDbConfig,
               provides="vector_db"),
     Component("web_search", "Web search", "resource", "tool", "Web search for the research agent.", WebSearchConfig,

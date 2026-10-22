@@ -2,6 +2,7 @@
 
 import time
 
+import rerank as reranker
 from common import config, embedding, storage
 from index_info import get_index_info
 from tracing import observation
@@ -17,6 +18,7 @@ def _hit_to_chunk(hit: dict) -> dict:
         "source_url": hit["payload"]["source_url"],
         "chunk_index": hit["payload"]["chunk_index"],
         "score": hit["score"], "vector": hit["vector"],
+        **({"rerank_score": round(hit["rerank_score"], 4)} if "rerank_score" in hit else {}),
         # For the evidence evaluator's freshness check.
         "ingested_at": hit["payload"].get("ingested_at"), "ttl_days": hit["payload"].get("ttl_days"),
         # What the page is about (#15): who published it and how current it is, for citations.
@@ -65,7 +67,7 @@ def ignore_stage(stage: str, state: str, **info) -> None:
 
 def hybrid_search(question: str, top_k: int = TOP_K, on_stage=ignore_stage, prefetch: int | None = None,
                   rrf_k: int = RRF_K, dense: bool = True, full_text: bool = True, filters: dict | None = None,
-                  prefer: dict | None = None) -> dict:
+                  prefer: dict | None = None, rerank: int | None = None) -> dict:
     """on_stage(stage, state, **info) is told when the embedding and retrieval
     stages start and finish, for the Retrieval page's live workflow chart.
     prefetch: candidates per search before fusion (default 2 × top_k, at
@@ -75,14 +77,21 @@ def hybrid_search(question: str, top_k: int = TOP_K, on_stage=ignore_stage, pref
     whose labels match (storage.meta_filter, #15); none: every chunk, as before.
     prefer: labels to favour, not require (#57): the same searches run again
     over the pages with them (within filters), and their rankings vote in the
-    fusion too; none: as before."""
+    fusion too; none: as before.
+    rerank: how many fused results the cross-encoder re-sorts before the best
+    top_k are kept (R22; rerank.py); 0 off; None: the app's setting (RERANK).
+    Each search then fetches at least that many candidates."""
     if not (dense or full_text):
         raise ValueError("hybrid_search needs the dense or the full-text search")
-    prefetch = max(prefetch or top_k * 2, top_k)
+    rerank = reranker.default_candidates() if rerank is None else max(0, int(rerank))
+    if rerank and rerank <= top_k:
+        rerank = 0                       # nothing to choose between
+    prefetch = max(prefetch or top_k * 2, top_k, rerank)
     with observation(as_type="span", name="hybrid_search",
                      input={"question": question, "top_k": top_k, "prefetch": prefetch, "rrf_k": rrf_k,
                             **({"filters": filters} if filters else {}),
-                            **({"prefer": prefer} if prefer else {})}) as span:
+                            **({"prefer": prefer} if prefer else {}),
+                            **({"rerank": rerank, "rerank_model": reranker.MODEL} if rerank else {})}) as span:
         client = storage.get_client()
         on_stage("embedding", "start")
         start = time.perf_counter()
@@ -108,14 +117,37 @@ def hybrid_search(question: str, top_k: int = TOP_K, on_stage=ignore_stage, pref
             text_seconds += time.perf_counter() - start
 
         start = time.perf_counter()
-        fused_hits, breakdown = _fuse(dense_hits, text_hits, top_k, rrf_k, preferred)
+        fused_hits, breakdown = _fuse(dense_hits, text_hits, rerank or top_k, rrf_k, preferred)
         fused_seconds = time.perf_counter() - start
+        rerank_seconds, reranked, rerank_error = 0.0, None, None
+        if rerank and fused_hits:
+            on_stage("rerank", "start", candidates=len(fused_hits), model=reranker.MODEL)
+            start = time.perf_counter()
+            with observation(as_type="span", name="rerank",
+                             input={"model": reranker.MODEL, "candidates": len(fused_hits)}) as rerank_span:
+                try:
+                    scored = reranker.scores(question, [hit["payload"]["text"] for hit in fused_hits])
+                except Exception as error:      # the fused order still answers: keep it, say so
+                    rerank_error = f"{type(error).__name__}: {error}"
+                    rerank_span.update(output={"error": rerank_error})
+                else:
+                    order = sorted(range(len(fused_hits)), key=lambda i: -scored[i])[:top_k]
+                    reranked = [{"fused_rank": i + 1, "rerank_score": round(scored[i], 4)} for i in order]
+                    rerank_span.update(output=[{"rank": n + 1, **row, "source_url": fused_hits[row["fused_rank"] - 1]
+                                                ["payload"]["source_url"]} for n, row in enumerate(reranked)])
+                    fused_hits = [{**fused_hits[i], "rerank_score": scored[i]} for i in order]
+                    breakdown = [{**breakdown[i], **reranked[n]} for n, i in enumerate(order)]
+            fused_hits, breakdown = fused_hits[:top_k], breakdown[:top_k]
+            rerank_seconds = time.perf_counter() - start
+            # A failed rerank is no failed search: "done", flagged fallback.
+            on_stage("rerank", "done", seconds=rerank_seconds, model=reranker.MODEL,
+                     **({"fallback": True} if rerank_error else {"candidates": len(scored)}))
         rankings = {
             "dense": [_hit_to_chunk(hit) for hit in dense_hits[:top_k]],
             "sparse": [_hit_to_chunk(hit) for hit in text_hits[:top_k]],
             "fused": [_hit_to_chunk(hit) for hit in fused_hits],
         }
-        on_stage("retrieval", "done", seconds=dense_seconds + text_seconds + fused_seconds,
+        on_stage("retrieval", "done", seconds=dense_seconds + text_seconds + fused_seconds + rerank_seconds,
                  chunks=len(fused_hits), sources=len({hit["payload"]["source_url"] for hit in fused_hits}))
         result = {
             "model": config.EMBEDDING_MODEL,
@@ -128,10 +160,13 @@ def hybrid_search(question: str, top_k: int = TOP_K, on_stage=ignore_stage, pref
             "explain": {
                 "index": get_index_info(),
                 "fused": {"k": rrf_k, "prefetch": prefetch, "rows": breakdown},
+                **({"rerank": {"model": reranker.MODEL, "candidates": rerank, "error": rerank_error}}
+                   if rerank and (reranked is not None or rerank_error) else {}),
             },
             "timings": {
                 "embed": embed_seconds, "dense_search": dense_seconds,
                 "sparse_search": text_seconds, "fused_search": fused_seconds,
+                **({"rerank": rerank_seconds} if rerank_seconds else {}),
             },
             "error": None,
         }

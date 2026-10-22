@@ -881,6 +881,25 @@ drops the paragraph or expires, the other pages regain it on their next
 re-crawl (or a `force` run). Toggle with `DEDUP_ENABLED=false`. Ad-hoc
 documents are deduplicated the same way.
 
+### Reranker
+
+An optional second pass (`app/rerank.py`, R22): a cross-encoder reads the
+question with each of the top `RERANK_CANDIDATES` (20) fused results and
+re-sorts them; the best `top_k` are kept. It runs in-process with
+fastembed, like the local embedding model (`RERANK_MODEL`, default
+`Xenova/ms-marco-MiniLM-L-6-v2`, ~80 MB, downloaded once). A flow's
+Retriever turns it on (`rerank`, `rerank_candidates`); searches that don't
+say follow `RERANK` (default off). The search box of the workflow chart
+says when results were reranked, the Langfuse trace has a `rerank` span
+with each kept result's fused rank and score, and a failing reranker keeps
+the fused order. **Off by default:** on 150 Trainline guide pages (492
+chunks) and 98 generated questions, MiniLM raised MRR 0.88 → 0.92 but
+lowered the hit rate in the top 5 0.99 → 0.97, for ~0.2 s a question;
+`jinaai/jina-reranker-v1-tiny-en` 0.89 → 0.90 MRR (~0.2 s);
+`BAAI/bge-reranker-base` (1 GB) no better than without, at ~1.3 s (timings
+on a laptop's CPU, in Docker). The generated questions leave little to gain
+(0.99 found without it); real questions may differ.
+
 ### Chunking strategy
 
 The active strategy is **fixed-size sliding window**
@@ -1551,6 +1570,11 @@ answers a question among the results?
   questions it missed and where their passage came in each search.
   Runs are kept in `search_eval_runs` (with the questions as they were), sets in
   `search_eval_sets`.
+
+**Reranker (R22):** tick "with the reranker" before a run to add the row
+*Both, reranked*: each question's top `RERANK_CANDIDATES` fused results
+re-sorted once by the cross-encoder, and the time it took (median and
+p90 per question).
 
 **Archived local-model evaluations:**
 `#/evaluations` (`web/static/js/evaluations.js`, `app/evaluation_archive.py`) displays

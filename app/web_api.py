@@ -754,7 +754,8 @@ def golden_status(request: Request) -> Response:
 def search_quality(request: Request) -> Response:
     """Search quality (R20): the test sets, the saved runs, the job in progress."""
     return _json({"job": search_eval.status(), "sets": search_eval.list_sets(), "runs": search_eval.list_runs(),
-                  "counts": list(search_eval.COUNTS), "current": search_eval.current_settings()})
+                  "counts": list(search_eval.COUNTS), "current": search_eval.current_settings(),
+                  "reranker": {"model": search_eval.reranker.MODEL, "candidates": search_eval.reranker.CANDIDATES}})
 
 
 async def search_quality_generate(request: Request) -> Response:
@@ -792,7 +793,7 @@ async def search_quality_run(request: Request) -> Response:
     """Score a set over every search setting (no model calls), in the background."""
     body = await request.json()
     try:
-        return _json(search_eval.start_run(str(body.get("set_id") or "")), 202)
+        return _json(search_eval.start_run(str(body.get("set_id") or ""), rerank=bool(body.get("rerank"))), 202)
     except LookupError as error:
         return _json({"error": str(error)}, 404)
     except ValueError as error:

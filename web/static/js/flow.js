@@ -105,7 +105,7 @@ const BRANCH = { GOOD_EVIDENCE: "good", RETRIEVAL_FAILURE: "retry", KNOWLEDGE_GA
 const BRANCH_NODE = { good: "writer", retry: "rewrite", gap: "research", other: "other" };
 // Activity nodes (agent.py) → the box that shows them.
 const ACTIVITY = {
-  knowledge_base: "knowledge_base", external_apis: "external_apis", embedding: "search", retrieval: "search",
+  knowledge_base: "knowledge_base", external_apis: "external_apis", embedding: "search", retrieval: "search", rerank: "search",
   evaluator: "evaluator", rewriter: "rewrite", call: "call", agent: "agent", subagent: "subagents", check: "checks",
   research: "research", r_search: "research", r_extract: "research", r_validate: "research", r_ingest: "research",
   r_classify: "research", r_known: "research", r_profile: "research", r_probe: "research", r_judge: "research",
@@ -350,7 +350,13 @@ export class AgenticFlow {
     if (key === "evaluator" && e.decision) this.evaluated(e);
     if (key === "search" && e.node === "retrieval" && e.chunks != null) {
       this.state.search.searches = (this.state.search.searches || 0) + 1;
-      this.state.search.detail = `${plural(this.state.search.searches, "search")} · last: ${plural(e.chunks, "chunk")}${e.sources != null ? ` from ${plural(e.sources, "source")}` : ""}`;
+      this.state.search.detail = `${plural(this.state.search.searches, "search")} · last: ${plural(e.chunks, "chunk")}${e.sources != null ? ` from ${plural(e.sources, "source")}` : ""}${this.state.search.reranked ? " · reranked" : ""}`;
+    }
+    if (key === "search" && e.node === "rerank") {
+      this.state.search.reranked = !e.fallback;
+      this.step(e.fallback ? "Reranker failed: kept the fused order"
+        : `Reranker re-sorted ${plural(e.candidates || 0, "candidate")}${e.seconds != null ? ` in ${fmtTime(e.seconds)}` : ""}`,
+      e.fallback ? "err" : "ok");
     }
     if (key === "call" && e.tool) this.state.call.detail = `${e.tool}${e.cached ? " (cached)" : ""}`;
     if (key === "research" && e.node === "r_classify" && e.status === "data_source") {
