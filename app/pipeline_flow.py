@@ -56,16 +56,17 @@ def _chunk() -> dict:
         "summary": "Splits each page's text into smaller, overlapping pieces — AI embedding "
         "models can only read a limited amount of text at once.",
         "blocks": [
-        f"- **Strategy:** fixed-size sliding window over **characters** (not tokens) — "
-        f"`dags/common/chunking/fixed_size.py`\n"
+        f"- **Strategy:** `CHUNKING = {config.CHUNKING}`. `fixed` (the default): a fixed-size sliding "
+        f"window over **characters** (not tokens), `dags/common/chunking/fixed_size.py`. `structure`: "
+        f"along headings, paragraphs and list items, each chunk starting with its heading path "
+        f"(`chunking/structure.py`); `python -m rechunk` re-cuts the stored pages after a change\n"
         f"- **Chunk size:** `CHUNK_SIZE = {config.CHUNK_SIZE}` characters\n"
         f"- **Overlap:** `CHUNK_OVERLAP = {config.CHUNK_OVERLAP}` characters carried into the next "
         f"chunk, so a sentence split across a boundary isn't lost entirely from either chunk\n"
         f"- **Boundary snapping:** the split point backs up to the nearest preceding space "
         f"(`str.rfind(\" \", start, end)`) so a chunk never ends mid-word\n"
-        f"- **Alternative strategy available:** `chunking/per_url.py` — whole page as a single "
-        f"chunk instead of splitting. Not active (see the caveat below); swappable via one import "
-        f"line in `chunking/__init__.py`\n"
+        f"- **Also available:** `chunking/per_url.py`, the whole page as one chunk (not offered "
+        f"as a setting, see the caveat below)\n"
         f"- **Why sliding-window is active, not per-url:** smaller passages keep retrieved context "
         f"focused even though embedding models accept longer inputs",
         f"**🧹 Paragraph dedup, before chunking** (`dags/common/dedup.py`, "

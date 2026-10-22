@@ -1329,7 +1329,7 @@ class Building(AnalysedSites):
         self.stop_after = None
         fakes = [patch.object(scraping, "fetch_bytes", side_effect=self.fetch_bytes),
                  patch.object(scraping, "fetch_html", side_effect=self.fetch_html),
-                 patch.object(scraping, "extract_text", side_effect=lambda page, url: f"All about {url}, in full."),
+                 patch.object(scraping, "extract_text", side_effect=lambda page, url, **_: f"All about {url}, in full."),
                  patch("common.embedding.embed_texts", side_effect=lambda texts: [[1.0] + [0.0] * 255 for _ in texts]),
                  # The page labeller (#15) is a model call: stubbed, labelling nothing beyond the rules.
                  patch.object(labels, "label_with_llm", side_effect=lambda *a, **k: self.labeller(*a, **k))]

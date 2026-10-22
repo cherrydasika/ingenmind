@@ -240,6 +240,17 @@ on #120 that isn't waiting on the user.
   passage, so everyday questions rarely match; worth looking at with R21/R22
   on a real knowledge base.
 
+- **R21 (#3) done:** structure-aware chunking (`CHUNKING=structure`,
+  default still `fixed`): cut along headings, paragraphs and list items,
+  each chunk starting with and storing its heading path; Sources shows a
+  page's chunks with their headings; `python -m rechunk` re-cuts the stored
+  pages through the worker, keeping labels. Search quality now matches a
+  re-cut passage by its text, so one set compares chunkings. Compared on 40
+  Trainline pages with a set written from each chunking: each favoured its
+  own (hybrid top 3: 0.96 vs 0.90 on the fixed-written set, 0.98 vs 1.00 on
+  the structure-written one), so fixed stays the default; worth repeating
+  on a real domain's knowledge base with longer pages.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

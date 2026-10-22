@@ -322,7 +322,9 @@ def upsert_chunks(
     extra_payload: dict | None = None,
     paragraph_hashes: list[str] | None = None,
     replace_existing: bool = False,
+    chunk_payloads: list[dict] | None = None,
 ) -> None:
+    """chunk_payloads: per chunk, fields for that chunk alone (its heading path, R21)."""
     if len(chunks) != len(vectors):
         raise ValueError("each chunk needs one embedding")
     now = datetime.now(timezone.utc)
@@ -335,6 +337,7 @@ def upsert_chunks(
             "content_hash": page_hash, "ingested_at": now.isoformat(),
             "ttl_days": ttl_days, "expires_at": expires_at,
             **(extra_payload or {}),
+            **((chunk_payloads[index] if chunk_payloads and index < len(chunk_payloads) else None) or {}),
             **({"paragraph_hashes": paragraph_hashes} if index == 0 and paragraph_hashes else {}),
         }
         rows.append((uuid.uuid5(point_namespace, str(index)), url, index, chunk,

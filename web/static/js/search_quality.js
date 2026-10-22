@@ -177,7 +177,8 @@ export class SearchQuality {
       h("div", { class: "toolbar", style: "justify-content:flex-start;gap:10px;flex-wrap:wrap" },
         h("span", { class: "metric-label" }, "Run"), runPick, h("span", { class: "metric-label" }, "Compare with"), comparePick),
       h("div", { class: "note" }, `${run.questions} questions · ${(k.chunks || 0).toLocaleString()} passages · ${k.embedding_model || ""}`
-        + ` · ${run.seconds.toFixed(1)} s` + (k.gone ? ` · ${k.gone} passage${k.gone === 1 ? "" : "s"} gone since the set was written (matched by page)` : "")),
+        + ` · ${run.seconds.toFixed(1)} s` + (k.chunking ? ` · chunking: ${Object.entries(k.chunking).map(([s, n]) => `${s} (${n.toLocaleString()})`).join(", ")}` : "")
+        + (k.gone ? ` · ${k.gone} passage${k.gone === 1 ? "" : "s"} changed since the set was written (matched by their text)` : "")),
       now ? h("div", { class: `alert ${now.hit_rate >= 0.8 ? "ok" : ""}` },
         `Current setting (${settingText(now)}): the right passage was found for ${pct(now.hit_rate)} of the questions, `
         + `MRR ${now.mrr.toFixed(2)}.`
@@ -240,7 +241,7 @@ export class SearchQuality {
           const q = per[i];
           return h("tr", {},
             h("td", { class: "wrap" }, q.question, " ", q.by === "hand" ? badge("by hand", "info") : null,
-              q.gone ? badge("passage gone", "warn") : null),
+              q.gone ? badge("passage changed", "warn") : null),
             h("td", {}, h("a", { href: q.source, target: "_blank", rel: "noopener" }, shortUrl(q.source))),
             h("td", { class: "num" }, where(q.dense)), h("td", { class: "num" }, where(q.keyword)));
         })))));

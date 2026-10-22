@@ -82,6 +82,7 @@ export const api = {
   evalSaveSet: (set) => post("/api/flow-evals/sets", set),
   goldenStatus: () => request("/api/flow-evals/golden"),
   goldenStart: (count) => post("/api/flow-evals/golden", { count }),
+  sourceChunks: (url) => request(`/api/sources/chunks?url=${encodeURIComponent(url)}`),
   searchQuality: () => request("/api/flow-evals/search"),
   searchWriteSet: (count) => post("/api/flow-evals/search/sets", { count }),
   searchSet: (id) => request(`/api/flow-evals/search/sets/${encodeURIComponent(id)}`),

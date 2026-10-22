@@ -42,6 +42,13 @@ URLS_CONFIG_PATH = _urls_path if _urls_path.exists() else _urls_path.with_name("
 
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 150
+# How pages are cut into chunks (R21): "fixed" (CHUNK_SIZE windows with
+# CHUNK_OVERLAP, the default) or "structure" (along headings, paragraphs and
+# list items, each chunk starting with its heading path). Changing it applies
+# to pages ingested from then on; `python -m rechunk` redoes the rest.
+CHUNKING = os.environ.get("CHUNKING", "fixed").strip().lower()
+if CHUNKING not in ("fixed", "structure"):
+    raise ValueError("CHUNKING is fixed or structure")
 
 # Paragraph-level dedup across pages before chunking (see common/dedup.py).
 # Paragraphs shorter than DEDUP_MIN_CHARS (normalised) — headings, labels —
