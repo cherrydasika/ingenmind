@@ -36,6 +36,7 @@ import agent
 import agent_memory as memory_store   # web_api.agent_memory is a route handler
 import answer_cache
 import conversation
+import user_memory
 import audit
 import auth
 import identity
@@ -907,8 +908,12 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
     if record:
         try:
             # The question as the agents saw it: personal data masked (pii.py).
-            sessions.record_turn(session_id, body["user_id"], result.get("question") or question, result, trace_id)
+            asked = result.get("question") or question
+            turn = sessions.record_turn(session_id, body["user_id"], asked, result, trace_id)
             conversation.summarise_later(session_id)   # a long session's older turns, folded (R26)
+            if ((result.get("guardrails") or {}).get("input") or {}).get("decision") == "ALLOW":
+                # Lasting facts the user told us, only if they opted in (R28).
+                user_memory.learn_later(body["user_id"], asked, {"session_id": session_id, **turn})
         except Exception as error:   # the user still gets the answer
             print(f"could not record the session turn: {error}", file=sys.stderr)
     return _shape_agent_result(result)
@@ -1046,6 +1051,51 @@ def session_list(request: Request) -> Response:
     target = user["user_id"] if who == "me" else (None if who == "all" else who)
     return _json({"sessions": sessions.list_sessions(target), "can_view_all": see_all,
                   "retention_days": sessions.RETENTION_DAYS})
+
+
+# ---------- The user's own long-term memory (user_memory.py, R28) ----------
+
+def _fact_view(f: dict) -> dict:
+    return {"id": f["fact_id"], "text": f["text"], "source": f["source"], "created_at": f["created_at"],
+            "updated_at": f["updated_at"]}
+
+
+def my_memory(request: Request) -> Response:
+    user = auth.current_user(request)
+    return _json({"opted_in": user_memory.opted_in(user["user_id"]), "max": user_memory.MAX_FACTS,
+                  "facts": [_fact_view(f) for f in user_memory.facts(user["user_id"])]})
+
+
+async def my_memory_consent(request: Request) -> Response:
+    """Opt in or out; out deletes every fact. Recorded in the audit log."""
+    body = await request.json()
+    if not isinstance(body, dict) or not isinstance(body.get("opted_in"), bool):
+        return _json({"error": "opted_in: true or false"}, 400)
+    user = auth.current_user(request)
+    await run_in_threadpool(user_memory.set_opted_in, user["user_id"], body["opted_in"])
+    await run_in_threadpool(audit.record, "memory_consent", user, method="PUT", path="/api/me/memory",
+                            details={"opted_in": body["opted_in"]})
+    return my_memory(request)
+
+
+async def my_memory_fact(request: Request) -> Response:
+    """PUT {text}: edit one fact; DELETE: delete it."""
+    user = auth.current_user(request)
+    fact_id = request.path_params["fact_id"]
+    if request.method == "DELETE":
+        found = await run_in_threadpool(user_memory.delete, user["user_id"], fact_id)
+    else:
+        body = await request.json()
+        try:
+            found = await run_in_threadpool(user_memory.edit, user["user_id"], fact_id, (body or {}).get("text"))
+        except ValueError as error:
+            return _json({"error": str(error)}, 400)
+    return my_memory(request) if found else _json({"error": "no such fact"}, 404)
+
+
+async def my_memory_clear(request: Request) -> Response:
+    await run_in_threadpool(user_memory.delete, auth.current_user(request)["user_id"])
+    return my_memory(request)
 
 
 async def session_new(request: Request) -> Response:
@@ -1786,6 +1836,10 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/sessions", session_list),
     Route("/api/sessions/current", session_current),
     Route("/api/sessions/new", session_new, methods=["POST"]),
+    Route("/api/me/memory", my_memory),
+    Route("/api/me/memory", my_memory_consent, methods=["PUT"]),
+    Route("/api/me/memory", my_memory_clear, methods=["DELETE"]),
+    Route("/api/me/memory/{fact_id:int}", my_memory_fact, methods=["PUT", "DELETE"]),
     Route("/api/sessions/{session_id}", session_detail),
     Route("/api/home", home),
     Route("/api/knowledge-system", knowledge_system_status),

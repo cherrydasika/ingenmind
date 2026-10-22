@@ -289,6 +289,14 @@ on #120 that isn't waiting on the user.
   with memory on, off or both. Demo comparison (8 questions): 7/8 met both
   ways, no gain shown yet (nothing for memory to steer on the demo).
 
+- **R28 (#96) done:** opt-in long-term user memory (`app/user_memory.py`):
+  Profile → Memory to turn it on, see each fact with its source question,
+  edit or delete any or all (off deletes all; consent audited). Facts come
+  from the user's own questions only, reach only their Ask-page runs
+  (supervisor, and the output and answer checks), never web searches.
+  Found on the way: the checks blocked personalised answers until they saw
+  the facts too. Export/delete with the rest of a user's data: R59.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
