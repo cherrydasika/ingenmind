@@ -230,6 +230,7 @@ class AuditLog(UsersDatabase):
                                    "POST /api/agent/resume", "POST /api/session/reset", "POST /api/sessions/new", "PUT /api/me/theme",
                                    "PUT /api/me/memory", "DELETE /api/me/memory", "PUT /api/me/memory/{fact_id:int}",
                                    "DELETE /api/me/memory/{fact_id:int}",
+                                   "POST /api/feedback/{turn_id:int}",   # one's own thumbs on an answer (R51)
                                    "POST /api/flows/validate", "POST /api/flows/diff", "POST /api/adhoc/preview"})
 
     def test_a_change_is_recorded_with_who_what_and_fields(self):
