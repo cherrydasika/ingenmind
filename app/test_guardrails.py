@@ -189,6 +189,9 @@ class ExecutionTests(unittest.TestCase):
         events = []
         fake_run = Mock()
         fake_run.path, fake_run.session_id, fake_run.user_id = [], "fixture", None
+        fake_run.evaluations = [{"decision": "RETRIEVAL_FAILURE", "attempt": 1, "overall_confidence": 0.2,
+                                 "rationale": "secret rationale"},
+                                {"decision": "GOOD_EVIDENCE", "attempt": 2, "overall_confidence": 0.9}]
         def drive(run_id, run, config, question, graph_input, started, graph=None):
             run.emit({"type": "text", "delta": "private text", "agent": "supervisor"})
             run.emit({"type": "delegate", "task": "private task"})
@@ -208,6 +211,9 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(result["draft_answer"], "")
         self.assertEqual(result["delegations"], [])
         self.assertEqual(result["activities"], {"retrieval": "done"})
+        # The branch the evidence check took, for a reloaded answer's chart (R37): labels and numbers only.
+        self.assertEqual(result["evidence"], [{"decision": "RETRIEVAL_FAILURE", "attempt": 1, "confidence": 0.2},
+                                              {"decision": "GOOD_EVIDENCE", "attempt": 2, "confidence": 0.9}])
 
     def test_cited_sources_carry_urls_and_numbers_never_chunk_text(self):
         chunk = lambda url: {"source_url": url, "text": "private chunk text", "chunk_index": 0}
