@@ -1568,22 +1568,41 @@ async def approvals_decide(request: Request) -> Response:
                 **({"actions": actions} if actions is not None else {})}
     request_id = request.path_params["request_id"]
     found = await run_in_threadpool(human.get, request_id)
-    if not found or found["kind"] != "approve":
+    if not found or found["kind"] not in ("approve", "source"):
         return _json({"error": "No such approval"}, 404)
     done = await run_in_threadpool(human.respond, request_id, decision, auth.current_user(request)["user_id"])
     if not done:
         return _json({"error": "This was already decided, timed out or cancelled"}, 409)
+    if done["kind"] == "source":   # #157: the run went on long ago; approved, the page is added now
+        if decision["approved"]:
+            threading.Thread(target=_add_approved_page, args=(done,), name="approved-page", daemon=True).start()
+        return _json({"ok": True, "status": "adding" if decision["approved"] else "rejected"}, 202)
     threading.Thread(target=_resume_and_record, args=(done["run_id"], decision), name="human-resume",
                      daemon=True).start()
     return _json({"ok": True, "status": "resuming"}, 202)
 
 
+def _add_approved_page(request: dict) -> None:
+    """An approved researched page (#157): ingested and labelled, the outcome kept with the decision."""
+    page = (request.get("actions") or [{}])[0]
+    try:
+        outcome = agent.add_researched_page({**page, "metadata": {**(page.get("metadata") or {}),
+                                                                  "approved_by": request.get("answered_by")}})
+    except Exception as error:
+        outcome = {"status": "failed", "error": f"{type(error).__name__}: {error}"[:300]}
+    human.record_outcome(request["request_id"], json.loads(json.dumps(
+        {k: v for k, v in outcome.items() if k != "url"}, default=str)))
+
+
 def _expire_human_requests() -> None:
-    """Every minute: requests nobody answered in time go on with the safe default."""
+    """Every minute: requests nobody answered in time go on with the safe default
+    (a researched page's is not to add it: its run went on long ago)."""
     while True:
         time.sleep(60)
         try:
             for request in human.expire_due():
+                if request["kind"] == "source":
+                    continue
                 try:
                     _resume_and_record(request["run_id"], {"expired": True})
                 except Exception as error:

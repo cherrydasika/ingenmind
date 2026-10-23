@@ -11,12 +11,17 @@ Two modes, one component:
                proposed, before the user sees it or they run. Timeout or a
                rejection: the safe default, nothing runs and the user gets
                the rejection message.
+    source     (#157) a page research found and validated waits for an
+               approver before it joins the knowledge base. The run doesn't
+               wait: it goes on without the page. Approved: the page is
+               ingested then. Rejected or timed out: it is never added.
 
-    human_requests  request_id, run_id, node, kind (clarify | approve),
+    human_requests  request_id, run_id, node, kind (clarify | approve | source),
                     session_id, user_id, question (clarify: what the user is
                     asked), asked (the user's question), draft (approve: the
                     answer), actions (approve: proposed tool calls), status
-                    (open | answered | expired | cancelled), response,
+                    (open | answered | expired | cancelled), response
+                    (source: with the ingest outcome once approved),
                     answered_by, created_at, expires_at, answered_at
 
 open_request() is idempotent per (run_id, node): a resumed run re-runs the
@@ -144,6 +149,14 @@ def respond(request_id: str, response: dict, by: str | None) -> dict | None:
             WHERE request_id = %s AND status = 'open' RETURNING *""", (Jsonb(response), by, request_id)).fetchone()
 
 
+def record_outcome(request_id: str, outcome: dict) -> None:
+    """A researched page's ingest result, kept with the decision (#157)."""
+    ensure_schema()
+    with _connect() as connection:
+        connection.execute("UPDATE human_requests SET response = response || %s WHERE request_id = %s",
+                           (Jsonb({"outcome": outcome}), request_id))
+
+
 def expire_due() -> list[dict]:
     """Open requests past their time, closed with the safe default (each claimed once)."""
     ensure_schema()
@@ -158,15 +171,15 @@ def cancel_for(run_id: str) -> int:
     with _connect() as connection:
         return connection.execute("""
             UPDATE human_requests SET status = 'cancelled', answered_at = now()
-            WHERE run_id = %s AND status = 'open'""", (run_id,)).rowcount
+            WHERE run_id = %s AND status = 'open' AND kind <> 'source'""", (run_id,)).rowcount
 
 
 def inbox(limit: int = 100) -> list[dict]:
-    """The approvals inbox: open approvals first, then the latest answered."""
+    """The approvals inbox (answers, actions and researched pages): open first, then the latest decided."""
     ensure_schema()
     with _connect() as connection:
         return connection.execute("""
-            SELECT * FROM human_requests WHERE kind = 'approve'
+            SELECT * FROM human_requests WHERE kind IN ('approve', 'source')
             ORDER BY (status = 'open') DESC, created_at DESC LIMIT %s""", (limit,)).fetchall()
 
 
