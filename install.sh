@@ -145,7 +145,8 @@ if [ -z "${INGENMIND_COMPOSE_FILE:-}" ] && command -v cosign >/dev/null 2>&1 && 
   cosign verify "${image:-ghcr.io/cherrydasika/ingenmind}:$TAG" \
     --certificate-identity-regexp "^https://github.com/$REPO/.github/workflows/release.yml@" \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null 2>&1 \
-    && say "Image signature verified" || fail "The image's signature did not verify; not starting it."
+    && say "Image signature verified" \
+    || fail "The image's signature did not verify (cosign 3 or newer is needed); not starting it."
 fi
 compose up -d --remove-orphans
 say "Waiting for IngenMind to answer (the first start downloads a 130 MB embedding model)..."

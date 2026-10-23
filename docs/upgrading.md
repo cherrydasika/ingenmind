@@ -29,7 +29,7 @@ It:
 3. downloads the release's `compose.yml`, checks it against the release's
    `SHA256SUMS`, and pulls the image. From v1.0.0 the image is signed. If
    [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
-   is installed, the installer verifies the signature and refuses an image
+   3 or newer is installed, the installer verifies the signature and refuses an image
    that doesn't match;
 4. restarts. On start, the web app **migrates the database** before it
    serves anything (`app/migrations.py`). Every module brings its tables up
@@ -59,6 +59,9 @@ newer database anyway. Use it only once you have checked that release's
 notes say it is safe.
 
 ## Verify an image yourself
+
+With cosign 3 or newer (older versions look for signatures in another place
+and report "no signatures found"):
 
 ```bash
 cosign verify ghcr.io/cherrydasika/ingenmind:1.0.0 \
