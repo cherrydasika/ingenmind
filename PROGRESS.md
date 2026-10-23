@@ -578,6 +578,27 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R63 (#119) in part (open):** the launch checklist
+  ([docs/launch-checklist.md](docs/launch-checklist.md)) has every item's
+  status. **Done:**
+  - security review: `docs/security.md` updated for everything since R02;
+  - one fix: `app/outbound.py` checks every request to an admin-configured
+    address (webhooks, alert channels, MCP, OpenAPI tools, A2A), redirects
+    included. Private networks are allowed; metadata and other special
+    addresses never; loopback only when the URL names localhost;
+  - ZAP baseline scan of the app: no failures, 62 checks passed;
+  - local restore test: the installer's dump restored with all 74 tables'
+    rows, and the app migrated and served it;
+  - on-call notes (`docs/on-call.md`); both new pages are on the docs site.
+
+  **Left, needs you:**
+  - EC2 session: pentest, the EBS restore test (R08), the t4g.xlarge load
+    test;
+  - real alert delivery (R55);
+  - a model key with credit: demo from a clean install, and new README
+    screenshots (the four in `docs/images` show the old sidebar);
+  - the v1.0.0 tag.
+
 - **R62 (#118) built, v1.0.0 not tagged yet:** releases. The release
   workflow now signs the image with Sigstore (keyless) and adds an SBOM
   and provenance; the version is baked in (`/api/config` reports it).

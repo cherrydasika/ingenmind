@@ -591,6 +591,8 @@ Locally, 2 workers × 45 threads served about 12 questions a second without
 errors. The limits, in order, were the thread pool (`WEB_THREADS`, default
 40), PostgreSQL's `max_connections` and one Python process per worker. It
 also has the estimate for a t4g.xlarge, which is still to be measured there.
+What to do when an alert fires is in the [on-call notes](docs/on-call.md).
+What is left before v1.0.0 is in the [launch checklist](docs/launch-checklist.md).
 
 ### Privacy, retention and a person's data
 

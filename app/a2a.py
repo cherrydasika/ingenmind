@@ -24,6 +24,8 @@ import uuid
 from collections import OrderedDict
 from datetime import datetime, timezone
 
+import outbound
+
 PROTOCOL = "0.3.0"
 MAX_TASKS = 500
 MAX_TEXT = 4000
@@ -124,7 +126,7 @@ def _post(url: str, body: dict, headers: dict, timeout: float) -> dict:
     request = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
                                      headers={"Content-Type": "application/json", **headers})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as reply:
+        with outbound.urlopen(request, timeout=timeout) as reply:
             return json.loads(reply.read())
     except urllib.error.HTTPError as error:
         raise A2AError(error.code, f"HTTP {error.code}: {error.read()[:300].decode(errors='replace')}") from None

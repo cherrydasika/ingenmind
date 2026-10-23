@@ -114,7 +114,7 @@ class Imported(AuthDatabase):
 
             def read(self, n=-1):
                 return b'{"departures": [{"to": "York", "at": "10:02"}]}'
-        with patch("urllib.request.urlopen", return_value=Reply()):
+        with patch("outbound.urlopen", return_value=Reply()):
             result = api_tools.run("rail_listdepartures", {"station": "LDS"})
         self.assertEqual((result["ok"], result["summary"]["departures"][0]["to"]), (True, "York"))
         self.assertEqual(result["display"]["attribution"], "rail.example")

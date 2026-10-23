@@ -28,6 +28,7 @@ import yaml
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+import outbound
 import secrets_box
 from common import config
 
@@ -94,7 +95,7 @@ def load(spec_url: str = "", text: str = "") -> dict:
     if spec_url:
         request = urllib.request.Request(_https(spec_url), headers={"User-Agent": "IngenMind"})
         try:
-            with urllib.request.urlopen(request, timeout=TIMEOUT) as reply:
+            with outbound.urlopen(request, timeout=TIMEOUT) as reply:
                 text = reply.read(MAX_SPEC + 1).decode("utf-8", errors="replace")
         except (urllib.error.URLError, OSError) as error:
             raise OpenApiImportError(f"can't fetch the spec: {error}") from None
@@ -278,7 +279,7 @@ def _token(row: dict) -> str:
     data = urllib.parse.urlencode({"grant_type": "client_credentials", "client_id": auth["client_id"],
                                    "client_secret": secret["client_secret"],
                                    **({"scope": auth["scope"]} if auth.get("scope") else {})}).encode()
-    with urllib.request.urlopen(urllib.request.Request(auth["token_url"], data=data, method="POST"),
+    with outbound.urlopen(urllib.request.Request(auth["token_url"], data=data, method="POST"),
                                 timeout=TIMEOUT) as reply:
         token = json.loads(reply.read())
     _tokens[row["name"]] = (token["access_token"], time.time() + float(token.get("expires_in") or 300))
@@ -332,7 +333,7 @@ def _runner(row: dict):
         started = time.monotonic()
         try:
             request = request_for(row, args)
-            with urllib.request.urlopen(request, timeout=TIMEOUT) as reply:
+            with outbound.urlopen(request, timeout=TIMEOUT) as reply:
                 raw = reply.read(2_000_000)
         except urllib.error.HTTPError as error:
             detail = error.read(300).decode(errors="replace")

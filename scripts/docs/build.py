@@ -33,6 +33,7 @@ PAGES = [
     ("project.md", "Roadmap and licence", ["Roadmap", "License"]),
 ]
 EXTRA = [("upgrading.md", ROOT / "docs" / "upgrading.md"), ("security.md", ROOT / "docs" / "security.md"),
+         ("on-call.md", ROOT / "docs" / "on-call.md"), ("launch-checklist.md", ROOT / "docs" / "launch-checklist.md"),
          ("changelog.md", ROOT / "CHANGELOG.md")]
 
 
@@ -79,6 +80,7 @@ def build() -> list[str]:
         if path.startswith("docs/images/"):
             return f"[{label}]({path.removeprefix('docs/')})"
         local = {"docs/upgrading.md": "upgrading.md", "docs/security.md": "security.md", "CHANGELOG.md": "changelog.md",
+                 "docs/on-call.md": "on-call.md", "docs/launch-checklist.md": "launch-checklist.md",
                  "README.md": "index.md"}
         if path in local:
             return f"[{label}]({local[path]}{'#' + anchor if anchor else ''})"

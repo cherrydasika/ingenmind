@@ -36,6 +36,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+import outbound
 import secrets_box
 from common import config
 
@@ -205,7 +206,7 @@ def _later(work) -> None:
 def _post(url: str, body: bytes, headers: dict) -> int:
     request = urllib.request.Request(url, data=body, method="POST", headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as reply:
+        with outbound.urlopen(request, timeout=TIMEOUT) as reply:
             return reply.status
     except urllib.error.HTTPError as error:
         return error.code
