@@ -102,17 +102,24 @@ def check(name: str, args, calls_so_far: int = 0, approval: bool = False) -> str
         return f"{name} changes things outside this app and needs a person's approval, which this flow doesn't have"
     if calls_so_far >= tool.max_calls:
         return f"{name} was already called {calls_so_far} times for this question (the most is {tool.max_calls})"
+    return check_arguments(tool.properties, tool.required, args, tool.allow_urls)
+
+
+def check_arguments(properties: dict, required: list, args, allow_urls: bool = False) -> str | None:
+    """Why these arguments must not be sent, or None: the schema (no unknown ones, the right types),
+    and no personal data, links or instruction-like text. Also for MCP tools (R38)."""
     if not isinstance(args, dict):
         return "the arguments must be an object"
-    unknown = sorted(set(args) - set(tool.properties))
+    unknown = sorted(set(args) - set(properties))
     if unknown:
         return f"unknown argument(s): {', '.join(unknown)}"
-    missing = [r for r in tool.required if args.get(r) in (None, "")]
+    missing = [r for r in required if args.get(r) in (None, "")]
     if missing:
         return f"missing argument(s): {', '.join(missing)}"
     for key, value in args.items():
-        schema = tool.properties[key]
-        expected = TYPES.get(schema.get("type"))
+        schema = properties[key] if isinstance(properties[key], dict) else {}
+        kind = schema.get("type")
+        expected = TYPES.get(kind) if isinstance(kind, str) else None   # MCP schemas may list several
         if value is not None and expected and (not isinstance(value, expected)
                                                or (isinstance(value, bool) and schema.get("type") != "boolean")):
             return f"{key} must be a {schema.get('type')}"
@@ -123,7 +130,7 @@ def check(name: str, args, calls_so_far: int = 0, approval: bool = False) -> str
             return f"an argument is longer than {MAX_STRING} characters"
         if found := pii.kinds(text):
             return f"an argument contains {pii.describe(found)}, which is never sent to outside services"
-        if not tool.allow_urls and URL.search(text):
+        if not allow_urls and URL.search(text):
             return "an argument contains a link, which this tool doesn't take"
         if found := injection.flags(text):
             return f"an argument {injection.describe(found)}"

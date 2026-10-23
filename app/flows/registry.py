@@ -357,8 +357,10 @@ class ApiToolsConfig(BaseModel):
 
 
 class McpToolConfig(BaseModel):
-    gateway_arn: str = Field("", description="AgentCore Gateway in front of the MCP server")
-    allowed_tools: list[str] = Field([])
+    """Tools from an MCP server (R38) registered in Admin → Integrations."""
+    server: str = Field("", max_length=24, description="The server's id (Admin → Integrations)")
+    tools: list[str] = Field([], description="Which of its enabled tools this agent may call (empty: all enabled)")
+    max_calls: int = Field(5, ge=1, le=20, description="Calls of each tool in one run at most")
 
 
 @dataclass(frozen=True)
@@ -535,6 +537,8 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
               provides="scraper"),
     Component("api_tools", "API tools", "resource", "tool", "External APIs from the api_tools registry.",
               ApiToolsConfig, provides="tools", applied=("tools",)),
-    Component("mcp_tool", "MCP tool", "resource", "tool", "Tools from an MCP server behind an AgentCore Gateway.",
-              McpToolConfig, provides="tools", runnable=False),
+    Component("mcp_tool", "MCP tool", "resource", "tool",
+              "Tools from an MCP server (R38) added in Admin → Integrations: the agent it plugs into may call the "
+              "server's enabled tools, through the tool guardrails, with their results fenced as untrusted data.",
+              McpToolConfig, provides="tools", applied=("server", "tools", "max_calls")),
 )}

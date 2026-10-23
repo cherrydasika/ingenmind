@@ -145,6 +145,8 @@ RULES = [
     ({"GET"}, r"/api/v1/(openapi\.json|docs)", ANY),    # public: AuthMiddleware lets PUBLIC_PATHS through
     ({"POST"}, r"/api/v1/ask", "query_rag"),
     ({"POST"}, r"/api/v1/a2a", "query_rag"),                     # A2A JSON-RPC (R36)
+    ({"GET", "POST"}, r"/api/v1/mcp", "query_rag"),               # IngenMind as an MCP server (R38)
+    ({"GET", "POST", "PUT", "DELETE"}, r"/api/integrations(/[^/]+(/refresh|/tools)?)?", "manage_settings"),
     ({"GET"}, r"/api/v1/sessions(/[^/]+)?", "query_rag"),
     ({"GET", "POST"}, r"/api/v1/documents", "upload_documents"),
     ({"GET", "POST"}, r"/api/v1/evaluations(/[^/]+)?", "run_evaluations"),

@@ -18,6 +18,7 @@ import { UsersPage } from "./users.js";
 import { AuditPage } from "./audit.js";
 import { RunsPage } from "./runs.js";
 import { ApprovalsPage } from "./approvals.js";
+import { IntegrationsPage } from "./integrations.js";
 
 const STATUS_REFRESH_MS = 30_000;
 const SESSION_KEY = "rag.session";
@@ -60,6 +61,7 @@ const pages = {
   users: [UsersPage, "Admin", "manage_users"],
   audit: [AuditPage, "Admin", "manage_users"],
   setup: [SetupPage, "Admin", "manage_settings"],
+  integrations: [IntegrationsPage, "Admin", "manage_settings"],
   profile: [ProfilePage, "Account", null],
 };
 // Addresses from before the sidebar was reorganised, so old links still land.

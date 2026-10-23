@@ -449,6 +449,22 @@ on #120 that isn't waiting on the user.
   saved retry → good run: the retry and good paths lit, research and "not
   handled" skipped).
 
+- **R38 (#104) done, except trying it in Claude Desktop (yours):** MCP both
+  ways (`app/mcp_integration.py`, hand-written: no MCP SDK in the image).
+  Admin → Integrations (add by URL, list and enable tools, token encrypted
+  with INTEGRATIONS_KEY); the MCP tool component is runnable (server, tools,
+  max_calls) and offers `mcp__<server>__<tool>` to generic agents, through
+  `api_tools.check_arguments` (factored out of the API tool guardrails),
+  fenced, recorded as calls. IngenMind's MCP server at `/api/v1/mcp`
+  (search_knowledge_base within the owner's collections, ask). Generic
+  agents now name the source of tool facts without [n] (fixed the answer
+  check's citation failures for MCP and A2A facts). **Checked:** a flow
+  called DeepWiki's public MCP server (3/3 passed the answer check); the
+  official MCP Python SDK 2.3.0 client used our server (initialize, list,
+  search, ask). Claude Desktop config is in the README (via mcp-remote).
+  Local data: the DeepWiki server is registered with ask_wiki_question
+  enabled. Not done: stdio servers (would run commands from the admin page).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
