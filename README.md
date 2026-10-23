@@ -528,6 +528,20 @@ a .docx, .pptx and PDF imported from a MinIO bucket, and "How long are items
 found on Northwind shuttle trains kept?" answered from the .docx, citing
 `s3://ingenmind-docs/handbook/lost-property.docx`.
 
+### Re-crawl and freshness
+
+Web pages in the knowledge base are checked again on a schedule
+(`app/recrawl.py`, R49): weekly by default, or daily or off per page on
+**Knowledge base → Ingestion → Freshness**. The ingestion worker looks at
+what is due every 10 minutes (`RECRAWL=false` turns it off). A check is a
+conditional GET with the page's ETag / Last-Modified: 304 renews the page's
+lifetime; otherwise the page is ingested again with its labels kept, and
+if its text changed only the chunks whose text changed are embedded again
+and the old chunks are removed. Each change is recorded as a diff (chunks
+added, removed and kept, with a sample of each). A page that is gone
+(404/410), keeps failing (3 times) or hasn't been checked for twice its
+interval is flagged stale. **Check now** checks one page straight away.
+
 ### Webhooks
 
 **Admin → Integrations → Webhooks** (`app/webhooks.py`, R47) sends events to
@@ -1960,7 +1974,8 @@ app/
   web_api.py               # web app's JSON API (Starlette) + static host; reuses the modules below
   services.py              # stack services/shortcuts/links + reachability (Home, sidebar)
   ingestion_info.py        # manual job descriptions + state labels (Ingestion)
-  ingestion_worker.py      # resumes and processes queued PostgreSQL jobs
+  ingestion_worker.py      # resumes and processes queued PostgreSQL jobs; runs the re-crawl
+  recrawl.py               # re-crawl schedules, change detection, freshness (R49)
   ttl_cache.py             # small time-based cache with .clear()
   pipeline.py                    # answer_question(): retrieval → generation, one trace
   retrieval.py                   # hybrid_search(): question → ranked chunks (no LLM)

@@ -25,7 +25,8 @@ def ingest_url(client: storage.PgStore, entry: dict, force: bool = False) -> dic
     existing = storage.get_existing_metadata(client, url)
 
     force = force or bool(entry.get("force"))
-    if existing is not None and not force:
+    # recheck (R49's re-crawl): fetch even when fresh, but an unchanged text is still only renewed.
+    if existing is not None and not force and not entry.get("recheck"):
         time_left_days = (existing["expires_at"] - datetime.now(timezone.utc).timestamp()) / 86400
         if time_left_days > config.REFRESH_MARGIN_DAYS:
             # Already ingested and not close to expiring: skip entirely, no
@@ -71,7 +72,11 @@ def ingest_url(client: storage.PgStore, entry: dict, force: bool = False) -> dic
             storage.delete_url_points(client, url)
         return {"url": url, "status": "empty", **dedup_stats}
 
-    vectors = embedding.embed_texts(chunks)
+    # Chunks whose text is unchanged keep their vectors: only new or changed ones are embedded (R49).
+    known = {c["text"]: c["vector"] for c in storage.page_chunks(client, url)} if existing_hash is not None else {}
+    fresh = [c for c in dict.fromkeys(chunks) if c not in known]
+    made = dict(zip(fresh, embedding.embed_texts(fresh))) if fresh else {}
+    vectors = [known.get(c) or made[c] for c in chunks]
     storage.upsert_chunks(
         client, url, chunks, vectors, page_hash, ttl_days,
         # entry["metadata"]: provenance, e.g. from the research agent.
@@ -85,4 +90,4 @@ def ingest_url(client: storage.PgStore, entry: dict, force: bool = False) -> dic
         replace_existing=existing_hash is not None,
         chunk_payloads=[{"headings": p["headings"]} if p["headings"] else {} for p in pieces],
     )
-    return {"url": url, "status": "updated", "chunks": len(chunks), **dedup_stats}
+    return {"url": url, "status": "updated", "chunks": len(chunks), "embedded": len(fresh), **dedup_stats}

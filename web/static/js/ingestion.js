@@ -1,6 +1,7 @@
 // Ingestion: PostgreSQL chunks and manually triggered jobs.
 
 import { api } from "./api.js";
+import { Freshness } from "./freshness.js";
 import { sourcePicker } from "./source_picker.js";
 import { SourceReports } from "./source_reports.js";
 import { card, dataTable, daysLeft, errorBox, fmtInt, fmtTimestamp, h, labelsCell, loading, md, metric, note } from "./ui.js";
@@ -20,6 +21,7 @@ export class IngestionPage {
     this.data = null;
     this.flash = null;
     this.reports = new SourceReports();
+    this.freshness = new Freshness();
   }
 
   async mount(force = false) {
@@ -33,6 +35,7 @@ export class IngestionPage {
     this.flagged = await api.knowledgeFlagged().then((r) => r.passages).catch(() => null);
     this.render();
     this.reports.load();   // its own card; a failure there leaves the rest of the page
+    this.freshness.load();
   }
 
   async trigger(kind, button) {
@@ -61,6 +64,7 @@ export class IngestionPage {
       }),
       this.renderFlagged(),
       this.renderResearch(),
+      this.freshness.el,
       this.reports.el,
       this.data.jobs.map((job) => this.renderJob(job)),
     ));

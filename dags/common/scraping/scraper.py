@@ -67,15 +67,25 @@ def check_url(url: str) -> None:
             raise BlockedAddress(f"{parts.hostname} resolves to {ip}, which is not fetched")
 
 
-def _request(url: str, timeout: int) -> requests.Response:
+def _request(url: str, timeout: int, headers: dict | None = None, stream: bool = False) -> requests.Response:
     """GET following redirects by hand, checking each address first."""
     for _ in range(MAX_REDIRECTS + 1):
         check_url(url)
-        resp = requests.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT}, allow_redirects=False)
+        resp = requests.get(url, timeout=timeout, headers={"User-Agent": USER_AGENT, **(headers or {})},
+                            allow_redirects=False, stream=stream)
         if not resp.is_redirect:
             return resp
         url = urljoin(url, resp.headers["Location"])
     raise requests.TooManyRedirects(f"more than {MAX_REDIRECTS} redirects")
+
+
+def check_changed(url: str, etag: str | None = None, last_modified: str | None = None, timeout: int = 20) -> dict:
+    """A conditional GET (If-None-Match, If-Modified-Since) without reading the body (R49):
+    {"status": HTTP status (304: unchanged), "etag", "last_modified"}. The same address checks as a fetch."""
+    headers = {**({"If-None-Match": etag} if etag else {}), **({"If-Modified-Since": last_modified} if last_modified else {})}
+    with _request(url, timeout, headers, stream=True) as resp:
+        return {"status": resp.status_code, "etag": resp.headers.get("ETag") or etag,
+                "last_modified": resp.headers.get("Last-Modified") or last_modified}
 
 
 def _get(url: str, timeout: int) -> requests.Response:
