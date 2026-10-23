@@ -115,6 +115,21 @@ export class UsersPage {
       class: `btn btn-sm ${user.status === "active" ? "btn-danger" : "btn-ghost"}`, type: "button",
       onclick: () => save({ status: user.status === "active" ? "disabled" : "active" }),
     }, user.status === "active" ? "Deactivate" : "Reactivate") : null;
+    // R59: everything kept about them, or deleted everywhere (PostgreSQL, Langfuse, agent memory).
+    const data = !adding ? [
+      h("a", { class: "btn btn-sm btn-ghost", href: `/api/users/${encodeURIComponent(user.user_id)}/data`, download: "" }, "Download data"),
+      h("button", { class: "btn btn-sm btn-danger", type: "button", onclick: async () => {
+        const typed = window.prompt(`Delete ${user.first_name}'s account and data everywhere (sessions, feedback, memory, traces)? It can't be undone.\n\nType DELETE to confirm.`);
+        if (typed === null) return;
+        try {
+          await api.deleteUserData(user.user_id, typed.trim());
+          this.say("ok", `Deleted ${user.first_name}'s account and data.`);
+          this.editing = null;
+        } catch (err) {
+          this.say("err", err.message);
+        }
+        await this.load();
+      } }, "Delete account and data")] : null;
     return h("form", { class: "user-form", onsubmit: (event) => {
       event.preventDefault();
       save(adding ? null : { first_name: name.value.trim(), role: role.value, permissions: chosen(),
@@ -130,7 +145,7 @@ export class UsersPage {
       h("label", {}, h("span", { class: "faint" }, "Tokens per day"), perDay),
       h("span", { class: "faint", style: "align-self:end" }, "Empty: the role's default. 0: no limit.")),
     h("div", { class: "user-form-actions" },
-      h("button", { class: "btn btn-sm", type: "submit" }, adding ? "Add user" : "Save"), status));
+      h("button", { class: "btn btn-sm", type: "submit" }, adding ? "Add user" : "Save"), status, data));
   }
 }
 

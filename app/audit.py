@@ -9,7 +9,10 @@ request set and their short, non-secret values, the outcome, the client
 address and a request ID (also sent back as X-Request-ID).
 
 The table is append-only: a trigger refuses UPDATE and DELETE, so the app
-can't change history, even by mistake.
+can't change history, even by mistake. The one exception is data_lifecycle
+(R59), which sets MAINTENANCE for its own transaction to anonymise a deleted
+person's entries or delete entries past the audit retention, and records
+that it did.
 
     audit_log  id, at, user_id, user_name, action, method, path, target,
                status, details (jsonb), ip, request_id
@@ -30,6 +33,7 @@ from common import config
 
 log = logging.getLogger(__name__)
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+MAINTENANCE = "SET LOCAL ingenmind.audit_maintenance = 'on'"   # data_lifecycle only (R59)
 NOT_AUDITED = {None, "query_rag"}   # asking questions is in sessions, not the audit log
 READ_ONLY = {"/api/flows/validate", "/api/flows/diff", "/api/adhoc/preview"}   # POSTs that change nothing
 # One's own, but security events: always audited (API keys, R46).
@@ -82,6 +86,9 @@ def ensure_schema() -> None:
             connection.execute("""
                 CREATE OR REPLACE FUNCTION audit_log_append_only() RETURNS trigger AS $$
                 BEGIN
+                    IF TG_OP <> 'TRUNCATE' AND current_setting('ingenmind.audit_maintenance', true) = 'on' THEN
+                        RETURN NULL;     -- data_lifecycle (R59): erasure or retention, itself audited
+                    END IF;
                     RAISE EXCEPTION 'the audit log is append-only';
                 END $$ LANGUAGE plpgsql""")
             connection.execute("DROP TRIGGER IF EXISTS audit_log_append_only ON audit_log")
@@ -211,13 +218,20 @@ class AuditMiddleware:
             await self.app(scope, receive_and_keep, send_and_note)
         finally:
             endpoint = scope.get("endpoint")
-            params = scope.get("path_params") or {}
+            params = dict(scope.get("path_params") or {})
             user = (scope.get("state") or {}).get("user")
+            path = scope["path"]
+            redact = (scope.get("state") or {}).get("audit_redact")   # a deleted person (R59): never named
+            if redact:
+                path = path.replace(redact["from"], redact["to"])
+                params = {k: (redact["to"] if v == redact["from"] else v) for k, v in params.items()}
+                if (user or {}).get("user_id") == redact["from"]:
+                    user = None
             key = (scope.get("state") or {}).get("api_key")   # called with an API key (R46): which one
             code = status["code"] or 500
             action = getattr(endpoint, "__name__", None) or ("refused" if code in (401, 403) else "unknown")
             await run_in_threadpool(
-                record, action, user, method=scope["method"], path=scope["path"],
+                record, action, user, method=scope["method"], path=path,
                 target=", ".join(f"{k}={v}" for k, v in params.items()) or None, status=code,
                 details={**summarise(bytes(body)), **({"api_key": key["prefix"]} if key else {})},
                 ip=client_ip(scope), request_id=request_id)

@@ -112,6 +112,10 @@ RULES = [
                       r"|/start-over|/restore)?",
      "manage_settings"),
     ({"PUT"}, r"/api/me/theme", ANY),
+    ({"GET"}, r"/api/(me/data|privacy)", ANY),                         # R59: one's own data
+    ({"POST"}, r"/api/me/data/delete", ANY),
+    ({"GET", "PUT"}, r"/api/data-retention", "manage_settings"),
+    ({"POST"}, r"/api/data-retention/apply", "manage_settings"),
     ({"GET", "PUT", "DELETE"}, r"/api/me/memory(/\d+)?", ANY),   # one's own memory (R28)
     ({"POST"}, r"/api/(ask|ask/stream|agent/stream|agent/resume|session/reset|sessions/new)", "query_rag"),
     ({"GET"}, r"/api/agent(/session)?", "query_rag"),

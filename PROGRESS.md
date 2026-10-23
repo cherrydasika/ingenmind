@@ -578,6 +578,21 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R59 (#115) done:** data lifecycle (`app/data_lifecycle.py`, Profile →
+  Privacy and your data, Users → Download data / Delete account and data):
+  retention per kind applied daily; a person's data exported as JSON or
+  deleted from PostgreSQL, Langfuse (by trace id; v4 has no trace listing,
+  so ids come from the turns and observations by user id) and agent memory
+  (local `agent_sessions`, AgentCore Memory events and records). The audit
+  log's append-only trigger now allows only this code's anonymising and
+  retention (both audited). **Done-when checked:** a test seeds a person's
+  data through every module, deletes them and finds no row in any table
+  mentioning their id, email, session or memory actor, while another
+  person's data stays. On the local install a throwaway account's export
+  and deletion left no row mentioning it. The Langfuse half couldn't be
+  proven locally: Langfuse's storage is full (the Docker disk is 99% used),
+  so the throwaway trace was never stored.
+
 - **R58 (#18) done:** learning from live use (`app/use_learnings.py`, on
   Analytics): every real question's outcome, sources by answer quality, and
   four kinds of recommendation (refresh, drop or add a source; re-run an
