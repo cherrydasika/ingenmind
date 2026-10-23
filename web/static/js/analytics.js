@@ -92,6 +92,15 @@ export class AnalyticsPage {
         card({ children: f.questions ? [this.charts.funnel, h("p", { class: "note" },
           `${fmtInt(f.questions)} questions, ${fmtInt(f.searches)} searches: ${fmtInt(f.dense)} found by meaning and ${fmtInt(f.sparse)} by words, before merging.`)]
           : note("No searches recorded in this period (recorded from this version on).") })),
+      section("gaps", "Knowledge gaps", `What people asked that the knowledge base couldn't answer, grouped into topics${d.gaps.grouped_by === "text" ? " (by identical wording: no embedding model was reachable)" : ""}: what content to add next. "Still unanswered" questions got no answer that passed its check; a topic that drops off after content is added was closed.`,
+        card({ children: d.gaps.topics.length ? h("div", { class: "table-wrap" }, h("table", { class: "gap-table" },
+          h("thead", {}, h("tr", {}, ["Topic", "Questions", "Still unanswered", "Example questions", "Last asked"].map((t) => h("th", {}, t)))),
+          h("tbody", {}, d.gaps.topics.map((g) => h("tr", {},
+            h("td", { title: g.items.join("\n") }, g.topic), h("td", { class: "num" }, fmtInt(g.questions)),
+            h("td", { class: "num" }, fmtInt(g.unanswered)),
+            h("td", {}, h("ul", { class: "gap-examples" }, g.examples.map((q) => h("li", {}, q)))),
+            h("td", { class: "faint" }, g.last_asked.slice(0, 10)))))))
+          : note("No knowledge gaps in this period (recorded from this version on).") })),
       section("sources", "Most and least used sources", "Pages ranked by how many answers cite them. Pages no search found in this period may be outdated, duplicated or badly written.",
         card({ title: "Most cited", children: s.most.length ? table(s.most) : note("No cited sources in this period.") }),
         s.least.length ? card({ title: "Least cited", children: table(s.least) }) : null,

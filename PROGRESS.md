@@ -578,6 +578,20 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R54 (#4) done:** knowledge-gap report on Analytics
+  (`app/knowledge_gaps.py`): each KNOWLEDGE_GAP's missing information kept
+  with its session turn (server-side only: removed before any reply, and
+  deleted with the session), embedded on first report and grouped into
+  topics (cosine ≥ 0.78, named by the most typical item; identical wording
+  when no embedding model is reachable), with questions, still unanswered,
+  example questions and last asked, for the page's date range. Off-topic
+  questions are blocked before a run, so they are never gaps. **Done-when
+  checked:** three real questions through the Ask path (run in the web app
+  container, as the local install is mid-setup): "toilets at London
+  Victoria" became a topic (3 missing items in one group, still
+  unanswered); the step-free question was answered and isn't listed; the
+  reply never carried the gaps. Light/dark and phone width checked.
+
 - **R53 (#112) done:** Monitoring → Operations (`app/operations.py`):
   yesterday's cost and slowest flow, agent and model at the top; for the
   period, p50/p95 time, error, timeout, guardrail-block and budget-breach

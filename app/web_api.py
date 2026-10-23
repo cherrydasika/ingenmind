@@ -59,6 +59,7 @@ from initialization import (blueprint_run, build as setup_build, content as setu
                             evaluation as setup_evaluation, labels as setup_labels, plan as setup_plan, readiness as setup_readiness, sources_run,
                             state as setup_state, supervisor)
 import analytics
+import knowledge_gaps
 import operations
 import answer_feedback
 import sessions
@@ -489,10 +490,13 @@ def _reply_live(request: dict, reply: str, session_id: str, body: dict, emit) ->
     result = agent.resume_run(request["run_id"], retrieval_view, lambda event: emit("stage", event),
                               answer={"reply": reply})
     trace_id = result.pop("trace_id", None)
+    gaps = result.pop("gaps", None)
     if body.get("channel"):
         result["channel"] = body["channel"]
     try:
-        result["turn_id"] = sessions.record_turn(session_id, body["user_id"], pii.mask(reply), result, trace_id)["turn_id"]
+        turn = sessions.record_turn(session_id, body["user_id"], pii.mask(reply), result, trace_id)
+        result["turn_id"] = turn["turn_id"]
+        _record_gaps(turn, pii.mask(reply), gaps, result)
         conversation.summarise_later(session_id)
     except Exception as error:
         print(f"could not record the session turn: {error}", file=sys.stderr)
@@ -963,6 +967,7 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
         usage_limits.charge(body.get("user_id"),
                             (metrics.get("input_tokens") or 0) + (metrics.get("output_tokens") or 0))
     trace_id = result.pop("trace_id", None)   # server-side only
+    gaps = result.pop("gaps", None)
     if body.get("channel"):   # Slack, Teams or a widget (R50)
         result["channel"] = body["channel"]
     turn = None
@@ -971,6 +976,7 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
             # The question as the agents saw it: personal data masked (pii.py).
             asked = result.get("question") or question
             turn = sessions.record_turn(session_id, body["user_id"], asked, result, trace_id)
+            _record_gaps(turn, asked, gaps, result)
             conversation.summarise_later(session_id)   # a long session's older turns, folded (R26)
             if ((result.get("guardrails") or {}).get("input") or {}).get("decision") == "ALLOW":
                 # Lasting facts the user told us, only if they opted in (R28).
@@ -1127,10 +1133,12 @@ def _resume_and_record(run_id: str, answer: dict | None = None) -> dict:
     result = agent.resume_run(run_id, retrieval_view, answer=answer)
     record = durable.get(run_id) or {}
     trace_id = result.pop("trace_id", None)
+    gaps = result.pop("gaps", None)
     if record.get("source") == "users" and record.get("session_id") and record.get("user_id"):
         try:
             if answer is None or not sessions.complete_waiting(run_id, result, trace_id):
-                sessions.record_turn(record["session_id"], record["user_id"], record["asked"], result, trace_id)
+                turn = sessions.record_turn(record["session_id"], record["user_id"], record["asked"], result, trace_id)
+                _record_gaps(turn, record["asked"], gaps, result)
             conversation.summarise_later(record["session_id"])
         except Exception as error:
             print(f"could not record the resumed turn: {error}", file=sys.stderr)
@@ -1833,8 +1841,21 @@ def operations_report(request: Request) -> Response:
         return _json({"error": str(error)}, 400)
 
 
+def _record_gaps(turn: dict, asked: str, gaps: list | None, result: dict) -> None:
+    """A turn's knowledge gaps (R54), for admins; answered: the user still got an answer that passed its check."""
+    if not gaps:
+        return
+    answered = ((result.get("answer_check") or {}).get("passed") is True
+                and ((result.get("guardrails") or {}).get("output") or {}).get("decision", "ALLOW") == "ALLOW")
+    try:
+        knowledge_gaps.record(turn["turn_id"], asked, gaps, answered)
+    except Exception as error:   # the user still gets the answer
+        print(f"could not record knowledge gaps: {error}", file=sys.stderr)
+
+
 def _shape_agent_result(result: dict) -> dict:
-    """The browser needs no chunk vectors (no page plots them any more)."""
+    """The browser needs no chunk vectors (no page plots them any more), nor the knowledge gaps (admins', R54)."""
+    result = {k: v for k, v in result.items() if k != "gaps"}
     return {**result, "searches": [{**s, "retrieval": _strip_vectors(s["retrieval"])} for s in result["searches"]]}
 
 
