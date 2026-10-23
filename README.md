@@ -546,6 +546,19 @@ into charts for a date range (the last 30 days by default):
   session, never sent to the asker); the report embeds the items and groups
   close ones (cosine ≥ 0.78), naming each topic by its most typical item.
   Questions blocked as off-topic never ran, so they are never gaps.
+- **Learning from live use** (R58, `app/use_learnings.py`): each real
+  question's outcome (worked, missing knowledge, poor retrieval, bad source,
+  wrong answer; kept as `use_learnings`, no question or answer text), the
+  cited pages by answer quality (a thumbs-down counts as poor), and
+  recommendations: **refresh** a page marked out of date, stale, or behind
+  poor answers and not checked for a week; **drop** a page that is gone or
+  still behind most of its answers after a recent check; **add a source**
+  for a knowledge-gap topic asked at least twice without a passing answer
+  (you give the URL; it is queued for ingestion); **re-run an evaluation**
+  set whose last run on the live flow predates a content change.
+  Recommendations only describe: nothing changes until an admin approves one
+  (`POST /api/learnings/recommendations/{id}/approve|dismiss`, in the audit
+  log). A dismissed one stays away 30 days. A reset clears all of it.
 - **Most and least used sources,** and the pages no search found in the
   period (curated and research pages alike).
 - **Knowledge map by use:** passages placed by meaning (PCA to 3-D), the ones

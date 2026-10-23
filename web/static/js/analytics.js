@@ -7,6 +7,12 @@ import { card, errorBox, fmtInt, h, loading, note, section, shortUrl } from "./u
 
 const DAY = 86400000;
 const iso = (d) => d.toISOString().slice(0, 10);
+const OUTCOME_LABELS = { worked: "Worked", missing_knowledge: "Missing knowledge", poor_retrieval: "Poor retrieval",
+  bad_source: "Bad source", wrong_answer: "Wrong answer" };
+const KIND_LABELS = { refresh_source: "Refresh source", drop_source: "Drop source", add_source: "Add a source",
+  rerun_evaluation: "Re-run evaluation" };
+const APPROVE_LABELS = { refresh_source: "Approve: re-crawl now", drop_source: "Approve: remove the page",
+  add_source: "Approve: ingest this URL", rerun_evaluation: "Approve: run on the live flow" };
 const pct = (v) => (v === null || v === undefined ? "—" : `${Math.round(v * 100)}%`);
 
 export function colours() {
@@ -101,6 +107,7 @@ export class AnalyticsPage {
             h("td", {}, h("ul", { class: "gap-examples" }, g.examples.map((q) => h("li", {}, q)))),
             h("td", { class: "faint" }, g.last_asked.slice(0, 10)))))))
           : note("No knowledge gaps in this period (recorded from this version on).") })),
+      this.learningsSection(d.learnings),
       section("sources", "Most and least used sources", "Pages ranked by how many answers cite them. Pages no search found in this period may be outdated, duplicated or badly written.",
         card({ title: "Most cited", children: s.most.length ? table(s.most) : note("No cited sources in this period.") }),
         s.least.length ? card({ title: "Least cited", children: table(s.least) }) : null,
@@ -124,6 +131,56 @@ export class AnalyticsPage {
           fresh.soonest.length ? h("ul", { class: "never-list" }, fresh.soonest.map((p) => h("li", {}, shortUrl(p.url), h("span", { class: "faint" }, ` · ${p.expires_at.slice(0, 10)}`)))) : null] })),
     ));
     this.draw();
+  }
+
+  // R58 (app/use_learnings.py): what live questions taught, and what to do about it. Nothing changes the
+  // knowledge base until an admin approves a recommendation here.
+  learningsSection(l) {
+    const total = l.questions || 0;
+    const outcomeRow = h("div", { class: "learn-outcomes" }, Object.entries(l.outcomes).map(([k, n]) =>
+      h("div", { class: `learn-outcome learn-${k}` }, h("strong", {}, fmtInt(n)), h("span", {}, OUTCOME_LABELS[k] || k),
+        h("span", { class: "faint" }, total ? pct(n / total) : "—"))));
+    const pages = l.sources.filter((p) => p.answers >= 1).slice(0, 15);
+    const pageTable = pages.length ? h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, ["Page", "Answers citing it", "Worked", "Poor (failed or 👎)", "Out of date votes"].map((t) => h("th", {}, t)))),
+      h("tbody", {}, pages.map((p) => h("tr", {},
+        h("td", {}, h("a", { href: p.url, target: "_blank", rel: "noopener" }, shortUrl(p.url)), p.dataset ? null : h("span", { class: "faint" }, " · removed")),
+        h("td", { class: "num" }, fmtInt(p.answers)), h("td", { class: "num" }, fmtInt(p.worked)),
+        h("td", { class: "num" }, `${fmtInt(p.poor)} (${pct(p.poor_share)})`), h("td", { class: "num" }, fmtInt(p.out_of_date)))))))
+      : note("No cited pages in this period.");
+    const recs = l.recommendations;
+    return section("learnings", "Learning from live use", "Every real question's outcome, which sources help and which keep producing poor answers, and what to do next. Recommendations only describe: nothing changes sources, pages or evaluations until you approve one (kept in the audit log). A reset clears all of this, so a new domain starts clean.",
+      this.learnMessage ? h("div", { class: `alert ${this.learnMessage.kind}` }, this.learnMessage.text) : null,
+      card({ title: `Outcomes (${fmtInt(total)} questions)`, children: total ? outcomeRow : note("No questions recorded in this period (recorded from this version on).") }),
+      card({ title: `Recommendations (${recs.length})`, children: recs.length ? h("ul", { class: "learn-recs" }, recs.map((r) => this.recommendation(r)))
+        : note("Nothing to recommend: no source keeps failing, no gap keeps coming back, and evaluations are up to date.") }),
+      card({ title: "Sources by answer quality", children: pageTable }),
+      l.decided.length ? card({ title: "Decided recently", children: h("ul", { class: "learn-recs learn-decided" }, l.decided.map((r) =>
+        h("li", {}, h("span", { class: `badge${r.status === "done" ? " badge-ok" : ""}` }, r.status === "done" ? "Approved" : "Dismissed"), " ", KIND_LABELS[r.kind], ": ",
+          h("span", { class: "learn-target" }, r.kind.endsWith("_source") && r.kind !== "add_source" ? shortUrl(r.target) : r.target),
+          h("span", { class: "faint" }, ` · ${(r.decided_at || "").slice(0, 16).replace("T", " ")}`)))) }) : null);
+  }
+
+  recommendation(r) {
+    const url = r.kind === "add_source" ? h("input", { type: "url", placeholder: "https://… a page that covers it", "aria-label": "URL to add" }) : null;
+    const decide = async (decision) => {
+      try {
+        await api.learningDecide(r.id, decision, url ? { url: url.value } : {});
+        this.learnMessage = { kind: "ok", text: decision === "approve" ? `${KIND_LABELS[r.kind]}: done.` : "Dismissed for 30 days." };
+      } catch (err) {
+        this.learnMessage = { kind: "err", text: err.message };
+      }
+      await this.load();
+      document.getElementById("learnings")?.scrollIntoView();
+    };
+    const target = r.kind === "refresh_source" || r.kind === "drop_source"
+      ? h("a", { href: r.target, target: "_blank", rel: "noopener" }, shortUrl(r.target)) : h("span", {}, r.target);
+    return h("li", { class: "learn-rec" },
+      h("div", {}, h("span", { class: `badge ${r.kind === "drop_source" ? "badge-err" : "badge-warn"}` }, KIND_LABELS[r.kind]), " ", h("span", { class: "learn-target" }, target)),
+      h("div", { class: "faint" }, r.why),
+      h("div", { class: "alert-actions" }, url,
+        h("button", { class: "btn btn-sm", type: "button", onclick: () => decide("approve") }, APPROVE_LABELS[r.kind]),
+        h("button", { class: "btn btn-ghost btn-sm", type: "button", onclick: () => decide("dismiss") }, "Dismiss")));
   }
 
   // R57: the same data as Parquet files for DuckDB, offline (app/analytics_export.py).

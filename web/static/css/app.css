@@ -1006,6 +1006,19 @@ button.cite:focus-visible { outline: 2px solid var(--primary); outline-offset: 1
 .never-list { columns: 2 260px; margin: 0; padding-left: 18px; font-size: 13px; }
 .never-list li { break-inside: avoid; overflow-wrap: anywhere; }
 .gap-examples { margin: 0; padding-left: 16px; font-size: 13px; min-width: 200px; }
+/* R58: learning from live use */
+.learn-outcomes { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.learn-outcome { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; border-left-width: 4px; }
+.learn-outcome strong { font-size: 20px; }
+.learn-worked { border-left-color: var(--ok); }
+.learn-missing_knowledge, .learn-poor_retrieval { border-left-color: var(--warn); }
+.learn-bad_source, .learn-wrong_answer { border-left-color: var(--err); }
+.learn-recs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.learn-rec { padding-bottom: 12px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.learn-rec:last-child { border-bottom: 0; padding-bottom: 0; }
+.learn-rec input[type=url] { flex: 1 1 260px; min-width: 0; }
+.learn-target { overflow-wrap: anywhere; font-weight: 500; }
+.learn-decided li { font-size: 13px; overflow-wrap: anywhere; }
 .gap-table td:first-child { min-width: 180px; }
 .gap-table td:last-child { white-space: nowrap; }
 

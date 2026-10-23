@@ -135,15 +135,17 @@ def _groups(rows: list[dict]) -> list[list[dict]]:
     return groups
 
 
-def report(begin: datetime, end: datetime) -> dict:
-    """The period's gap topics, most asked first: label, questions, still unanswered, example questions."""
+def report(begin: datetime, end: datetime, learned_only: bool = False) -> dict:
+    """The period's gap topics, most asked first: label, questions, still unanswered, example questions.
+    learned_only: only questions still in use_learnings (R58: what a reset hasn't cleared)."""
     ensure_schema()
+    learned = "AND EXISTS (SELECT 1 FROM use_learnings l WHERE l.turn_id = g.turn_id)" if learned_only else ""
     with _connect() as connection:
-        rows = connection.execute("""
+        rows = connection.execute(f"""
             SELECT g.id, g.turn_id, g.missing, g.after_research, g.answered, g.embedding, t.question, t.asked_at
             FROM knowledge_gaps g JOIN app_session_turns t ON t.turn_id = g.turn_id
             WHERE t.asked_at >= %s AND t.asked_at < %s
-              AND coalesce(t.result->'guardrails'->'input'->>'decision', 'ALLOW') = 'ALLOW'
+              AND coalesce(t.result->'guardrails'->'input'->>'decision', 'ALLOW') = 'ALLOW' {learned}
             ORDER BY t.asked_at DESC LIMIT %s""", (begin, end, MAX_ROWS)).fetchall()
         grouped_by = "meaning"
         try:

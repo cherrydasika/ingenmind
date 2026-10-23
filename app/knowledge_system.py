@@ -212,6 +212,21 @@ def set_blueprint_version(version: int | None) -> None:
         connection.execute("UPDATE app_knowledge_system SET blueprint_version = %s, updated_at = now()", (version,))
 
 
+def add_url(url: str, ttl_days: float | None = None, origin: str = "manual", user_id: str | None = None) -> bool:
+    """Add a URL to ingest, at the end of the list; False if it was there already."""
+    ensure_schema()
+    with _connect() as connection:
+        return connection.execute("INSERT INTO kb_urls (url, ttl_days, origin, added_by) VALUES (%s, %s, %s, %s) "
+                                  "ON CONFLICT (url) DO NOTHING", (url, ttl_days, origin, user_id)).rowcount == 1
+
+
+def forget_url(url: str) -> bool:
+    """Take a URL off the list to ingest (its pages are removed separately); False if it wasn't on it."""
+    ensure_schema()
+    with _connect() as connection:
+        return connection.execute("DELETE FROM kb_urls WHERE url = %s", (url,)).rowcount == 1
+
+
 def urls(limit: int | None = None) -> list[dict]:
     """The URLs to ingest, in order: [{"url", "ttl_days"}] (ttl_days left out when unset)."""
     ensure_schema()
@@ -246,6 +261,8 @@ EMPTIED = (
     ("agent_eval_runs", "Evaluation runs"),
     ("agent_eval_sets", "Saved evaluation sets"),
     ("app_agent_memory", "Agent memory (learnings)"),
+    ("use_recommendations", "Recommendations from live use"),
+    ("use_learnings", "What live questions taught (learnings)"),
     ("agent_sessions", "Agent conversations (local harness)"),
     ("app_setup_turns", "Setup conversation"),
     ("app_setup", "Setup requirements"),
