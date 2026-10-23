@@ -54,6 +54,7 @@ import auth
 import identity
 import injection
 import knowledge_system
+import migrations
 import research
 from initialization import (blueprint_run, build as setup_build, content as setup_content,
                             evaluation as setup_evaluation, labels as setup_labels, plan as setup_plan, readiness as setup_readiness, sources_run,
@@ -203,6 +204,7 @@ def plotly_js(request: Request) -> Response:
 def app_config(request: Request) -> Response:
     return _json({
         "panes": PANES,
+        "version": migrations.VERSION,
         "user_id": (auth.current_user(request) or {}).get("user_id"),
         "collection": config.COLLECTION_NAME,
         "embeddings": {
@@ -2841,11 +2843,13 @@ WEB_THREADS = int(os.environ.get("WEB_THREADS", "").strip() or 40)
 async def _lifespan(app):
     import anyio.to_thread
     anyio.to_thread.current_default_thread_limiter().total_tokens = WEB_THREADS
-    # The knowledge system's first run (record, URL import) before the first request.
+    # Every module's tables brought up to this release's (R62), including the
+    # knowledge system's first run, before the first request. A downgrade or a
+    # failed migration stops the app rather than serving a half-migrated database.
     try:
-        await run_in_threadpool(knowledge_system.ensure_schema)
-    except Exception as exc:   # the database may still be starting; the first use retries
-        print(f"knowledge system first run deferred: {exc}", file=sys.stderr)
+        await run_in_threadpool(migrations.run)
+    except migrations.Refused as exc:
+        raise SystemExit(f"Refusing to start: {exc}")
     # Runs a restart cut short (R30): marked interrupted; recent Ask-page ones resume in the background.
     try:
         await run_in_threadpool(durable.ensure_setup)

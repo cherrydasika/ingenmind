@@ -135,10 +135,10 @@ embedding model.
 
 | | |
 |---|---|
-| A fixed version | `curl -fsSL https://github.com/cherrydasika/ingenmind/releases/download/v0.1.0/install.sh \| INGENMIND_VERSION=v0.1.0 sh` (each release has the files and their `SHA256SUMS`) |
+| A fixed version | `curl -fsSL https://github.com/cherrydasika/ingenmind/releases/download/v1.0.0/install.sh \| INGENMIND_VERSION=v1.0.0 sh` (each release has the files and their `SHA256SUMS`; images are signed) |
 | Without a prompt | set `ANTHROPIC_API_KEY` first (and `TAVILY_API_KEY`, or `INGENMIND_NO_PROMPT=1` to skip it); `INGENMIND_PORT`, `INGENMIND_DIR` and `INGENMIND_DEMO=0` (no demo documents) are optional |
 | Stop, start | `docker compose -f ~/.ingenmind/compose.yml stop` (or `start`) |
-| Upgrade | run the install command again: settings and data are kept |
+| Upgrade | run the install command again: settings and data are kept, the database is backed up first and migrated on start ([Upgrading](docs/upgrading.md)) |
 | Remove | `curl -fsSL https://raw.githubusercontent.com/cherrydasika/ingenmind/main/install.sh \| sh -s -- --uninstall` keeps the data; add `--purge` to delete it and `~/.ingenmind` |
 
 **From source** (to change the code): clone the repository, then

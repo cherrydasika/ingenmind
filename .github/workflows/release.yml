@@ -1,8 +1,10 @@
 name: Release
 
-# A version tag (v0.1.0, or v0.1.0-rc.1 for a pre-release) builds the image for
-# amd64 and arm64, pushes it to GitHub Container Registry, and publishes a
-# GitHub Release with the files install.sh needs.
+# A version tag (v1.0.0, or v1.0.0-rc.1 for a pre-release) builds the image for
+# amd64 and arm64, pushes it to GitHub Container Registry with an SBOM and
+# build provenance, signs it with Sigstore (keyless: this workflow's identity),
+# and publishes a GitHub Release with the files install.sh needs and notes
+# generated from the merged PRs (grouped by .github/release.yml).
 on:
   push:
     tags: ["v*"]
@@ -10,6 +12,7 @@ on:
 permissions:
   contents: write     # the GitHub Release
   packages: write     # ghcr.io/<owner>/ingenmind
+  id-token: write     # Sigstore keyless signing
 
 jobs:
   release:
@@ -35,12 +38,16 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push the image
+        id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: Dockerfile.web
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: VERSION=${{ steps.version.outputs.image_tag }}
+          provenance: mode=max
+          sbom: true
           # A pre-release never moves "latest".
           tags: |
             ${{ steps.version.outputs.image }}:${{ steps.version.outputs.image_tag }}
@@ -51,6 +58,13 @@ jobs:
             org.opencontainers.image.licenses=Apache-2.0
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Sign the image
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE: ${{ steps.version.outputs.image }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
 
       - name: Release files
         run: |

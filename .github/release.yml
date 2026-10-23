@@ -1,0 +1,20 @@
+# Groups the release notes generated from merged PRs (R62), by PR label.
+changelog:
+  exclude:
+    labels: [duplicate, invalid, wontfix]
+  categories:
+    - title: Upgrade notes (read before upgrading)
+      labels: [breaking]
+    - title: Security
+      labels: [security]
+    - title: Features
+      labels: [enhancement, roadmap, agents, guardrails, integrations, memory, llm, analytics, rag-quality,
+               initialization, operations, observability, accessibility]
+    - title: Fixes
+      labels: [bug]
+    - title: Documentation
+      labels: [documentation]
+    - title: Dependencies
+      labels: [dependencies, python, javascript, github_actions]
+    - title: Other changes
+      labels: ["*"]

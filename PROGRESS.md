@@ -578,6 +578,23 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R62 (#118) built, v1.0.0 not tagged yet:** releases. The release
+  workflow now signs the image with Sigstore (keyless) and adds an SBOM
+  and provenance; the version is baked in (`/api/config` reports it).
+  Notes are grouped by label (`.github/release.yml`, new `breaking` label);
+  `CHANGELOG.md` has the 1.0.0 highlights. `app/migrations.py` runs every
+  module's schema setup on start, records the version, and refuses a
+  downgrade (`ALLOW_DOWNGRADE`). `install.sh` backs up the database before
+  an upgrade and verifies the signature when cosign is installed. The docs
+  site (MkDocs Material) is built from the README sections
+  (`scripts/docs/build.py`): strict on PRs, published to Pages on a release
+  tag. `docs/upgrading.md` covers upgrading, going back and verifying.
+  **Checked:** the site built strictly and rendered; migrations created
+  every module's tables on a fresh database and ran in 0.14 s on the local
+  one. **Left (needs your OK):** turn on GitHub Pages (Actions source),
+  push the `v1.0.0` tag, then install it with the one command in a
+  throwaway directory (the done-when).
+
 - **R61 (#117) done locally (EC2 number open):** load tests and service
   levels. `loadtest/` has Locust scenarios (asks with follow-ups, document
   ingest, evaluations; one API key per simulated person) and `make_keys.py`;
