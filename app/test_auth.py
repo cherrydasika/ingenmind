@@ -14,10 +14,13 @@ from starlette.responses import RedirectResponse
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
+import answer_feedback
 import auth
 import flows
 import identity
+import knowledge_gaps
 import sessions
+import use_learnings
 import web_api
 from common import config
 
@@ -55,6 +58,8 @@ class AuthDatabase(unittest.TestCase):
         sessions.reset_schema_cache()
         flows.store.reset_schema_cache()
         flows.evals.reset_schema_cache()
+        for module in (answer_feedback, knowledge_gaps, use_learnings):   # the tables R54/R58 add to every Ask turn
+            module.reset_schema_cache()
 
     def client(self, host="localhost"):
         return TestClient(web_api.app, base_url=f"http://{host}")

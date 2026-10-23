@@ -61,6 +61,7 @@ from initialization import (blueprint_run, build as setup_build, content as setu
 import alerts
 import analytics
 import analytics_export
+import use_learnings
 import knowledge_gaps
 import operations
 import answer_feedback
@@ -498,7 +499,7 @@ def _reply_live(request: dict, reply: str, session_id: str, body: dict, emit) ->
     try:
         turn = sessions.record_turn(session_id, body["user_id"], pii.mask(reply), result, trace_id)
         result["turn_id"] = turn["turn_id"]
-        _record_gaps(turn, pii.mask(reply), gaps, result)
+        _record_learnings(turn, pii.mask(reply), gaps, result)
         conversation.summarise_later(session_id)
     except Exception as error:
         print(f"could not record the session turn: {error}", file=sys.stderr)
@@ -1011,7 +1012,7 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
             # The question as the agents saw it: personal data masked (pii.py).
             asked = result.get("question") or question
             turn = sessions.record_turn(session_id, body["user_id"], asked, result, trace_id)
-            _record_gaps(turn, asked, gaps, result)
+            _record_learnings(turn, asked, gaps, result)
             conversation.summarise_later(session_id)   # a long session's older turns, folded (R26)
             if ((result.get("guardrails") or {}).get("input") or {}).get("decision") == "ALLOW":
                 # Lasting facts the user told us, only if they opted in (R28).
@@ -1173,7 +1174,7 @@ def _resume_and_record(run_id: str, answer: dict | None = None) -> dict:
         try:
             if answer is None or not sessions.complete_waiting(run_id, result, trace_id):
                 turn = sessions.record_turn(record["session_id"], record["user_id"], record["asked"], result, trace_id)
-                _record_gaps(turn, record["asked"], gaps, result)
+                _record_learnings(turn, record["asked"], gaps, result)
             conversation.summarise_later(record["session_id"])
         except Exception as error:
             print(f"could not record the resumed turn: {error}", file=sys.stderr)
@@ -1868,9 +1869,84 @@ async def analytics_download(request: Request) -> Response:
 
 def analytics_report(request: Request) -> Response:
     try:
+        _recommend()
         return _json(analytics.report(request.query_params.get("from"), request.query_params.get("to")))
     except ValueError as error:
         return _json({"error": str(error)}, 400)
+
+
+# ---------- Learning from live use (use_learnings.py, R58) ----------
+
+def _recommend() -> list[dict]:
+    """The recommendations worked out again (they only describe; nothing runs until an admin approves)."""
+    try:
+        flow_id, version, _ = _live_target()
+        live = (flow_id, version)
+    except Exception:              # no live flow to evaluate
+        live = None
+    return use_learnings.recommend(live)
+
+
+def _refresh_source(rec: dict, _url) -> dict:
+    client = storage.get_client(rec["dataset"] or "curated")
+    return {k: v for k, v in recrawl.check(rec["target"], client).items() if k in ("status", "diff", "error")}
+
+
+def _drop_source(rec: dict, _url) -> dict:
+    storage.delete_url_points(storage.get_client(rec["dataset"] or "curated"), rec["target"])
+    knowledge_system.forget_url(rec["target"])          # so the next ingestion doesn't bring it back
+    fetch_qdrant_overview.clear()
+    fetch_research_overview.clear()
+    return {"removed": rec["target"]}
+
+
+def _add_source(rec: dict, url: str) -> dict:
+    job = storage.enqueue_job(storage.get_client(), "ingest_urls", [{"url": url}])
+    knowledge_system.add_url(url, origin="learning")
+    return {"url": url, "job_id": job["id"]}
+
+
+def _rerun_evaluation(rec: dict, _url) -> dict:
+    flow_id, version, spec = _live_target()
+    return {"runs": flows.evals.start(rec["target"], flow_id, [(version, spec)], _eval_execute)}
+
+
+LEARNING_ACTIONS = {"refresh_source": _refresh_source, "drop_source": _drop_source, "add_source": _add_source,
+                    "rerun_evaluation": _rerun_evaluation}
+
+
+async def learnings_recommendations(request: Request) -> Response:
+    return _json({"recommendations": await run_in_threadpool(_recommend),
+                  "decided": await run_in_threadpool(use_learnings.recommendations, "decided", 20)})
+
+
+async def learnings_decide(request: Request) -> Response:
+    """Approve (run it) or dismiss an open recommendation: {"url"} for add_source."""
+    try:
+        rec_id = int(request.path_params["rec_id"])
+    except ValueError:
+        return _json({"error": "unknown recommendation"}, 404)
+    if request.path_params["decision"] not in ("approve", "dismiss"):
+        return _json({"error": "approve or dismiss"}, 404)
+    body = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
+    user_id = (auth.current_user(request) or {}).get("user_id")
+    try:
+        if request.path_params["decision"] == "dismiss":
+            done = await run_in_threadpool(use_learnings.dismiss, rec_id, user_id)
+        else:
+            done = await run_in_threadpool(use_learnings.approve, rec_id, user_id, LEARNING_ACTIONS,
+                                           (body or {}).get("url"))
+    except use_learnings.NotOpen as missing:
+        return _json({"error": str(missing)}, 404)
+    except ValueError as invalid:
+        return _json({"error": str(invalid)}, 400)
+    except UniqueViolation:
+        return _json({"error": "an ingestion job is already queued or running: try again when it has finished"}, 409)
+    except LookupError as missing:
+        return _json({"error": f"not found: {missing}"}, 404)
+    except Exception as error:
+        return _json({"error": f"the action failed: {error}"}, 502)
+    return _json(done)
 
 
 # ---------- Operations (operations.py, R53) ----------
@@ -1885,8 +1961,14 @@ def operations_report(request: Request) -> Response:
         return _json({"error": str(error)}, 400)
 
 
-def _record_gaps(turn: dict, asked: str, gaps: list | None, result: dict) -> None:
-    """A turn's knowledge gaps (R54), for admins; answered: the user still got an answer that passed its check."""
+def _record_learnings(turn: dict, asked: str, gaps: list | None, result: dict) -> None:
+    """What a turn teaches, for admins: its outcome (R58) and knowledge gaps (R54; answered: the user still
+    got an answer that passed its check). The user gets the answer whatever happens here."""
+    if not result.get("waiting"):
+        try:
+            use_learnings.record(turn["turn_id"], result)
+        except Exception as error:
+            print(f"could not record what the turn teaches: {error}", file=sys.stderr)
     if not gaps:
         return
     answered = ((result.get("answer_check") or {}).get("passed") is True
@@ -2770,6 +2852,8 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/sessions", session_list),
     Route("/api/analytics", analytics_report),
     Route("/api/analytics/export", analytics_download),
+    Route("/api/learnings/recommendations", learnings_recommendations),
+    Route("/api/learnings/recommendations/{rec_id}/{decision}", learnings_decide, methods=["POST"]),
     Route("/api/operations", operations_report),
     Route("/api/alerts", alerts_overview),
     Route("/api/alerts/check", alerts_check_now, methods=["POST"]),

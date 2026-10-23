@@ -578,6 +578,20 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R58 (#18) done:** learning from live use (`app/use_learnings.py`, on
+  Analytics): every real question's outcome, sources by answer quality, and
+  four kinds of recommendation (refresh, drop or add a source; re-run an
+  evaluation) that run only when an admin approves. A reset clears the
+  learnings and recommendations. **Done-when checked:** tests show a reset
+  clears them and that working out, refreshing and dismissing
+  recommendations leaves pages, the URL list, ingestion jobs and re-crawl
+  checks untouched until one is approved (then only that page goes). On the
+  local install, the 32 earlier real questions replayed into 18 worked,
+  13 wrong answers and 1 missing knowledge, and the Trainline bikes page
+  (marked out of date by a thumbs-down) came out as "Refresh source". New
+  questions couldn't be asked: the Anthropic API key has run out of credit
+  (they were recorded as blocked).
+
 - **R57 (#7) done:** analytics export for DuckDB (`app/analytics_export.py`,
   `export_analytics.py`, Analytics → Download export,
   `scripts/aws/export-analytics.sh` over SSM): ten Parquet files typed from

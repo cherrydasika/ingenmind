@@ -104,6 +104,7 @@ export const api = {
   alerts: () => request("/api/alerts"),
   alertsCheck: () => post("/api/alerts/check", {}),
   alertRule: (kind, body) => request(`/api/alerts/rules/${encodeURIComponent(kind)}`, { method: "PATCH", body: JSON.stringify(body) }),
+  learningDecide: (id, decision, body = {}) => post(`/api/learnings/recommendations/${encodeURIComponent(id)}/${decision}`, body),
   alertTest: (kind) => post(`/api/alerts/rules/${encodeURIComponent(kind)}/test`, {}),
   alertSettings: (body) => request("/api/alerts/settings", { method: "PUT", body: JSON.stringify(body) }),
   operations: (params) => request(`/api/operations?${new URLSearchParams(Object.entries(params).filter(([, v]) => v))}`),
