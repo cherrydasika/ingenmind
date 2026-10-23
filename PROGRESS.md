@@ -524,6 +524,15 @@ on #120 that isn't waiting on the user.
   both answered "not available here … use National Rail Enquiries at
   https://www.nationalrail.co.uk/" and passed the answer check (1.0).
 
+- **R44 (#32) done:** source profiles follow a website's terms page:
+  `research.terms_link` picks a terms / conditions / legal / copyright link
+  from the fetched pages' links (the same site first), and
+  `profile_sources` fetches it and profiles the candidate again when a
+  web-page or scrape-only profile's terms are still unknown. **Checked** on
+  nationalrail.co.uk/live-trains/: it followed /terms-and-conditions/ and
+  the profile's terms went from unknown to "non-commercial display only …
+  no scraping or extraction, no redistribution".
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
