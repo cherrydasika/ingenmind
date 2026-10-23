@@ -56,6 +56,7 @@ import research
 from initialization import (blueprint_run, build as setup_build, content as setup_content,
                             evaluation as setup_evaluation, labels as setup_labels, plan as setup_plan, readiness as setup_readiness, sources_run,
                             state as setup_state, supervisor)
+import answer_feedback
 import sessions
 import source_profiles
 import connectors
@@ -462,7 +463,7 @@ def _ask_live(question: str, session_id: str, body: dict, max_iterations, emit) 
             emit("stage", {"type": "cache", "state": "hit"})
             result = {**cached, "cached": True}
             try:
-                sessions.record_turn(session_id, body["user_id"], question, result, None)
+                result["turn_id"] = sessions.record_turn(session_id, body["user_id"], question, result, None)["turn_id"]
             except Exception as error:
                 print(f"could not record the session turn: {error}", file=sys.stderr)
             return result
@@ -482,7 +483,7 @@ def _reply_live(request: dict, reply: str, session_id: str, body: dict, emit) ->
                               answer={"reply": reply})
     trace_id = result.pop("trace_id", None)
     try:
-        sessions.record_turn(session_id, body["user_id"], pii.mask(reply), result, trace_id)
+        result["turn_id"] = sessions.record_turn(session_id, body["user_id"], pii.mask(reply), result, trace_id)["turn_id"]
         conversation.summarise_later(session_id)
     except Exception as error:
         print(f"could not record the session turn: {error}", file=sys.stderr)
@@ -953,6 +954,7 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
         usage_limits.charge(body.get("user_id"),
                             (metrics.get("input_tokens") or 0) + (metrics.get("output_tokens") or 0))
     trace_id = result.pop("trace_id", None)   # server-side only
+    turn = None
     if record:
         try:
             # The question as the agents saw it: personal data masked (pii.py).
@@ -965,6 +967,8 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
         except Exception as error:   # the user still gets the answer
             print(f"could not record the session turn: {error}", file=sys.stderr)
     shaped = _shape_agent_result(result)
+    if turn:   # what the asker's thumbs up or down rate (R51)
+        shaped["turn_id"] = turn["turn_id"]
     if body.get("keep_trace"):   # for an A2A reply, which links the caller's trace to this one (R36)
         shaped["trace_id"] = trace_id
     return shaped
@@ -1594,14 +1598,57 @@ def session_current(request: Request) -> Response:
             or (datetime.now(found["last_activity"].tzinfo) - found["last_activity"]).total_seconds() \
             > sessions.IDLE_MINUTES * 60:
         return _json({"session": None})
-    return _json({"session": found})
+    return _json({"session": answer_feedback.attach(found)})
 
 
 def session_detail(request: Request) -> Response:
     found = sessions.get_session(request.path_params["session_id"])
     if not found or not _may_see(auth.current_user(request), found):
         return _json({"error": "No such session"}, 404)   # others' sessions are not acknowledged
-    return _json({"session": found})
+    return _json({"session": answer_feedback.attach(found)})
+
+
+# ---------- Answer feedback (answer_feedback.py, R51) ----------
+
+async def feedback_give(request: Request) -> Response:
+    """The asker's thumbs up or down on one of their answers, with a reason when down."""
+    body = await request.json()
+    try:
+        turn_id = int(request.path_params["turn_id"])
+        saved = await run_in_threadpool(answer_feedback.give, turn_id, auth.current_user(request)["user_id"],
+                                        body.get("rating"), body.get("reason"), body.get("comment") or "")
+    except LookupError as error:
+        return _json({"error": str(error)}, 404)
+    except ValueError as error:
+        return _json({"error": str(error)}, 400)
+    return _json({"feedback": saved})
+
+
+def feedback_list(request: Request) -> Response:
+    """?rating=down (default) | up | all: recent feedback with its question and answer, and the last 7 days' counts."""
+    rating = request.query_params.get("rating", "down")
+    if rating not in ("up", "down", "all"):
+        return _json({"error": "rating: up, down or all"}, 400)
+    return _json({"feedback": answer_feedback.recent(None if rating == "all" else rating),
+                  "summary": answer_feedback.summary(), "reasons": answer_feedback.REASONS,
+                  "feedback_set": answer_feedback.FEEDBACK_SET[0]})
+
+
+def feedback_summary(request: Request) -> Response:
+    return _json(answer_feedback.summary())
+
+
+async def feedback_promote(request: Request) -> Response:
+    """A thumbs-down into a golden set, with the corrected answer."""
+    body = await request.json()
+    try:
+        out = await run_in_threadpool(answer_feedback.promote, int(request.path_params["turn_id"]),
+                                      body.get("expected"), body.get("set_id") or answer_feedback.FEEDBACK_SET[0])
+    except LookupError as error:
+        return _json({"error": str(error)}, 404)
+    except ValueError as error:
+        return _json({"error": str(error)}, 400)
+    return _json(out)
 
 
 def _shape_agent_result(result: dict) -> dict:
@@ -2422,6 +2469,10 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/flow-evals/runs/{run_id}/cancel", eval_cancel, methods=["POST"]),
     Route("/api/session/reset", reset_session, methods=["POST"]),
     Route("/api/sessions", session_list),
+    Route("/api/feedback", feedback_list),
+    Route("/api/feedback/summary", feedback_summary),
+    Route("/api/feedback/{turn_id:int}", feedback_give, methods=["POST"]),
+    Route("/api/feedback/{turn_id:int}/promote", feedback_promote, methods=["POST"]),
     Route("/api/sessions/current", session_current),
     Route("/api/sessions/new", session_new, methods=["POST"]),
     Route("/api/runs", runs_list),

@@ -262,6 +262,7 @@ EMPTIED = (
 # A master reset (admins only) also empties these: back to a fresh install, people's
 # accounts kept so someone can still sign in and set it up again.
 MASTER_EMPTIED = (
+    ("answer_feedback", "Answer feedback (thumbs on answers)"),
     ("app_session_turns", "People's questions and answers (sessions)"),
     ("app_sessions", "Sessions"),
     ("agent_flow_runs", "Flow run metrics"),

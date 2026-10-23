@@ -5,6 +5,7 @@
 import { api } from "./api.js";
 import { linkCitations } from "./citations.js";
 import { card, errorBox, fmtTime, h, loading, markdown, note, sourceItem } from "./ui.js";
+import { feedbackShown } from "./feedback.js";
 
 function dayLabel(iso) {
   const day = new Date(iso);
@@ -118,7 +119,8 @@ export class SessionsPage {
       h("div", { class: `reply ${check && !check.passed ? "withheld" : ""}` },
         h("div", { class: "reply-role" }, "◆ Answer", verdict),
         body,
-        h("div", { class: "reply-meta" }, meta)),
+        h("div", { class: "reply-meta" }, meta),
+        feedbackShown(t.feedback)),
       r.sources?.length ? h("details", { class: "sources" },
         h("summary", {}, `Sources (${r.sources.length})`),
         h("div", { class: "details-body" }, h("ul", { class: "chunk-list" }, r.sources.map(sourceItem)))) : null);

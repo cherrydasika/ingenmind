@@ -140,6 +140,11 @@ RULES = [
     ({"GET"}, r"/api/audit(\.csv)?", ("manage_users", "manage_settings")),
     # Own sessions: anyone signed in; others' need view_sessions (checked in web_api).
     ({"GET"}, r"/api/sessions(/[^/]+)?", ANY),
+    # Answer feedback (R51): on one's own answers; everyone's shows their questions.
+    ({"POST"}, r"/api/feedback/\d+", "query_rag"),
+    ({"GET"}, r"/api/feedback", "view_sessions"),
+    ({"GET"}, r"/api/feedback/summary", ("view_sessions", "manage_agents", "manage_settings")),
+    ({"POST"}, r"/api/feedback/\d+/promote", "run_evaluations"),
     # API keys (R46): one's own; everyone's for user managers.
     ({"GET", "POST"}, r"/api/me/keys", ANY),
     ({"DELETE"}, r"/api/me/keys/[^/]+", ANY),
