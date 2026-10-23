@@ -502,6 +502,18 @@ on #120 that isn't waiting on the user.
   get_weather and the imported Open-Meteo tool listed as already here.
   (The recommendations' quality is R42's business.)
 
+- **R42 (#31) done:** for an on-demand lookup the judge prefers a
+  request/response API: the prompt says so, and a deterministic rule after
+  the judge (`research.prefer_lookup_api`) puts the best-ranked eligible API
+  (the same provider's first) before a recommended push feed, the feed as
+  fallback, unless the task needs history, analytics or every update. The
+  live test's bar is now `api_tool`. **Live runs (RUN_LIVE=1, local):** 3
+  of 3 judged runs recommended an API (Darwin SOAP APIs twice, RTT
+  Next-Generation API once); 1 passed every assertion; 2 failed the older
+  website assertions (the National Rail website wasn't profiled, or wasn't
+  listed as not recommended), which vary with what the search finds. An
+  earlier run recommended nothing (cause not found).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

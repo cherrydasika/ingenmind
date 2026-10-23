@@ -608,7 +608,10 @@ JUDGE_PROMPT = (
     "the provider's official API or feed. Recommend one source and a fallback (or null), and the "
     "integration method: api_tool (a request/response API wrapped as a new tool the assistant calls on "
     "demand), feed_consumer (a push feed consumed continuously into a store, read by a tool), bulk_ingest "
-    "(scheduled downloads into the knowledge base) or page_ingest (stable facts on a web page). Never "
+    "(scheduled downloads into the knowledge base) or page_ingest (stable facts on a web page). For an "
+    "on-demand lookup (what a user asks now: departures, a status, a price) prefer a request/response API "
+    "(api_tool); a push feed only when the task needs history, analytics or every update as it happens, and "
+    "when a provider offers both, recommend its API. Never "
     "recommend scraping a website, and list scrape-only sources and sources whose terms forbid automated "
     "access under not_recommended. Use only what the profiles say; an 'unknown' is a risk, not a fact: when a "
     "source's terms are unknown, say they were not verified and never claim they forbid anything. "
@@ -660,6 +663,27 @@ def ineligible(profile: dict) -> str | None:
     return None
 
 
+# A task that needs a stream (history, analytics, every update) may use a push feed; any other is a lookup (R42).
+NEEDS_STREAM = re.compile(r"\b(histor\w*|analytic\w*|trends?|archive\w*|every (?:update|change|movement)|"
+                          r"stream\w*|record (?:all|every))\b", re.IGNORECASE)
+API_ACCESS = ("rest_api", "soap_api")
+
+
+def prefer_lookup_api(task: str, order: list[str], by_name: dict) -> list[str]:
+    """R42: for an on-demand lookup, a request/response API before a push feed: when the first choice
+    is a feed, the best-ranked API (the same provider's first) goes first and the feed becomes the fallback."""
+    if not order or NEEDS_STREAM.search(task or "") or by_name[order[0].strip().lower()].get("access_method") != "push_feed":
+        return order
+    feed = by_name[order[0].strip().lower()]
+    apis = [n for n in order if by_name[n.strip().lower()].get("access_method") in API_ACCESS]
+    apis += [p["name"] for p in by_name.values() if p.get("access_method") in API_ACCESS and p["name"] not in apis]
+    if not apis:
+        return order
+    same = [n for n in apis if (by_name[n.strip().lower()].get("provider") or "").lower() == (feed.get("provider") or "").lower()]
+    first = (same or apis)[0]
+    return [first, order[0], *[n for n in order[1:] if n != first]]
+
+
 def judge_sources(task: str, profiles: list[dict], brief: str = "",
                   judge: Callable[..., tuple[SourceRecommendation, dict]] = judge_with_llm) -> dict:
     """{"recommendation": dict, "usage"}; no model call without profiles."""
@@ -677,6 +701,7 @@ def judge_sources(task: str, profiles: list[dict], brief: str = "",
     order = [name for name in [result.recommended, result.fallback, *(r.name for r in result.ranking)]
              if eligible(name)]
     order = list(dict.fromkeys(order))
+    order = prefer_lookup_api(task, order, {n: p for n, p in by_name.items() if n not in blocked})
     recommended, fallback = (order + [None, None])[:2]
     method = "none"
     if recommended:

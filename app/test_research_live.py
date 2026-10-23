@@ -8,7 +8,8 @@ profiles are not stored unless LIVE_SAVE=1. On EC2, in the webapp container:
     RUN_LIVE=1 PYTHONPATH=/app:/app/dags python -m unittest -v test_research_live
 
 The bar (issue #8): at least one Darwin source, the National Rail website
-not recommended, and an API-based method.
+not recommended, and, for this on-demand lookup, a request/response API
+rather than a push feed (R42).
 """
 
 import json
@@ -77,7 +78,7 @@ class LiveUkDepartures(unittest.TestCase):
         self.assertTrue(website, "the National Rail website was not profiled")
         self.assertTrue(all(p["name"].lower() in avoided for p in website), rec["not_recommended"])
         self.assertNotIn((rec["recommended"] or "").lower(), [p["name"].lower() for p in website])
-        self.assertIn(rec["method"], ("api_tool", "feed_consumer"))
+        self.assertEqual(rec["method"], "api_tool")   # an on-demand lookup: an API, not a push feed (R42)
 
 
 if __name__ == "__main__":
