@@ -23,7 +23,6 @@ collections the key's owner may see) and ask (the live flow's cited answer).
 """
 
 import json
-import os
 import re
 import threading
 import time
@@ -34,6 +33,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+import secrets_box
 from common import config
 
 PROTOCOL = "2025-06-18"
@@ -79,32 +79,20 @@ def ensure_schema() -> None:
         _schema_ready = True
 
 
-# ---------- secrets ----------
-
-def _fernet():
-    key = os.environ.get("INTEGRATIONS_KEY", "").strip()
-    if not key:
-        return None
-    from cryptography.fernet import Fernet
-    return Fernet(key.encode())
-
+# ---------- secrets (secrets_box.py) ----------
 
 def _seal(headers: dict) -> str | None:
-    if not headers:
-        return None
-    box = _fernet()
-    if box is None:
-        raise McpError("set INTEGRATIONS_KEY (a Fernet key) on the server to store a token for this server")
-    return box.encrypt(json.dumps(headers).encode()).decode()
+    try:
+        return secrets_box.seal(headers)
+    except secrets_box.SecretError as error:
+        raise McpError(f"{error} for this server") from None
 
 
 def _open(sealed: str | None) -> dict:
-    if not sealed:
-        return {}
-    box = _fernet()
-    if box is None:
-        raise McpError("INTEGRATIONS_KEY is not set, so this server's stored token can't be read")
-    return json.loads(box.decrypt(sealed.encode()))
+    try:
+        return secrets_box.open_(sealed)
+    except secrets_box.SecretError as error:
+        raise McpError(str(error)) from None
 
 
 # ---------- the protocol (client side) ----------

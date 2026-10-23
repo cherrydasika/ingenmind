@@ -81,6 +81,19 @@ TOOLS: dict[str, ApiTool] = {tool.name: tool for tool in (
 )}
 
 
+def all_tools() -> dict[str, ApiTool]:
+    """The built-in tools and those imported from OpenAPI specs (R39, openapi_tools.py)."""
+    try:
+        import openapi_tools
+        return {**openapi_tools.tools(), **TOOLS}    # a built-in name always wins
+    except Exception:   # no database (tests, a cold start): the built-in ones
+        return dict(TOOLS)
+
+
+def get(name: str) -> ApiTool | None:
+    return TOOLS.get(name) or all_tools().get(name)
+
+
 def _strings(value):
     if isinstance(value, str):
         yield value
@@ -95,7 +108,7 @@ def _strings(value):
 def check(name: str, args, calls_so_far: int = 0, approval: bool = False) -> str | None:
     """Why this call must not run (or, with side effects, be proposed), or None (the tool guardrails).
     approval: the flow has an approval step, so a side-effecting call may be proposed."""
-    tool = TOOLS.get(name)
+    tool = get(name)
     if tool is None:
         return f"there is no tool {name!r}"
     if tool.side_effects and not approval:
@@ -163,7 +176,7 @@ def _note(name: str, ok: bool) -> None:
 
 
 def run(name: str, args: dict) -> dict:
-    tool = TOOLS.get(name)
+    tool = get(name)
     if tool is None:
         return failure(f"Unknown tool {name!r}")
     if open_ := breaker(name):

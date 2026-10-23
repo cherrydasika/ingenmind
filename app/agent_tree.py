@@ -95,7 +95,7 @@ def tools(agent: Agent, agents: dict[str, Agent], roles: dict) -> list[dict]:
         out.append(research_tools["web_search"])
     if "scraper" in agent.ports:
         out.append(research_tools["fetch_source"])
-    out += [t.spec() for name, t in api_tools.TOOLS.items() if name in agent.api_tools]
+    out += [t.spec() for name, t in api_tools.all_tools().items() if name in agent.api_tools]   # with imported ones (R39)
     if agent.mcp:   # tools from MCP servers (R38): the enabled ones only
         import mcp_integration
         out += [entry["spec"] for entry in mcp_integration.offered(agent.mcp).values()]
@@ -116,7 +116,7 @@ TOP_PROMPT = (
     "cover the question. Answer only from what your tools and sub-agents return, citing knowledge-base chunks "
     "by their [n] numbers right after the facts they support; keep the [n] numbers a sub-agent cites. Facts "
     "from other tools or agents elsewhere have no [n]: name their source in the sentence instead (for "
-    "example 'according to DeepWiki'). Never "
+    "example 'according to DeepWiki'), and add no conversions or figures they didn't give. Never "
     "invent facts, numbers or links. If nothing answers the question, say so plainly in one or two sentences. "
     "Write a short, direct answer with a hard limit of {words} words, with no sentence about how you found it.")
 SUB_PROMPT = (

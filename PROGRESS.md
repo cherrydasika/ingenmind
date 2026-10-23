@@ -465,6 +465,19 @@ on #120 that isn't waiting on the user.
   Local data: the DeepWiki server is registered with ask_wiki_question
   enabled. Not done: stdio servers (would run commands from the admin page).
 
+- **R39 (#105) done:** OpenAPI import (`app/openapi_tools.py`): load a spec
+  by URL (JSON/YAML, local $refs), pick operations, prefix, base URL, auth
+  (none / API key / OAuth client credentials; secrets in `secrets_box.py`,
+  now shared with MCP); each operation is an ApiTool via
+  `api_tools.all_tools()`/`get()` (the API tools resource validates and lists
+  them; GET read-only, others side-effecting → approval). Admin →
+  Integrations: import, Try it, remove. API tool results now ask the agent
+  to name the API as the source; generic agents add no conversions or
+  figures the tools didn't give (fixed "about 50°F"). **Done-when checked:**
+  Open-Meteo's forecast spec imported from the page and tried; a flow's
+  agent used it for Sheffield's temperature, 3/3 passed the answer check.
+  Local data: the openmeteo_get_v1_forecast tool is imported.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

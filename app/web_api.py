@@ -38,11 +38,14 @@ import answer_cache
 import conversation
 import durable
 import a2a
+import api_tools
 import api_keys
 import human
 import knowledge_collections
 import mcp_integration
+import openapi_tools
 import public_api
+import secrets_box
 import user_memory
 import audit
 import auth
@@ -1295,16 +1298,53 @@ def _mcp_search(query: str, top_k: int, user_id: str) -> dict:
 
 
 def integrations(request: Request) -> Response:
-    return _json({"servers": mcp_integration.servers(), "secrets": bool(os.environ.get("INTEGRATIONS_KEY"))})
+    return _json({"servers": mcp_integration.servers(), "secrets": secrets_box.available(),
+                  "api_tools": [openapi_tools.public(r) for r in openapi_tools.rows()]})
 
 
 async def _integration_change(request: Request, change) -> Response:
     try:
         body = await request.json() if request.method in ("POST", "PUT") else {}
         await run_in_threadpool(change, body if isinstance(body, dict) else {})
-    except mcp_integration.McpError as error:
+    except (mcp_integration.McpError, openapi_tools.OpenApiImportError) as error:
         return _json({"error": str(error)}, 400)
     return integrations(request)
+
+
+async def openapi_preview(request: Request) -> Response:
+    """A spec's operations, to choose from (R39)."""
+    body = await request.json()
+    try:
+        spec = await run_in_threadpool(openapi_tools.load, str(body.get("spec_url") or ""), str(body.get("text") or ""))
+    except openapi_tools.OpenApiImportError as error:
+        return _json({"error": str(error)}, 400)
+    return _json({"title": (spec.get("info") or {}).get("title") or "", "base_url": openapi_tools.base_url(spec, str(body.get("spec_url") or "")),
+                  "operations": openapi_tools.operations(spec)})
+
+
+async def openapi_import(request: Request) -> Response:
+    return await _integration_change(request, lambda b: openapi_tools.import_operations(
+        str(b.get("spec_url") or ""), [o for o in b.get("operations") or [] if isinstance(o, str)],
+        str(b.get("prefix") or ""), str(b.get("base_url") or ""),
+        b.get("auth") if isinstance(b.get("auth"), dict) else None, str(b.get("text") or "")))
+
+
+async def openapi_remove(request: Request) -> Response:
+    return await _integration_change(request, lambda b: openapi_tools.remove(request.path_params["name"]))
+
+
+async def openapi_test(request: Request) -> Response:
+    """Try an imported tool (R39) with these arguments, through the same guardrails as an agent's call."""
+    body = await request.json()
+    name, args = request.path_params["name"], body.get("args") if isinstance(body.get("args"), dict) else {}
+    tool = api_tools.get(name)
+    if tool is None:
+        return _json({"error": "No such tool"}, 404)
+    if tool.side_effects:
+        return _json({"error": "This tool changes things outside the app, so it isn't tried from here"}, 409)
+    if reason := api_tools.check(name, args):
+        return _json({"error": f"Refused by the tool guardrail: {reason}"}, 400)
+    return _json(await run_in_threadpool(api_tools.run, name, args))
 
 
 async def integration_add(request: Request) -> Response:
@@ -2262,6 +2302,10 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/v1/a2a", a2a_rpc, methods=["POST"]),
     Route("/api/v1/mcp", mcp_endpoint, methods=["GET", "POST"]),
     Route("/api/integrations", integrations),
+    Route("/api/integrations/openapi/preview", openapi_preview, methods=["POST"]),
+    Route("/api/integrations/openapi", openapi_import, methods=["POST"]),
+    Route("/api/integrations/openapi/{name}", openapi_remove, methods=["DELETE"]),
+    Route("/api/integrations/openapi/{name}/test", openapi_test, methods=["POST"]),
     Route("/api/integrations", integration_add, methods=["POST"]),
     Route("/api/integrations/{server_id}/refresh", integration_refresh, methods=["POST"]),
     Route("/api/integrations/{server_id}/tools", integration_enable, methods=["PUT"]),
