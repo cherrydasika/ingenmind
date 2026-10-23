@@ -538,6 +538,20 @@ on #120 that isn't waiting on the user.
   it asks for more than 3 s). Tests cover the retry, giving up after one,
   no retry for other errors, and a long Retry-After.
 
+- **R47 (#107) done:** outbound webhooks (`app/webhooks.py`): hooks (URL,
+  events, signing secret sealed with INTEGRATIONS_KEY, trusted flag) and a
+  delivery log; HMAC-SHA256 signatures over "<timestamp>.<body>"; retries
+  at 1 m, 5 m, 30 m, 2 h (a sweeper thread in the web app), then failed.
+  Events wired where they happen: answer.failed_review (`_run_to_end`, Ask
+  page runs), knowledge.gap (`_research_report`, Ask page runs),
+  ingestion.finished (`ingestion_worker`), evaluation.regressed
+  (`flows.evals._finish`, ≥5 points below the previous run), version.live
+  (`flows.store.set_live`), ping. Admin → Integrations → Webhooks (add,
+  secret shown once, Send test, delivery log, remove). **Done-when checked:**
+  a receiver container verified the signature of all six event types; an
+  untrusted hook got no question or task text; a first round rejected with
+  401 stayed pending for retry.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

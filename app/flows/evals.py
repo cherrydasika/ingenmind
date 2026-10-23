@@ -385,12 +385,28 @@ def _results(connection, run_id: str) -> list[dict]:
     return connection.execute("SELECT * FROM agent_eval_results WHERE run_id = %s ORDER BY idx", (run_id,)).fetchall()
 
 
+REGRESSION = 0.05   # a pass rate this much below the previous run's is a regression (webhook, R47)
+
+
 def _finish(run_id: str, status: str) -> None:
     with store._connect() as connection:
         summary = summarise(_results(connection, run_id))
         connection.execute("""
             UPDATE agent_eval_runs SET status = %s, finished_at = now(), summary = %s WHERE id = %s""",
             (status, Jsonb(summary), run_id))
+        run = connection.execute("SELECT flow_id, set_id, version FROM agent_eval_runs WHERE id = %s", (run_id,)).fetchone()
+        previous = connection.execute("""
+            SELECT id, version, summary FROM agent_eval_runs WHERE flow_id = %s AND set_id = %s AND status = 'done'
+            AND id <> %s ORDER BY finished_at DESC LIMIT 1""", (run["flow_id"], run["set_id"], run_id)).fetchone() if run else None
+    before = ((previous or {}).get("summary") or {}).get("pass_rate")
+    if status == "done" and before is not None and summary["pass_rate"] is not None \
+            and summary["pass_rate"] <= before - REGRESSION:
+        import webhooks
+        webhooks.emit("evaluation.regressed", {
+            "run_id": run_id, "flow_id": run["flow_id"], "version": run["version"], "set_id": run["set_id"],
+            "pass_rate": summary["pass_rate"], "previous": {"run_id": previous["id"], "version": previous["version"],
+                                                           "pass_rate": before},
+            "drop": round(before - summary["pass_rate"], 3)})
 
 
 def _run_view(row: dict) -> dict:

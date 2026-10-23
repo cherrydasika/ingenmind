@@ -59,6 +59,7 @@ from initialization import (blueprint_run, build as setup_build, content as setu
 import sessions
 import source_profiles
 import tool_stub
+import webhooks
 import usage_limits
 import web_security
 import evaluation_archive as evaluation
@@ -1300,7 +1301,8 @@ def _mcp_search(query: str, top_k: int, user_id: str) -> dict:
 
 def integrations(request: Request) -> Response:
     return _json({"servers": mcp_integration.servers(), "secrets": secrets_box.available(),
-                  "api_tools": [openapi_tools.public(r) for r in openapi_tools.rows()]})
+                  "api_tools": [openapi_tools.public(r) for r in openapi_tools.rows()],
+                  "webhooks": webhooks.hooks(), "deliveries": webhooks.deliveries(), "events": webhooks.EVENTS})
 
 
 async def _integration_change(request: Request, change) -> Response:
@@ -1310,6 +1312,29 @@ async def _integration_change(request: Request, change) -> Response:
     except (mcp_integration.McpError, openapi_tools.OpenApiImportError) as error:
         return _json({"error": str(error)}, 400)
     return integrations(request)
+
+
+async def webhook_add(request: Request) -> Response:
+    """A new webhook (R47); its signing secret is in this reply only."""
+    body = await request.json()
+    try:
+        secret, hook = await run_in_threadpool(webhooks.create, body.get("name"), str(body.get("url") or ""),
+                                               body.get("events") or [], bool(body.get("trusted")))
+    except webhooks.WebhookError as error:
+        return _json({"error": str(error)}, 400)
+    return _json({"secret": secret, "hook": hook}, 201)
+
+
+async def webhook_remove(request: Request) -> Response:
+    return await _integration_change(request, lambda b: webhooks.remove(request.path_params["hook_id"]))
+
+
+async def webhook_test(request: Request) -> Response:
+    """Send this hook a ping, now."""
+    hook_id = request.path_params["hook_id"]
+    ids = await run_in_threadpool(webhooks.emit, "ping", {"hook_id": hook_id, "message": "A test delivery from IngenMind"},
+                                  None, hook_id)
+    return _json({"ok": bool(ids)}) if ids else _json({"error": "That hook doesn't take ping events or is disabled"}, 409)
 
 
 async def openapi_preview(request: Request) -> Response:
@@ -2236,6 +2261,7 @@ async def _lifespan(app):
     except Exception as exc:
         print(f"durable run recovery skipped: {exc}", file=sys.stderr)
     threading.Thread(target=_expire_human_requests, name="human-expiry", daemon=True).start()
+    threading.Thread(target=webhooks.sweep_forever, name="webhook-retries", daemon=True).start()   # R47
     yield
 
 
@@ -2315,6 +2341,9 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/v1/a2a", a2a_rpc, methods=["POST"]),
     Route("/api/v1/mcp", mcp_endpoint, methods=["GET", "POST"]),
     Route("/api/integrations", integrations),
+    Route("/api/integrations/webhooks", webhook_add, methods=["POST"]),
+    Route("/api/integrations/webhooks/{hook_id}", webhook_remove, methods=["DELETE"]),
+    Route("/api/integrations/webhooks/{hook_id}/test", webhook_test, methods=["POST"]),
     Route("/api/integrations/openapi/preview", openapi_preview, methods=["POST"]),
     Route("/api/integrations/openapi", openapi_import, methods=["POST"]),
     Route("/api/integrations/openapi/{name}", openapi_remove, methods=["DELETE"]),

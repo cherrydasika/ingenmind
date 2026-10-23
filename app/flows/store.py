@@ -247,6 +247,8 @@ def set_live(flow_id: str, version: int, builtin: FlowSpec, check) -> None:
                 INSERT INTO agent_live_flow (singleton, flow_id, version) VALUES (true, %s, %s)
                 ON CONFLICT (singleton) DO UPDATE SET flow_id = EXCLUDED.flow_id, version = EXCLUDED.version,
                                                       updated_at = now()""", (flow_id, version))
+    import webhooks   # what users get changed (R47)
+    webhooks.emit("version.live", {"flow_id": flow_id, "version": version})
 
 
 # Each run field and its value when a run does not report it (None: unknown).

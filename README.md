@@ -510,6 +510,24 @@ the source's profile, to download, finish and add in a pull request; nothing
 is written into the app or registered. If the source publishes an OpenAPI
 spec, the draft points to importing it here instead.
 
+### Webhooks
+
+**Admin → Integrations → Webhooks** (`app/webhooks.py`, R47) sends events to
+other systems: `answer.failed_review` (a user's answer failed the answer
+check), `knowledge.gap` (research couldn't close a gap), `ingestion.finished`,
+`evaluation.regressed` (a run passed at least 5 points fewer than the previous
+run of the same set on the flow), `version.live`, and `ping` (Send test).
+Each delivery is a POST of the JSON payload with `X-IngenMind-Event`,
+`X-IngenMind-Delivery`, `X-IngenMind-Timestamp` and `X-IngenMind-Signature:
+sha256=<HMAC-SHA256 of "<timestamp>.<body>" with the hook's secret>`
+(`webhooks.verify` shows a receiver how to check it). A failed delivery is
+retried after 1 minute, 5 minutes, 30 minutes and 2 hours, then marked
+failed; the page shows each hook's delivery log. Payloads carry ids, numbers
+and labels only; a hook marked trusted also gets the question and answer
+text. The signing secret is shown once and stored encrypted with
+`INTEGRATIONS_KEY`. Checked locally: a receiver in its own container
+verified the signature of every event type.
+
 ### Streaming and cancelling
 
 Questions stream their progress as server-sent events: the first arrives
