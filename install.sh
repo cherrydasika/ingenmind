@@ -86,6 +86,13 @@ mv "$tmp/compose.yml" "$DIR/compose.yml"
 TAG=${INGENMIND_IMAGE_TAG:-${VERSION#v}}
 if [ -f "$DIR/.env" ]; then
   say "Keeping your settings in $DIR/.env"
+  # An upgrade: a backup of the database first (docs/upgrading.md), while the old version still runs.
+  if compose ps --status running --services 2>/dev/null | grep -qx pgvector; then
+    mkdir -p "$DIR/backups"
+    backup="$DIR/backups/rag-$(date +%Y%m%d-%H%M%S).sql.gz"
+    compose exec -T pgvector pg_dump -U rag rag | gzip > "$backup" || fail "Could not back up the database; not upgrading."
+    say "Database backed up to $backup"
+  fi
   sed "s/^INGENMIND_VERSION=.*/INGENMIND_VERSION=$TAG/" "$DIR/.env" > "$tmp/env" && cat "$tmp/env" > "$DIR/.env"
 else
   PROVIDER=${LLM_PROVIDER:-anthropic}
@@ -132,6 +139,14 @@ PORT=$(sed -n 's/^INGENMIND_PORT=//p' "$DIR/.env")
 
 # --- Start ------------------------------------------------------------------------
 [ -n "${INGENMIND_COMPOSE_FILE:-}" ] || compose pull --quiet
+# Releases from 1.0.0 are signed by the release workflow (Sigstore); checked when cosign is installed.
+if [ -z "${INGENMIND_COMPOSE_FILE:-}" ] && command -v cosign >/dev/null 2>&1 && [ "${TAG#0.}" = "$TAG" ]; then
+  image="$(grep '^INGENMIND_IMAGE=' "$DIR/.env" | cut -d= -f2)"
+  cosign verify "${image:-ghcr.io/cherrydasika/ingenmind}:$TAG" \
+    --certificate-identity-regexp "^https://github.com/$REPO/.github/workflows/release.yml@" \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null 2>&1 \
+    && say "Image signature verified" || fail "The image's signature did not verify; not starting it."
+fi
 compose up -d --remove-orphans
 say "Waiting for IngenMind to answer (the first start downloads a 130 MB embedding model)..."
 i=0

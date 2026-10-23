@@ -19,6 +19,8 @@ COPY web /web
 COPY data/demo /data/demo
 COPY data/urls.example.json /data/urls.example.json
 
-ENV PYTHONUNBUFFERED=1
+# The release (v1.0.0 → 1.0.0), set by the release workflow; "dev" otherwise.
+ARG VERSION=dev
+ENV PYTHONUNBUFFERED=1 INGENMIND_APP_VERSION=$VERSION
 EXPOSE 8000
 CMD ["uvicorn", "web_api:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "8000"]

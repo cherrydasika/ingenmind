@@ -1,0 +1,39 @@
+# The docs site (R62), built from README.md by scripts/docs/build.py:
+#   python scripts/docs/build.py && mkdocs build --strict
+site_name: IngenMind
+site_description: One tool for information retrieval, with agents at every step.
+site_url: https://cherrydasika.github.io/ingenmind/
+repo_url: https://github.com/cherrydasika/ingenmind
+edit_uri: ""
+docs_dir: build/docs
+site_dir: build/site
+theme:
+  name: material
+  features: [navigation.sections, navigation.top, toc.follow, search.highlight, content.code.copy]
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: { icon: material/brightness-7, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: { icon: material/brightness-4, name: Light mode }
+markdown_extensions:
+  - toc: { permalink: true }
+  - admonition
+  - tables
+  - pymdownx.superfences
+validation:
+  links: { anchors: warn }
+nav:
+  - Overview: index.md
+  - Install: install.md
+  - Upgrading: upgrading.md
+  - Features: features.md
+  - Configuration: configuration.md
+  - The web app: web-app.md
+  - Ingestion pipeline: pipeline.md
+  - Security: security.md
+  - Development: development.md
+  - AWS: aws.md
+  - Changelog: changelog.md
+  - Roadmap and licence: project.md
