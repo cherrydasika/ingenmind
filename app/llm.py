@@ -2,7 +2,8 @@
 OpenAI and Ollama (through its OpenAI-compatible endpoint).
 
 Chosen by environment:
-  LLM_PROVIDER   bedrock (default) | anthropic | openai | ollama
+  LLM_PROVIDER   bedrock (default) | anthropic | openai | ollama | stub (load
+                 tests only: canned happy-path answers, llm_stub.py)
   LLM_MODEL      the model id; Bedrock falls back to BEDROCK_MODEL, Anthropic
                  to claude-haiku-4-5. OpenAI and Ollama have no default.
   BEDROCK_REGION Bedrock only
@@ -33,12 +34,14 @@ from typing import NamedTuple
 
 log = logging.getLogger(__name__)
 
-PROVIDERS = ("bedrock", "anthropic", "openai", "ollama")
+PROVIDERS = ("bedrock", "anthropic", "openai", "ollama", "stub")   # stub: load tests only (llm_stub.py, R61)
 DEFAULT_MODELS = {
     "bedrock": os.environ.get("BEDROCK_MODEL", "eu.anthropic.claude-haiku-4-5-20251001-v1:0"),
     "anthropic": "claude-haiku-4-5",
+    "stub": "stub",
 }
-LABELS = {"bedrock": "Bedrock", "anthropic": "Anthropic", "openai": "OpenAI", "ollama": "Ollama"}
+LABELS = {"bedrock": "Bedrock", "anthropic": "Anthropic", "openai": "OpenAI", "ollama": "Ollama",
+          "stub": "Load-test stub"}
 
 PROVIDER = os.environ.get("LLM_PROVIDER", "bedrock").strip().lower() or "bedrock"
 MODEL = os.environ.get("LLM_MODEL", "").strip() or DEFAULT_MODELS.get(PROVIDER, "")
@@ -175,7 +178,7 @@ def catalogue() -> dict:
             add(*target, job)
     return {"models": rows, "price_note": prices["note"],
             "providers": [{"provider": p, "label": LABELS[p], "error": provider_error(p, DEFAULT_MODELS.get(p) or "x"),
-                           "breaker": breaker(p)} for p in PROVIDERS]}
+                           "breaker": breaker(p)} for p in PROVIDERS if p != "stub" or PROVIDER == "stub"]}
 
 
 # ---------- the provider breaker ----------
@@ -301,8 +304,11 @@ def _backend(provider: str | None = None, model: str | None = None):
             error = config_error() if (provider, model) == (PROVIDER, MODEL) else provider_error(provider, model)
             if error:
                 raise RuntimeError(f"LLM is not configured: {error}")
-            _instances[(provider, model)] = {"bedrock": _Bedrock, "anthropic": _Anthropic, "openai": _OpenAI,
-                                             "ollama": _OpenAI}[provider](provider, model)
+            if provider == "stub":
+                from llm_stub import Stub as backend
+            else:
+                backend = {"bedrock": _Bedrock, "anthropic": _Anthropic, "openai": _OpenAI, "ollama": _OpenAI}[provider]
+            _instances[(provider, model)] = backend(provider, model)
         return _instances[(provider, model)]
 
 

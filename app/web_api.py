@@ -2831,8 +2831,16 @@ def evaluation_resume(request: Request) -> Response:
 if auth.config_error():
     raise SystemExit(f"Refusing to start: {auth.config_error()}")
 
+# Requests waiting on a model hold a worker thread for the whole run, so the thread
+# pool caps concurrent questions (Starlette's default 40 ≈ 6 questions a second at
+# 6 s each; loadtest/README.md, R61). Each thread may hold one PostgreSQL connection.
+WEB_THREADS = int(os.environ.get("WEB_THREADS", "").strip() or 40)
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(app):
+    import anyio.to_thread
+    anyio.to_thread.current_default_thread_limiter().total_tokens = WEB_THREADS
     # The knowledge system's first run (record, URL import) before the first request.
     try:
         await run_in_threadpool(knowledge_system.ensure_schema)

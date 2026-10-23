@@ -573,6 +573,25 @@ The queries read two PostgreSQL views, `analytics_questions` (over
 `app_session_turns`) and `analytics_runs` (over `agent_flow_runs`); the data
 is small enough that no separate analytics store is needed.
 
+### Service levels and capacity
+
+**Monitoring → Operations** opens with the service levels (`app/slo.py`,
+R61). Each is measured over the last 30 days of real users' questions:
+- availability (answered without an error or a timeout, 99%);
+- latency (answered within 30 s, 95% of questions);
+- answer pass rate (80%).
+
+Each shows its error budget and the last day's burn rate. Set the targets
+with `SLO_*` in `.env`.
+
+`loadtest/` has Locust scenarios (ask, follow-ups, ingest, evaluations)
+and a stand-in model, `LLM_PROVIDER=stub`, so a load test measures the app
+rather than a provider. `loadtest/README.md` has the measured capacity.
+Locally, 2 workers × 45 threads served about 12 questions a second without
+errors. The limits, in order, were the thread pool (`WEB_THREADS`, default
+40), PostgreSQL's `max_connections` and one Python process per worker. It
+also has the estimate for a t4g.xlarge, which is still to be measured there.
+
 ### Privacy, retention and a person's data
 
 **Profile → Privacy and your data** (`app/data_lifecycle.py`,

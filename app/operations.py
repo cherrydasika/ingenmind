@@ -22,6 +22,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 import analytics
+import slo
 from common import config
 
 FILTERS = {"flow": "flow_id", "model": "run_model", "channel": "channel", "user": "user_id", "source": "source"}
@@ -263,4 +264,5 @@ def report(start: str | None = None, end: str | None = None, filters: dict | Non
             "days": _days(q), "flows": _by(q, "flow_id", order="p95 DESC NULLS LAST"),
             "agents": _agents(q), "models": models,
             "channels": _by(q, "coalesce(channel, 'unknown')", order="cost DESC NULLS LAST, runs DESC"),
-            "sources": _by(q, "source"), "users": _users(q), "ingestion": ingestion(connection, begin, finish)}
+            "sources": _by(q, "source"), "users": _users(q), "ingestion": ingestion(connection, begin, finish),
+            "slo": slo.report()}
