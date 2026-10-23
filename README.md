@@ -528,6 +528,65 @@ a .docx, .pptx and PDF imported from a MinIO bucket, and "How long are items
 found on Northwind shuttle trains kept?" answered from the .docx, citing
 `s3://ingenmind-docs/handbook/lost-property.docx`.
 
+### Channels: web widget, Slack and Teams
+
+People can ask from where they already are (`app/channels`, R50), through
+the same live flow, guardrails, answer check, limits, sessions and feedback
+as the Ask page. Add a channel on **Admin → Integrations → Channels**; each
+gets its own account (asking only) for public widget visitors and, if you
+allow it, guests. Every conversation is a session labelled with its channel
+(Sessions, the Langfuse trace's `channel` metadata, and Monitoring →
+Overview's "By channel" figure).
+
+- **Web widget.** Give the sites that may embed it (their origins) and who
+  can ask: *public* (anyone on those sites, as the widget's account, so its
+  limits are the widget's) or *signed in* (IngenMind users, as themselves;
+  the frame only gets the app's cookie when the site is on the same site as
+  IngenMind, e.g. an intranet page under the same domain). Paste the
+  `<script src=".../widget.js" data-widget="ch_…" async>` tag it shows into
+  the site. The chat opens IngenMind's own page in a frame
+  (`/widget/<id>`), which only the allowed origins may frame
+  (`frame-ancestors`); each visitor keeps a conversation and can rate
+  answers.
+- **Slack.** Create an app at api.slack.com/apps → *From a manifest* with
+  the one below (replace the host), install it to the workspace, then add a
+  Slack channel here with its *Bot User OAuth Token* (`xoxb-…`) and *Signing
+  secret*; put the two URLs it shows into the manifest's `request_url`s (or
+  Event Subscriptions and Interactivity). Mention the app in a channel, or
+  message it directly: the answer comes in the thread, with its sources and
+  👍 / 👎 (then a reason), and follow-ups in the thread keep the conversation.
+  People ask as their IngenMind account, matched by their Slack email;
+  others are told to ask an admin, unless the channel lets guests in.
+
+  ```yaml
+  display_information: {name: IngenMind}
+  features:
+    bot_user: {display_name: IngenMind, always_online: true}
+    app_home: {messages_tab_enabled: true, messages_tab_read_only_enabled: false}
+  oauth_config:
+    scopes: {bot: [app_mentions:read, chat:write, im:history, users:read, users:read.email]}
+  settings:
+    event_subscriptions:
+      request_url: https://ingenmind.example.com/channels/slack/ch_…/events
+      bot_events: [app_mention, message.im]
+    interactivity:
+      is_enabled: true
+      request_url: https://ingenmind.example.com/channels/slack/ch_…/interactive
+  ```
+- **Microsoft Teams.** Create an *Azure Bot* (single- or multi-tenant), turn
+  on its Microsoft Teams channel, and note its Microsoft App ID and a client
+  secret; add a Teams channel here with them (and the tenant id for a
+  single-tenant bot), and set the bot's *Messaging endpoint* to the URL it
+  shows. Install the bot in Teams (an app package with its App ID, from the
+  Developer Portal). Each activity's Bot Framework token is checked against
+  Microsoft's keys (issuer, audience = the App ID, and its serviceUrl) before
+  it is read. People ask as their IngenMind account, matched by their email
+  in the conversation's member list.
+
+Slack and Teams call the app from the internet, so it needs a public HTTPS
+address (the AWS deployment's domain). Secrets are sealed with
+`INTEGRATIONS_KEY`.
+
 ### Answer feedback
 
 Every answer on the Ask page has a thumbs up and a thumbs down
@@ -1992,6 +2051,7 @@ app/
   ingestion_worker.py      # resumes and processes queued PostgreSQL jobs; runs the re-crawl
   recrawl.py               # re-crawl schedules, change detection, freshness (R49)
   answer_feedback.py       # thumbs up/down on answers, Langfuse score, into golden sets (R51)
+  channels/                # web widget, Slack and Teams (R50)
   ttl_cache.py             # small time-based cache with .clear()
   pipeline.py                    # answer_question(): retrieval → generation, one trace
   retrieval.py                   # hybrid_search(): question → ranked chunks (no LLM)

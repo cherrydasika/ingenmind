@@ -7,6 +7,8 @@ import { linkCitations } from "./citations.js";
 import { card, errorBox, fmtTime, h, loading, markdown, note, sourceItem } from "./ui.js";
 import { feedbackShown } from "./feedback.js";
 
+const CHANNEL = { widget: "the web widget", slack: "Slack", teams: "Teams" };   // R50
+
 function dayLabel(iso) {
   const day = new Date(iso);
   const today = new Date();
@@ -111,7 +113,8 @@ export class SessionsPage {
         check.passed ? `✓ answer check passed · ${check.overall.toFixed(2)}` : "✕ answer check failed")
         : null;
     const meta = [clock(t.asked_at), r.total ? fmtTime(r.total) : null,
-      r.flow ? `flow ${r.flow.id} v${r.flow.version}` : null].filter(Boolean).join(" · ");
+      r.flow ? `flow ${r.flow.id} v${r.flow.version}` : null, r.channel ? `via ${CHANNEL[r.channel] || r.channel}` : null]
+      .filter(Boolean).join(" · ");
     const body = h("div", { class: "reply-body", html: markdown(t.answer) });
     linkCitations(body, r.citations);   // the passages behind its citations (R23)
     return h("div", { class: "turn" },

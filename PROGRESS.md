@@ -578,6 +578,26 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R50 (#110) built; the real Slack check needs you (open):** channels
+  (`app/channels`): an embeddable widget (script tag, allowed origins via
+  the frame's `frame-ancestors`, public or signed-in), a Slack app (signed
+  Events API and interactivity, answers in the thread with sources and
+  👍 / 👎 then a reason, follow-ups keep the session, people matched by
+  email) and a Teams bot (Bot Framework token checked against Microsoft's
+  keys, an Adaptive Card with sources and feedback). All go through the Ask
+  page's path (`_ask_live`: limits, guardrails, answer cache, sessions);
+  each turn records its channel (Sessions, Langfuse metadata, Monitoring's
+  "By channel"). **Checked locally:** a signed `app_mention` against a
+  stand-in Slack API was answered in its thread with the same reviewed
+  answer the Ask page then gave (answer check passed, 0.91), and a signed
+  👎 → "out of date" click was stored on that answer; the widget, embedded
+  on a page served from another origin, answered and took a 👎, and a page
+  from an origin not allowed was refused by the frame's CSP. Found and
+  fixed on the way: a cached answer carried the channel of the question that
+  filled the cache. **Left, needs you:** a Slack app in your workspace
+  (manifest in the README) for the done-when, and an Azure Bot for Teams;
+  both need the public HTTPS address (EC2 is stopped).
+
 - **R51 (#111) done:** answer feedback (`app/answer_feedback.py`): thumbs
   up/down under each Ask-page answer, a reason (wrong, incomplete, out of
   date, not cited, other) and comment when down; kept per session turn

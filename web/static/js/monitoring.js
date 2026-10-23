@@ -85,6 +85,8 @@ export class MonitoringPage {
     const cache = can("manage_settings") ? await api.answerCache().catch(() => null) : null;
     const rated = can("view_sessions") || can("manage_agents") || can("manage_settings")
       ? await api.feedbackSummary().catch(() => null) : null;   // R51
+    const via = rated ? await api.channelUsage().catch(() => null) : null;   // R50
+    const others = via ? Object.entries(via.channels).filter(([k]) => k !== "app") : [];
 
     const ready = system?.state === "READY";
     const kpis = h("div", { class: "kpis" },
@@ -97,7 +99,9 @@ export class MonitoringPage {
       used ? kpi("Questions, last 7 days", fmtInt(used.runs), `${pct(used.passRate)} passed the answer check · ${secs(used.p50)} typical`) : null,
       used ? kpi("Blocked, last 7 days", fmtInt(used.blocked), "by the input or output guardrail") : null,
       rated && rated.up + rated.down ? kpi("Feedback, last 7 days", `👍 ${fmtInt(rated.up)} · 👎 ${fmtInt(rated.down)}`,
-        `${pct(rated.up / (rated.up + rated.down))} helpful`, can("run_evaluations") && can("view_sessions") ? "#/evaluations" : null) : null);
+        `${pct(rated.up / (rated.up + rated.down))} helpful`, can("run_evaluations") && can("view_sessions") ? "#/evaluations" : null) : null,
+      others.length ? kpi("By channel, last 7 days", others.map(([k, n]) => `${{ widget: "Widget", slack: "Slack", teams: "Teams" }[k] || k} ${fmtInt(n)}`).join(" · "),
+        `and ${fmtInt(via.channels.app || 0)} on the Ask page`, can("manage_settings") ? "#/integrations" : null) : null);
 
     const down = services.filter((s) => !s.up);
     const list = h("div", {}, services.map((s) => h("div", { class: "service-row" },

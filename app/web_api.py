@@ -45,6 +45,8 @@ import knowledge_collections
 import mcp_integration
 import openapi_tools
 import public_api
+import channels
+from channels import slack as slack_channel, teams as teams_channel, widget as widget_channel
 import secrets_box
 import user_memory
 import audit
@@ -461,7 +463,9 @@ def _ask_live(question: str, session_id: str, body: dict, max_iterations, emit) 
     if reusable:
         if cached := answer_cache.lookup(question, spec.id, version):
             emit("stage", {"type": "cache", "state": "hit"})
-            result = {**cached, "cached": True}
+            # Where it was asked and its turn are this question's own, not the cached one's (R50, R51).
+            result = {**{k: v for k, v in cached.items() if k not in ("channel", "turn_id")}, "cached": True,
+                      **({"channel": body["channel"]} if body.get("channel") else {})}
             try:
                 result["turn_id"] = sessions.record_turn(session_id, body["user_id"], question, result, None)["turn_id"]
             except Exception as error:
@@ -469,7 +473,8 @@ def _ask_live(question: str, session_id: str, body: dict, max_iterations, emit) 
             return result
     result = _agent_payload(question, session_id, body, max_iterations, emit, record=True)
     if reusable and result.get("flow") and result.get("status") == "done":
-        answer_cache.store(question, result["flow"]["id"], result["flow"]["version"], result)
+        answer_cache.store(question, result["flow"]["id"], result["flow"]["version"],
+                           {k: v for k, v in result.items() if k not in ("channel", "turn_id")})
     return result
 
 
@@ -482,6 +487,8 @@ def _reply_live(request: dict, reply: str, session_id: str, body: dict, emit) ->
     result = agent.resume_run(request["run_id"], retrieval_view, lambda event: emit("stage", event),
                               answer={"reply": reply})
     trace_id = result.pop("trace_id", None)
+    if body.get("channel"):
+        result["channel"] = body["channel"]
     try:
         result["turn_id"] = sessions.record_turn(session_id, body["user_id"], pii.mask(reply), result, trace_id)["turn_id"]
         conversation.summarise_later(session_id)
@@ -954,6 +961,8 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
         usage_limits.charge(body.get("user_id"),
                             (metrics.get("input_tokens") or 0) + (metrics.get("output_tokens") or 0))
     trace_id = result.pop("trace_id", None)   # server-side only
+    if body.get("channel"):   # Slack, Teams or a widget (R50)
+        result["channel"] = body["channel"]
     turn = None
     if record:
         try:
@@ -1649,6 +1658,156 @@ async def feedback_promote(request: Request) -> Response:
     except ValueError as error:
         return _json({"error": str(error)}, 400)
     return _json(out)
+
+
+# ---------- Channels (app/channels, R50): Slack, Teams and the widget ----------
+
+def _channel_answer(user: dict, session_hint: str | None, question: str, kind: str) -> dict:
+    """A question from a channel, through the Ask page's path: setup, limits, the session, the live flow."""
+    if not knowledge_system.is_ready():
+        return {"refused": NOT_SET_UP}
+    if refusal := usage_limits.admit(user):
+        return {"refused": refusal.message}
+    session_id = sessions.current(user["user_id"], session_hint, False)
+    result = _ask_live(question[:4000], session_id, {"user_id": user["user_id"], "session_id": session_id, "channel": kind,
+                                                    "trace_metadata": {"channel": kind}}, None, lambda *event: None)
+    return {"result": result, "session_id": session_id}
+
+
+channels.set_asker(_channel_answer)
+
+
+def _channel(request: Request, kind: str) -> dict | None:
+    try:
+        found = channels.get(request.path_params["channel_id"], with_secret=kind != "widget")
+    except Exception as error:   # a secret that can't be opened (INTEGRATIONS_KEY changed)
+        print(f"channel unavailable: {error}", file=sys.stderr)
+        return None
+    return found if found and found["kind"] == kind else None
+
+
+async def slack_events(request: Request) -> Response:
+    """Slack's Events API: checked against the app's signing secret before anything is read."""
+    body = await request.body()
+    channel = await run_in_threadpool(_channel, request, "slack")
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    if not channel or not slack_channel.verify(channel["secret"]["signing_secret"], headers, body):
+        return _json({"error": "not a signed Slack request"}, 401)
+    try:
+        payload = json.loads(body)
+    except ValueError:
+        return _json({"error": "expected JSON"}, 400)
+    return _json(await run_in_threadpool(slack_channel.handle_event, channel, payload))
+
+
+async def slack_interactive(request: Request) -> Response:
+    body = await request.body()
+    channel = await run_in_threadpool(_channel, request, "slack")
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    if not channel or not slack_channel.verify(channel["secret"]["signing_secret"], headers, body):
+        return _json({"error": "not a signed Slack request"}, 401)
+    payload = slack_channel.parse_interactive(body)
+    threading.Thread(target=slack_channel.handle_action, args=(channel, payload), daemon=True).start()
+    return Response(status_code=200)
+
+
+async def teams_messages(request: Request) -> Response:
+    """Azure Bot Service's activities: the Bot Framework token checked first."""
+    channel = await run_in_threadpool(_channel, request, "teams")
+    try:
+        activity = await request.json()
+    except ValueError:
+        return _json({"error": "expected JSON"}, 400)
+    if not channel or not isinstance(activity, dict) or not await run_in_threadpool(
+            teams_channel.verify, request.headers.get("authorization", ""), channel["config"]["app_id"],
+            activity.get("serviceUrl") or ""):
+        return _json({"error": "not a Bot Framework request for this bot"}, 401)
+    await run_in_threadpool(teams_channel.handle, channel, activity)
+    return Response(status_code=200)
+
+
+def widget_js(request: Request) -> Response:
+    return FileResponse(WEB_DIR / "static" / "widget" / "loader.js", media_type="application/javascript",
+                        headers={"Cache-Control": "public, max-age=300", "Cross-Origin-Resource-Policy": "cross-origin"})
+
+
+def widget_page(request: Request) -> Response:
+    channel = _channel(request, "widget")
+    if not channel:
+        return HTMLResponse("No such widget", 404)
+    return HTMLResponse(widget_channel.page(channel, f"/static/{_static_version()}"),
+                        headers={**NO_CACHE, "Content-Security-Policy": widget_channel.csp(channel)})
+
+
+def _widget_user(request: Request, channel: dict) -> dict | None:
+    """Who a widget visitor asks as: the widget's account (public), or their own (signed in)."""
+    if channel["config"]["mode"] == "public":
+        return identity.get_user(channel["user_id"])
+    user = identity.get_user(request.session["user_id"]) if request.session.get("user_id") else None
+    return user if user and user["status"] == "active" and identity.can(user, "query_rag") else None
+
+
+def _visitor(body) -> str | None:
+    visitor = body.get("visitor") if isinstance(body, dict) else None
+    return visitor if isinstance(visitor, str) and re.fullmatch(r"[A-Za-z0-9-]{8,64}", visitor) else None
+
+
+async def widget_ask(request: Request) -> Response:
+    channel = await run_in_threadpool(_channel, request, "widget")
+    if not channel:
+        return _json({"error": "No such widget"}, 404)
+    body = await request.json()
+    parsed, error = _question(body)
+    visitor = _visitor(body)
+    if error or not visitor:
+        return error or _json({"error": "visitor: the frame's id"}, 400)
+    user = await run_in_threadpool(_widget_user, request, channel)
+    if not user:
+        return _json({"error": "Sign in to ask", "signed_in": False}, 401)
+    out = await run_in_threadpool(channels.ask, channel, f"visitor:{visitor}", parsed[0], user)
+    if out.get("refused"):
+        return _json({"error": out["refused"]}, 429 if out["refused"] != NOT_SET_UP else 409)
+    return _json({**public_api.answer(out["result"], out["session_id"]), "turn_id": out["result"].get("turn_id")})
+
+
+async def widget_feedback(request: Request) -> Response:
+    channel = await run_in_threadpool(_channel, request, "widget")
+    body = await request.json()
+    visitor, user = _visitor(body), channel and await run_in_threadpool(_widget_user, request, channel)
+    if not channel or not visitor or not user or not isinstance(body.get("turn_id"), int):
+        return _json({"error": "No such answer"}, 404)
+    # Only an answer of this visitor's own conversation (public visitors share the widget's account).
+    if not await run_in_threadpool(channels.owns_turn, channel, f"visitor:{visitor}", user["user_id"], body["turn_id"]):
+        return _json({"error": "No such answer"}, 404)
+    try:
+        saved = await run_in_threadpool(answer_feedback.give, body["turn_id"], user["user_id"], body.get("rating"),
+                                        body.get("reason"), body.get("comment") or "")
+    except (LookupError, ValueError) as error:
+        return _json({"error": str(error)}, 400)
+    return _json({"ok": True, "rating": saved["rating"]})
+
+
+def channel_list(request: Request) -> Response:
+    return _json({"channels": channels.listing(), "kinds": list(channels.KINDS), "secrets": secrets_box.available()})
+
+
+async def channel_add(request: Request) -> Response:
+    body = await request.json()
+    try:
+        added = await run_in_threadpool(channels.add, body.get("kind"), body.get("name"), body.get("config") or {},
+                                        body.get("secret") or {}, auth.current_user(request)["user_id"])
+    except ValueError as error:
+        return _json({"error": str(error)}, 400)
+    return _json({"channel": added})
+
+
+async def channel_remove(request: Request) -> Response:
+    found = await run_in_threadpool(channels.remove, request.path_params["channel_id"])
+    return _json({"ok": True}) if found else _json({"error": "No such channel"}, 404)
+
+
+def channel_usage(request: Request) -> Response:
+    return _json(channels.usage())
 
 
 def _shape_agent_result(result: dict) -> dict:
@@ -2469,6 +2628,17 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/flow-evals/runs/{run_id}/cancel", eval_cancel, methods=["POST"]),
     Route("/api/session/reset", reset_session, methods=["POST"]),
     Route("/api/sessions", session_list),
+    Route("/api/channels", channel_list),
+    Route("/api/channels", channel_add, methods=["POST"]),
+    Route("/api/channels/usage", channel_usage),
+    Route("/api/channels/{channel_id}", channel_remove, methods=["DELETE"]),
+    Route("/channels/slack/{channel_id}/events", slack_events, methods=["POST"]),
+    Route("/channels/slack/{channel_id}/interactive", slack_interactive, methods=["POST"]),
+    Route("/channels/teams/{channel_id}/messages", teams_messages, methods=["POST"]),
+    Route("/widget.js", widget_js),
+    Route("/widget/{channel_id}", widget_page),
+    Route("/widget/{channel_id}/ask", widget_ask, methods=["POST"]),
+    Route("/widget/{channel_id}/feedback", widget_feedback, methods=["POST"]),
     Route("/api/feedback", feedback_list),
     Route("/api/feedback/summary", feedback_summary),
     Route("/api/feedback/{turn_id:int}", feedback_give, methods=["POST"]),

@@ -1,0 +1,21 @@
+:root { --bg: #fff; --text: #162026; --faint: #74838a; --border: #d8dfde; --primary: #1e3a8a; --soft: #eef2f7; }
+@media (prefers-color-scheme: dark) { :root { --bg: #11191d; --text: #e7eef0; --faint: #8fa1a8; --border: #22343d; --primary: #6d8ff0; --soft: #1a262c; } }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif; }
+header { padding: 10px 14px; font-weight: 600; border-bottom: 1px solid var(--border); }
+main { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.q { align-self: flex-end; background: var(--soft); padding: 6px 10px; border-radius: 10px; max-width: 85%; }
+.a { max-width: 100%; }
+.a p { margin: 0 0 6px; }
+.sources { font-size: 12px; color: var(--faint); }
+.sources a { color: inherit; }
+.note { font-size: 12px; color: var(--faint); }
+.thumbs { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--faint); }
+.thumbs button { border: 1px solid var(--border); background: none; border-radius: 6px; padding: 1px 7px; cursor: pointer; color: inherit; }
+.thumbs button[aria-pressed="true"] { border-color: var(--primary); }
+.thumbs select { font: inherit; }
+form { display: flex; gap: 6px; padding: 10px; border-top: 1px solid var(--border); }
+input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+button[type=submit] { padding: 8px 14px; border: 0; border-radius: 8px; background: var(--primary); color: #fff; font: inherit; cursor: pointer; }
+button:disabled { opacity: .6; cursor: default; }
