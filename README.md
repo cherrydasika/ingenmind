@@ -528,6 +528,31 @@ a .docx, .pptx and PDF imported from a MinIO bucket, and "How long are items
 found on Northwind shuttle trains kept?" answered from the .docx, citing
 `s3://ingenmind-docs/handbook/lost-property.docx`.
 
+### Analytics
+
+**Monitoring → Analytics** (`app/analytics.py`, `web/static/js/analytics.js`,
+R52; admins, `GET /api/analytics?from=&to=`) turns what the app already keeps
+into charts for a date range (the last 30 days by default):
+- **Question journey:** a Sankey of questions asked → let in or blocked →
+  enough evidence or not → answer passed, withheld or blocked.
+- **Search funnel:** passages the searches found (by meaning and by words),
+  kept for the answer, and cited in it. Each turn keeps this as a small
+  summary (`funnel`: counts, chunk ids and pages, no text).
+- **Most and least used sources,** and the pages no search found in the
+  period (curated and research pages alike).
+- **Knowledge map by use:** passages placed by meaning (PCA to 3-D), the ones
+  searches found coloured by how often.
+- **Quality and cost over time:** per day, real users' questions, pass rate,
+  median and 95th-percentile response time, tokens and their approximate
+  cost at the default model's list price (`app/model_prices.json`).
+- **Content freshness:** pages by when they expire, and the re-crawl's stale
+  pages.
+
+The queries read two PostgreSQL views, `analytics_questions` (over
+`app_session_turns`) and `analytics_runs` (over `agent_flow_runs`); the data
+is small enough that no separate analytics store is needed (#7 is about
+when one helps).
+
 ### Channels: web widget, Slack and Teams
 
 People can ask from where they already are (`app/channels`, R50), through
@@ -2053,6 +2078,7 @@ app/
   recrawl.py               # re-crawl schedules, change detection, freshness (R49)
   answer_feedback.py       # thumbs up/down on answers, Langfuse score, into golden sets (R51)
   channels/                # web widget, Slack and Teams (R50)
+  analytics.py             # the Analytics page's views and queries (R52)
   ttl_cache.py             # small time-based cache with .clear()
   pipeline.py                    # answer_question(): retrieval → generation, one trace
   retrieval.py                   # hybrid_search(): question → ranked chunks (no LLM)

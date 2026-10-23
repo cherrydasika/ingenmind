@@ -10,6 +10,7 @@ import { EvaluationsPage } from "./evaluations.js";
 import { FlowsPage } from "./flows.js";
 import { KnowledgeBasePage } from "./knowledge_base.js";
 import { MonitoringPage } from "./monitoring.js";
+import { AnalyticsPage } from "./analytics.js";
 import { ProfilePage } from "./profile.js";
 import { RetrievalPage } from "./retrieval.js";
 import { SessionsPage } from "./sessions.js";
@@ -55,6 +56,7 @@ const pages = {
   "knowledge-base": [KnowledgeBasePage, "Data", "view_knowledge"],
   adhoc: [AdhocPage, "Data", "upload_documents"],
   monitoring: [MonitoringPage, "Monitoring", null],
+  analytics: [AnalyticsPage, "Monitoring", "manage_settings"],
   memory: [AgentMemoryPage, "Monitoring", "view_agent_memory"],
   runs: [RunsPage, "Monitoring", "view_sessions"],
   approvals: [ApprovalsPage, "Monitoring", "manage_agents"],
