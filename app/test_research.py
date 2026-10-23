@@ -436,6 +436,24 @@ class SourceJudging(unittest.TestCase):
         self.assertEqual((out["recommendation"]["method"], out["usage"]["input_tokens"]), ("feed_consumer", 7))
         self.assertEqual(out["recommendation"]["integration"]["tool_name"], "uk_departures")
 
+    def test_a_lookup_prefers_a_request_response_api_over_a_push_feed(self):
+        """R42: the judge recommended Darwin's push feed for "live departures": the same provider's API goes first."""
+        sources = [profile(name="Darwin Push Port", provider="National Rail", access_method="push_feed"),
+                   profile(name="Some rail API", provider="Other", access_method="rest_api"),
+                   profile(name="LDB web service", provider="National Rail")]
+        out = research.judge_sources("Live departures from Leeds now", sources,
+                                     judge=judge(recommended="Darwin Push Port", fallback="Some rail API"))
+        rec = out["recommendation"]
+        self.assertEqual((rec["recommended"], rec["fallback"], rec["method"]),
+                         ("LDB web service", "Darwin Push Port", "api_tool"))
+        # A task that needs every update or history may keep the feed.
+        kept = research.judge_sources("Record every movement for delay analytics", sources,
+                                      judge=judge(recommended="Darwin Push Port"))["recommendation"]
+        self.assertEqual((kept["recommended"], kept["method"]), ("Darwin Push Port", "feed_consumer"))
+        # No API to fall back to: the feed stays.
+        alone = research.judge_sources("Live departures", sources[:1], judge=judge(recommended="Darwin Push Port"))
+        self.assertEqual(alone["recommendation"]["method"], "feed_consumer")
+
     def test_a_terms_claim_without_known_terms_is_corrected(self):
         site = profile(name="Departures website", access_method="web_page", licence_and_terms="unknown")
         stated = profile(name="Stated website", access_method="web_page",
