@@ -593,6 +593,15 @@ async def flow_set_live(request: Request) -> Response:
             not await run_in_threadpool(flows.evals.latest_evaluation, flow_id, version):
         return _json({"error": f"v{version} has not been evaluated: run a question set on it (Evaluations) "
                                "to see how it answers, or make it live anyway.", "unevaluated": True}, 409)
+    # The promotion gate (R56): as good as the live version on the gate sets, or a reason to go anyway.
+    result = await run_in_threadpool(flows.eval_gate.gate, flow_id, version, _live())
+    if not result["passed"]:
+        reason = str(body.get("gate_override_reason") or "").strip()
+        if len(reason) < 10:
+            return _json({"error": flows.eval_gate.describe(result, version), "gate": result}, 409)
+        await run_in_threadpool(audit.record, "gate_overridden", auth.current_user(request), method="POST",
+                                path=request.url.path, target=f"{flow_id}/v{version}",
+                                details={"reason": reason[:500], "checks": result["checks"], "live": result["live"]})
     try:
         flows.store.set_live(flow_id, version, flows.load_flow(), _run_check)
     except flows.store.FlowNotFound:
@@ -912,6 +921,30 @@ async def eval_start(request: Request) -> Response:
     except flows.FlowError as invalid:
         return _json({"error": "a version cannot run", "issues": invalid.issues}, 422)
     return _json({"runs": ids}, 201)
+
+
+def eval_schedule(request: Request) -> Response:
+    """Nightly sets, the gate sets and every set's pass rate over time (R56)."""
+    return _json({"schedule": flows.eval_gate.schedule(), "trends": flows.eval_gate.trends(),
+                  "sets": [{"id": s["id"], "name": s["name"]} for s in flows.evals.list_sets()]})
+
+
+async def eval_schedule_save(request: Request) -> Response:
+    body = await request.json()
+    if not isinstance(body, dict):
+        return _json({"error": "expected a JSON object"}, 400)
+    try:
+        saved = await run_in_threadpool(flows.eval_gate.save_schedule, body.get("enabled"), body.get("sets"),
+                                        body.get("hour"), body.get("gate_sets"), body.get("tolerance"))
+    except ValueError as error:
+        return _json({"error": str(error)}, 400)
+    return _json({"schedule": saved})
+
+
+def _live_target() -> tuple:
+    """The flow users get, frozen for a nightly run: (flow id, version label, flow JSON)."""
+    live = flows.store.live(flows.load_flow())
+    return live["flow"]["id"], live["version"], live["flow"]
 
 
 def eval_run_detail(request: Request) -> Response:
@@ -2651,6 +2684,8 @@ async def _lifespan(app):
     threading.Thread(target=_expire_human_requests, name="human-expiry", daemon=True).start()
     threading.Thread(target=webhooks.sweep_forever, name="webhook-retries", daemon=True).start()   # R47
     threading.Thread(target=alerts.loop, name="alerts", daemon=True).start()                        # R55
+    threading.Thread(target=flows.eval_gate.loop, args=(_live_target, _eval_execute), name="nightly-evals",
+                     daemon=True).start()                                                             # R56
     yield
 
 
@@ -2717,6 +2752,8 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/flow-evals/search/runs/{run_id}", search_quality_run_detail),
     Route("/api/flow-evals/runs", eval_runs),
     Route("/api/flow-evals/runs", eval_start, methods=["POST"]),
+    Route("/api/flow-evals/schedule", eval_schedule),
+    Route("/api/flow-evals/schedule", eval_schedule_save, methods=["POST"]),
     Route("/api/flow-evals/runs/{run_id}", eval_run_detail),
     Route("/api/flow-evals/runs/{run_id}/cancel", eval_cancel, methods=["POST"]),
     Route("/api/session/reset", reset_session, methods=["POST"]),

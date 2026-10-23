@@ -578,6 +578,19 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R56 (#114) done:** nightly evaluations and a promotion gate
+  (`app/flows/eval_gate.py`): chosen sets run each night on the live flow
+  (claimed once a day in the database; a drop raises the R55 alert), a
+  pass-rate trend per set on Evaluations, and going live needs a version to
+  match or beat the live one on the gate sets (within a tolerance), or a
+  reason kept in the audit log (`gate_overridden`; the Agent Builder asks).
+  **Done-when checked:** a deliberately worse copy of the live flow
+  (retriever top_k 1, no full-text search) and the live flow ran a 5-question
+  set for real: live 75%, the copy 0% (no answer got as far as the check);
+  making the copy live was refused with 409 "Gate check: 0% vs live 75%".
+  Found on the way: a run with no checked answers had no pass rate and
+  slipped past the gate; it now counts as 0%.
+
 - **R55 (#113) built; the real Slack and email check and CloudWatch need
   you (open):** Monitoring → Alerts (`app/alerts.py`): eight rules (pass
   rate, cost today, error rate, p95 time, ingestion failures, guardrail

@@ -587,6 +587,20 @@ run's (guardrails, evaluators, rewrites) at the run's model
 or per-agent rows, and are priced at the current model. Cache hits come from
 `answer_cache_stats` (per day, not per flow or channel).
 
+### Nightly evaluations and the promotion gate
+
+**Evaluations → Nightly runs and the promotion gate** (`app/flows/eval_gate.py`,
+R56): chosen question sets run every night (at an hour, UTC) on the live
+flow; a drop raises the evaluation-regression alert (R55). A trend chart
+shows every set's pass rate over time (nightly runs filled, manual ones
+hollow). Going live, a version must match or beat the live one on the gate
+sets (chosen there; none chosen: every set both versions have run), within
+a tolerance; a run whose answers were never checked counts as 0%. Otherwise
+`POST /api/flows/{id}/live` refuses with 409 and the checks, and the Agent
+Builder asks for a reason (`gate_override_reason`, at least 10 characters),
+kept in the audit log as `gate_overridden`. Going back to the built-in flow
+(version 0) is never gated.
+
 ### Alerts
 
 **Monitoring → Alerts** (`app/alerts.py`, `web/static/js/alerts.js`, R55;
@@ -2136,6 +2150,7 @@ app/
   operations.py            # the Operations page: latency, errors, tokens and cost (R53)
   knowledge_gaps.py        # what the knowledge base couldn't answer, grouped into topics (R54)
   alerts.py                # alert rules, the checker, Slack / email / webhook delivery (R55)
+  flows/eval_gate.py       # nightly evaluations, trends and the promotion gate (R56)
   ttl_cache.py             # small time-based cache with .clear()
   pipeline.py                    # answer_question(): retrieval → generation, one trace
   retrieval.py                   # hybrid_search(): question → ranked chunks (no LLM)
