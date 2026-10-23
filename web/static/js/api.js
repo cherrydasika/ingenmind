@@ -102,6 +102,7 @@ export const api = {
   runs: () => request("/api/runs"),
   resumeRun: (id) => post(`/api/runs/${encodeURIComponent(id)}/resume`, {}),
   cancelRun: (id) => post(`/api/runs/${encodeURIComponent(id)}/cancel`, {}),
+  toolStub: (reportId) => request(`/api/source-reports/${encodeURIComponent(reportId)}/tool-stub`),
   integrations: () => request("/api/integrations"),
   openapiPreview: (body) => post("/api/integrations/openapi/preview", body),
   importOpenapi: (body) => post("/api/integrations/openapi", body),

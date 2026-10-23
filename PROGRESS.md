@@ -478,6 +478,18 @@ on #120 that isn't waiting on the user.
   agent used it for Sheffield's temperature, 3/3 passed the answer check.
   Local data: the openmeteo_get_v1_forecast tool is imported.
 
+- **R40 (#30) done:** "Draft the tool" on a data-source report that
+  recommends an API tool (`app/tool_stub.py`, GET
+  `/api/source-reports/{id}/tool-stub`, manage_knowledge): a draft
+  `app/api_tools/<name>.py` in weather.py's shape from the integration
+  sketch and the profile (typed parameters from the sketch's inputs, the
+  key from an environment variable when the source needs one, TODOs where
+  the endpoint or auth is unknown; checked to compile), shown and
+  downloadable; nothing written into the app or registered. When the
+  profile has an OpenAPI spec, it points to the no-code import (R39).
+  Checked in the browser on the local Darwin report: drafted and downloaded
+  darwin_rail_api.py.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

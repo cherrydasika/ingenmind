@@ -142,6 +142,13 @@ def list_reports(limit: int = 50) -> list[dict]:
     return [{**r, "created_at": r["created_at"].isoformat()} for r in rows]
 
 
+def get_report(report_id: str) -> dict | None:
+    ensure_schema()
+    with _connect() as connection:
+        row = connection.execute("SELECT * FROM research_source_reports WHERE report_id = %s", (report_id,)).fetchone()
+    return {**row, "created_at": row["created_at"].isoformat()} if row else None
+
+
 def delete_reports(report_ids: list[str]) -> int:
     ensure_schema()
     with _connect() as connection:

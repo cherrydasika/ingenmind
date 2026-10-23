@@ -58,6 +58,7 @@ from initialization import (blueprint_run, build as setup_build, content as setu
                             state as setup_state, supervisor)
 import sessions
 import source_profiles
+import tool_stub
 import usage_limits
 import web_security
 import evaluation_archive as evaluation
@@ -2078,6 +2079,18 @@ def source_reports(request: Request) -> Response:
     return _json({"reports": reports, "can_manage": auth.allowed(auth.current_user(request), "manage_knowledge")})
 
 
+def source_report_tool_stub(request: Request) -> Response:
+    """A draft app/api_tools module from a report that recommends an API tool (R40), to download and review in a
+    pull request: nothing is written into the app or registered."""
+    report = source_profiles.get_report(request.path_params["report_id"])
+    if report is None:
+        return _json({"error": "No such report"}, 404)
+    try:
+        return _json(tool_stub.draft(report))
+    except tool_stub.StubError as error:
+        return _json({"error": str(error)}, 409)
+
+
 async def source_reports_remove(request: Request) -> Response:
     ids = (await request.json()).get("report_ids")
     if not isinstance(ids, list) or not ids or len(ids) > MAX_REMOVE or not all(isinstance(i, str) and i for i in ids):
@@ -2379,6 +2392,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/sources/remove", remove_sources, methods=["POST"]),
     Route("/api/sources/chunks", source_chunks),
     Route("/api/source-reports", source_reports),
+    Route("/api/source-reports/{report_id}/tool-stub", source_report_tool_stub),
     Route("/api/source-reports/remove", source_reports_remove, methods=["POST"]),
     Route("/api/adhoc", adhoc_settings),
     Route("/api/adhoc/preview", adhoc_preview, methods=["POST"]),
