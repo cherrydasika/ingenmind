@@ -415,6 +415,38 @@ or by a user manager on **Users**). Rate limits apply as for the owner; making
 and revoking keys, and anything a key changes, are in the audit log with the
 key's prefix. An API conversation never ends the owner's browser conversation.
 
+### Agent-to-agent (A2A)
+
+IngenMind speaks the open A2A protocol (JSON-RPC 2.0, protocol 0.3; `app/a2a.py`,
+R36) both ways:
+
+- **As an agent others call:** the agent card is at
+  `/.well-known/agent-card.json` (public) and the endpoint is
+  `POST /api/v1/a2a` (`message/send`, `tasks/get`), with an API key whose
+  scopes include `ask`. A message runs through the live flow, guardrails and
+  all, as the key's owner; the reply is a completed task whose artifact holds
+  the cited answer (text) and its sources and answer check (data). A message's
+  `contextId` continues the conversation. When an Ask a human step pauses the
+  run, the task is `input-required`.
+- **Calling agents elsewhere:** the **Remote agent (A2A)** component (Agent
+  Builder, with the tools) plugs into an agent's agents port and is a
+  sub-agent there, under the typed contract (R29). The task goes out as a
+  message with personal data masked; the reply comes back fenced as untrusted
+  data, without its own [n] numbers (its sources are named instead), and is
+  recorded as a call so the answer check sees it. Each call counts against
+  the run's tool-call budget, with its own timeout and limit per run; the
+  bearer token comes from an environment variable the component names, never
+  the flow. URLs must be https (http only to localhost).
+- **Traces link both sides:** a request carries the caller's trace id in the
+  message metadata (`ingenmind_trace_id`, recorded on the called side's trace
+  as `a2a_caller_trace`) and the reply carries the called side's.
+
+Checked locally: a client built on the official A2A SDK, in a separate
+container, read the card and got a completed task with a cited answer that
+passed the answer check; a flow whose agent had a Remote agent pointing at
+that endpoint delegated to it and answered from its reply, both trace ids
+recorded.
+
 ### Streaming and cancelling
 
 Questions stream their progress as server-sent events: the first arrives

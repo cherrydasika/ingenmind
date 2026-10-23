@@ -37,6 +37,7 @@ import agent_memory as memory_store   # web_api.agent_memory is a route handler
 import answer_cache
 import conversation
 import durable
+import a2a
 import api_keys
 import human
 import knowledge_collections
@@ -938,7 +939,8 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
     metrics = {}
     try:
         result = agent.answer(question, session_id, body.get("user_id"), max_iterations,
-                              lambda event: emit("stage", event), retrieval_view, flow, source, metrics.update)
+                              lambda event: emit("stage", event), retrieval_view, flow, source, metrics.update,
+                              **({"trace_metadata": body["trace_metadata"]} if body.get("trace_metadata") else {}))
     finally:   # a failed run still spent its tokens
         usage_limits.charge(body.get("user_id"),
                             (metrics.get("input_tokens") or 0) + (metrics.get("output_tokens") or 0))
@@ -954,7 +956,10 @@ def _agent_payload(question: str, session_id: str, body: dict, max_iterations: i
                 user_memory.learn_later(body["user_id"], asked, {"session_id": session_id, **turn})
         except Exception as error:   # the user still gets the answer
             print(f"could not record the session turn: {error}", file=sys.stderr)
-    return _shape_agent_result(result)
+    shaped = _shape_agent_result(result)
+    if body.get("keep_trace"):   # for an A2A reply, which links the caller's trace to this one (R36)
+        shaped["trace_id"] = trace_id
+    return shaped
 
 
 # ---------- Users (identity.py; manage_users) ----------
@@ -1174,6 +1179,56 @@ def v1_openapi(request: Request) -> Response:
 
 def v1_docs(request: Request) -> Response:
     return HTMLResponse(public_api.docs_page())
+
+
+def a2a_card(request: Request) -> Response:
+    """The A2A agent card (R36): the live flow as an agent other systems call."""
+    spec, _ = agent.live_flow()
+    settings = agent._flow_settings(spec)
+    brief = knowledge_collections.expand(settings.get("brief") or flows.registry.UK_RAIL_BRIEF, everyone=True)
+    return _json(a2a.card(str(request.base_url), f"IngenMind ({settings.get('domain') or 'assistant'})",
+                          f"Answers questions from its knowledge base with cited sources. {brief}"[:800]))
+
+
+async def a2a_rpc(request: Request) -> Response:
+    """A2A JSON-RPC (R36): message/send runs the live flow (guardrails and all) as the key's owner and
+    replies with a task holding the cited answer; tasks/get returns one of the caller's tasks."""
+    try:
+        body = await request.json()
+    except ValueError:
+        return _json(a2a.response(None, error=a2a.A2AError(a2a.PARSE_ERROR, "Parse error")))
+    rpc_id = body.get("id") if isinstance(body, dict) else None
+    try:
+        if not isinstance(body, dict) or body.get("jsonrpc") != "2.0" or not isinstance(body.get("method"), str):
+            raise a2a.A2AError(a2a.INVALID_REQUEST, "Invalid request")
+        params = body.get("params") if isinstance(body.get("params"), dict) else {}
+        user_id = auth.current_user(request)["user_id"]
+        if body["method"] == "message/send":
+            return _json(a2a.response(rpc_id, await _a2a_send(request, user_id, params.get("message"))))
+        if body["method"] == "tasks/get":
+            return _json(a2a.response(rpc_id, a2a.TASKS.get(user_id, str(params.get("id") or ""))))
+        if body["method"] == "tasks/cancel":
+            raise a2a.A2AError(-32002, "Task cannot be canceled: tasks here finish before the reply")
+        raise a2a.A2AError(a2a.METHOD_NOT_FOUND, f"Method not found: {body['method']}")
+    except a2a.A2AError as error:
+        return _json(a2a.response(rpc_id, error=error))
+
+
+async def _a2a_send(request: Request, user_id: str, message) -> dict:
+    text = a2a.message_text(message)
+    if await _not_set_up():
+        raise a2a.A2AError(a2a.INTERNAL, NOT_SET_UP)
+    if limited := await _over_limit(request):
+        raise a2a.A2AError(-32000, json.loads(limited.body)["error"])
+    context = message.get("contextId") if isinstance(message.get("contextId"), str) else None
+    session_id = await run_in_threadpool(sessions.current, user_id, context, False)
+    caller = (message.get("metadata") or {}).get(a2a.TRACE_KEY)
+    body = {"user_id": user_id, "session_id": session_id, "keep_trace": True,
+            "trace_metadata": {"a2a_caller_trace": str(caller)[:64]} if caller else None}
+    result = await run_in_threadpool(_ask_live, text, session_id, body, None, lambda *event: None)
+    item = a2a.task(public_api.answer(result, session_id), session_id, message, result.get("trace_id"))
+    a2a.TASKS.put(user_id, item)
+    return item
 
 
 def my_keys(request: Request) -> Response:
@@ -2108,6 +2163,8 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/runs", runs_list),
     Route("/api/runs/{run_id}/resume", runs_resume, methods=["POST"]),
     Route("/api/runs/{run_id}/cancel", runs_cancel, methods=["POST"]),
+    Route("/.well-known/agent-card.json", a2a_card),
+    Route("/api/v1/a2a", a2a_rpc, methods=["POST"]),
     Route("/api/v1/openapi.json", v1_openapi),
     Route("/api/v1/docs", v1_docs),
     Route("/api/v1/ask", v1_ask, methods=["POST"]),
