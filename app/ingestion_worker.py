@@ -15,6 +15,17 @@ logger = logging.getLogger(__name__)
 stop_requested = threading.Event()
 
 
+def _finished(job: dict, status: str, summary: dict) -> None:
+    """The ingestion.finished webhook (R47): counts only, never page content."""
+    try:
+        import webhooks
+        webhooks.emit("ingestion.finished", {"job_id": str(job["id"]), "kind": job.get("kind"), "status": status,
+                                             "urls": summary.get("urls"), "chunks_written": summary.get("chunks_written"),
+                                             "counts": summary.get("counts") or {}, "failed": len(summary.get("failed") or [])})
+    except Exception as error:   # the job is done either way
+        print(f"ingestion webhook skipped: {error}")
+
+
 def process_job(client: storage.PgStore, job: dict) -> None:
     summary = job["summary"] or {
         "urls": len(job["entries"]), "batches": 1, "counts": {},
@@ -45,9 +56,11 @@ def process_job(client: storage.PgStore, job: dict) -> None:
                     logger.info("Stopping; job %s resumes at URL %d", job["id"], next_index)
                     return
         storage.update_job(client, job["id"], "success", next_index, summary)
+        _finished(job, "success", summary)
     except Exception as error:
         logger.exception("Ingestion job %s failed", job["id"])
         storage.update_job(client, job["id"], "failed", next_index, summary, str(error))
+        _finished(job, "failed", summary)
 
 
 def main() -> None:

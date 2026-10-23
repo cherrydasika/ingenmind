@@ -93,6 +93,7 @@ import guardrails
 import human
 import knowledge_collections
 import mcp_integration
+import webhooks
 import injection
 import pii
 import llm
@@ -2348,6 +2349,13 @@ def _research_report(state: KbState, config) -> dict:
         lines += [f"Rejected: {s['url']} ({s['reasons']})" for s in validation["sources"][:3]]
     else:
         status = "Knowledge gap: no research ran"
+    run_ = (config or {}).get("configurable", {}).get("run")
+    if getattr(run_, "source", None) == "users":   # a gap research couldn't close (R47)
+        webhooks.emit("knowledge.gap", {"run_id": getattr(run_, "run_id", None), "status": status,
+                                        "gap_type": state.get("gap_type") or "static_content",
+                                        "report_id": (state.get("data_sources") or {}).get("report_id"),
+                                        "decision": e["decision"]},
+                      private={"task": state["task"]["task"], "missing": e["missing_information"]})
     if draft:
         # What the knowledge base does cover still reaches the supervisor; the
         # answer evaluator checks the answer against these searches' chunks.
@@ -3035,6 +3043,11 @@ def _run_to_end(run: "_Run", graph, spec: flows.FlowSpec, version, source: str, 
             " (checked between turns: one model turn can't be cut short)"))
         result["budget"] = {"limits": limits, "used": used, "hit": hit}
     durable.finish(run_id, "cancelled" if cancelled() else "done", result)
+    check = result.get("answer_check") or {}
+    if source == "users" and check and check.get("passed") is False:   # a user saw the standard message (R47)
+        webhooks.emit("answer.failed_review", {"run_id": run_id, "flow": result["flow"], "failed_on": check.get("failed_on"),
+                                               "overall": check.get("overall"), "scores": check.get("scores")},
+                      private={"question": question, "draft_answer": result.get("draft_answer") or ""})
     return result
 
 

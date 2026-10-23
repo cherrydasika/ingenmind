@@ -141,6 +141,57 @@ export class IntegrationsPage {
     ] }), ...tools];
   }
 
+  // Webhooks (R47): signed outbound events, with their delivery log.
+  renderWebhooks() {
+    const field = (label, input) => h("label", {}, h("div", { class: "faint" }, label), input);
+    const events = this.data.events || {};
+    const name = h("input", { type: "text", placeholder: "Ops alerts" });
+    const url = h("input", { type: "text", placeholder: "https://hooks.example.com/ingenmind" });
+    const trusted = h("input", { type: "checkbox" });
+    const picks = Object.entries(events).map(([e, about]) => h("label", { class: "check-row" },
+      h("input", { type: "checkbox", value: e, checked: e !== "ping" }), h("code", {}, e), h("span", { class: "faint" }, ` ${about}`)));
+    const add = async () => {
+      try {
+        const out = await api.addWebhook({ name: name.value, url: url.value.trim(), trusted: trusted.checked,
+          events: picks.map((l) => l.querySelector("input")).filter((i) => i.checked).map((i) => i.value) });
+        this.secret = { hook: out.hook.hook_id, value: out.secret };
+        this.data = await api.integrations();
+        this.flash = null;
+      } catch (err) {
+        this.flash = err.message;
+      }
+      this.render();
+    };
+    const log = (hookId) => (this.data.deliveries || []).filter((d) => d.hook_id === hookId).slice(0, 8);
+    const hooks = (this.data.webhooks || []).map((w) => card({ children: [
+      h("div", { class: "toolbar" },
+        h("div", {}, h("strong", {}, w.name), " ", badge(w.trusted ? "trusted: gets question and answer text" : "ids and numbers only",
+          w.trusted ? "warn" : "ok")),
+        h("div", {},
+          h("button", { class: "btn btn-ghost btn-sm", type: "button",
+            onclick: () => this.change(async () => { await api.testWebhook(w.hook_id); await new Promise((r) => setTimeout(r, 1500)); return api.integrations(); }) }, "Send test"), " ",
+          h("button", { class: "btn btn-ghost btn-sm", type: "button", onclick: () => this.change(() => api.removeWebhook(w.hook_id)) }, "Remove"))),
+      h("div", { class: "faint" }, `${w.url} · ${w.events.join(", ")}`),
+      this.secret?.hook === w.hook_id ? h("div", { class: "alert ok", role: "status" }, "Its signing secret, shown only now: ",
+        h("code", { style: "word-break: break-all" }, this.secret.value)) : null,
+      log(w.hook_id).length ? h("div", { class: "table-wrap" }, h("table", {},
+        h("thead", {}, h("tr", {}, ["Event", "Status", "Tries", "Reply", "When"].map((t) => h("th", {}, t)))),
+        h("tbody", {}, log(w.hook_id).map((d) => h("tr", {}, h("td", {}, h("code", {}, d.event)),
+          h("td", {}, badge(d.status, d.status === "delivered" ? "ok" : d.status === "failed" ? "err" : "neutral")),
+          h("td", {}, String(d.attempts)), h("td", {}, d.last_code ? String(d.last_code) : (d.last_error || "—")),
+          h("td", {}, String(d.created_at).slice(0, 19).replace("T", " "))))))) : h("p", { class: "note" }, "No deliveries yet."),
+    ] }));
+    return [card({ title: "Webhooks", children: [
+      h("p", { class: "note" }, "Other systems hear what happens here. Each delivery is a signed POST (X-IngenMind-Signature: "
+        + "sha256 HMAC of \"<timestamp>.<body>\" with the hook's secret); a failed one is retried with backoff. Payloads carry "
+        + "ids, numbers and labels only, unless the hook is trusted."),
+      h("div", { class: "stack" }, field("Name", name), field("URL", url), h("div", {}, ...picks),
+        h("label", { class: "check-row" }, trusted, "Trusted: include question and answer text"),
+        this.data.secrets ? null : h("p", { class: "note" }, "INTEGRATIONS_KEY isn't set on the server, so a webhook's secret can't be stored yet."),
+        h("div", { class: "actions" }, h("button", { class: "btn btn-sm", type: "button", onclick: add }, "Add webhook"))),
+    ] }), ...hooks];
+  }
+
   renderAdd() {
     const field = (label, input) => h("label", {}, h("div", { class: "faint" }, label), input);
     const id = h("input", { type: "text", placeholder: "deepwiki" });
@@ -167,6 +218,7 @@ export class IntegrationsPage {
       this.flash ? errorBox(this.flash) : null,
       ...this.data.servers.map((s) => this.renderServer(s)),
       this.renderAdd(),
-      ...this.renderOpenApi()));
+      ...this.renderOpenApi(),
+      ...this.renderWebhooks()));
   }
 }
