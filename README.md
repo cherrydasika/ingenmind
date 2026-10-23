@@ -503,6 +503,13 @@ Open-Meteo's spec (`openapi/forecast.yml` in its repository): imported from
 the page, tried, and used by a flow's agent for "What's the temperature in
 Sheffield right now?" (3 of 3 passed the answer check).
 
+A data-source report (Knowledge base → Ingestion) that recommends an API tool
+has **Draft the tool** (`app/tool_stub.py`, R40): a draft `app/api_tools`
+module in the shape of `weather.py`, from the report's integration sketch and
+the source's profile, to download, finish and add in a pull request; nothing
+is written into the app or registered. If the source publishes an OpenAPI
+spec, the draft points to importing it here instead.
+
 ### Streaming and cancelling
 
 Questions stream their progress as server-sent events: the first arrives

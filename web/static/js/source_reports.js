@@ -1,6 +1,8 @@
 // Data source reports: what research found when a question needed live or
 // structured data (app/source_profiles.py). Each report ranks the profiled
-// sources and recommends how to integrate one; nothing is built from it.
+// sources and recommends how to integrate one; nothing is built from it, but
+// a report recommending an API tool can draft its module (R40) to download and
+// review in a pull request.
 
 import { api } from "./api.js";
 import { badge, card, errorBox, fmtTimestamp, h, note } from "./ui.js";
@@ -88,11 +90,15 @@ export class SourceReports {
           h("span", { style: "display:flex;gap:8px" }, yes,
             h("button", { class: "btn btn-sm btn-ghost", type: "button", onclick: () => { this.confirming = null; this.render(); } }, "Cancel")));
       } else {
-        actions = h("div", { class: "toolbar" }, h("span"), h("button", { class: "btn btn-sm btn-ghost", type: "button",
-          onclick: () => { this.confirming = r.report_id; this.render(); } }, "Remove report"));
+        actions = h("div", { class: "toolbar" },
+          rec.method === "api_tool" ? h("button", { class: "btn btn-sm", type: "button", title: "A draft app/api_tools module to review in a pull request; nothing is registered",
+            onclick: () => this.draftTool(r.report_id) }, "Draft the tool") : h("span"),
+          h("button", { class: "btn btn-sm btn-ghost", type: "button",
+            onclick: () => { this.confirming = r.report_id; this.render(); } }, "Remove report"));
       }
     }
-    return h("details", { open: this.confirming === r.report_id },
+    const stub = this.stubs?.[r.report_id];
+    return h("details", { open: this.confirming === r.report_id || Boolean(stub) },
       h("summary", {}, `${fmtTimestamp(r.created_at)} · `, h("span", { style: "color:var(--text)" }, r.task), " · ",
         badge(label, kind), rec.recommended ? ` ${rec.recommended}` : ""),
       h("div", { class: "details-body stack" },
@@ -108,6 +114,33 @@ export class SourceReports {
           h("tbody", {}, r.profiles.map(profileRow)))) : note("No source could be profiled."),
         rec.not_recommended?.length ? h("div", {}, h("strong", {}, "Not recommended"),
           h("ul", {}, rec.not_recommended.map((x) => h("li", {}, h("strong", {}, x.name), `: ${x.reason}`)))) : null,
-        actions));
+        actions, stub ? this.renderStub(stub) : null));
+  }
+
+  async draftTool(reportId) {
+    this.stubs ||= {};
+    try {
+      this.stubs[reportId] = await api.toolStub(reportId);
+    } catch (err) {
+      this.stubs[reportId] = { error: err.message };
+    }
+    this.render();
+  }
+
+  // The draft module (R40): read it, download it, add it in a pull request. Nothing is registered here.
+  renderStub(stub) {
+    if (stub.error) return errorBox(stub.error);
+    const download = () => {
+      const link = h("a", { href: URL.createObjectURL(new Blob([stub.code], { type: "text/x-python" })),
+        download: stub.filename.split("/").pop() });
+      link.click();
+      URL.revokeObjectURL(link.href);
+    };
+    return h("div", { class: "stack" },
+      h("p", { class: "note" }, `A draft of ${stub.filename}: finish the TODOs, test it, and add it in a pull request (`,
+        h("code", {}, stub.registry_line), "). Nothing is registered until then."),
+      ...stub.notes.map((n) => h("p", { class: "note" }, n)),
+      h("pre", { class: "code-block", style: "max-height: 360px; overflow: auto; white-space: pre" }, stub.code),
+      h("div", { class: "actions" }, h("button", { class: "btn btn-sm", type: "button", onclick: download }, "Download the .py file")));
   }
 }
