@@ -591,9 +591,12 @@ on #120 that isn't waiting on the user.
   tag. `docs/upgrading.md` covers upgrading, going back and verifying.
   **Checked:** the site built strictly and rendered; migrations created
   every module's tables on a fresh database and ran in 0.14 s on the local
-  one. **Left (needs your OK):** turn on GitHub Pages (Actions source),
-  push the `v1.0.0` tag, then install it with the one command in a
-  throwaway directory (the done-when).
+  one. **v1.0.0-rc.5** (pre-release, your OK): the image was built and
+  signed, and verified with cosign 3.1.4 (2.x can't see v3 signatures,
+  documented). The one-command install into a throwaway directory came up
+  and migrated; re-running it backed up the database first. Pages is on
+  (Actions source). **Left:** tag `v1.0.0` (publishes the docs site), which
+  is R63's launch checklist.
 
 - **R61 (#117) done locally (EC2 number open):** load tests and service
   levels. `loadtest/` has Locust scenarios (asks with follow-ups, document
