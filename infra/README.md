@@ -244,7 +244,20 @@ container on its copy of the database with no network, compares row counts
 (knowledge base, research, users, sessions) with production, and removes
 the container, mount and volume again. The production volume is never
 detached or written. Run it after changing the backup set-up, and every few
-months.
+months. Last run on 2026-10-23: a snapshot taken before deploying 440185a
+restored and matched production row for row.
+
+### CloudWatch alarms
+
+`monitoring.tf` (R55) alarms on the instance itself, below what the app's
+own alerts can see: a failed status check, CPU above 90% for 15 minutes,
+memory above 90%, and either disk above 85%. Each notifies the SNS topic
+`rag-systems-alarms`. Set `alarm_email` to get them by email: AWS sends
+that address a confirmation link first. Memory and disk need the
+CloudWatch agent: after `terraform apply`, run
+`sudo bash scripts/aws/cloudwatch-agent.sh` on the instance once. While the
+instance is stopped there is no data, and that doesn't count as a breach.
+About $1.30 a month.
 
 **Restoring for real:** stop the stack and the instance, create a volume
 from the snapshot in the instance's Availability Zone, detach the old data

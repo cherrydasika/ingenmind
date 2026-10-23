@@ -33,6 +33,8 @@ class Outbound(unittest.TestCase):
 
     def test_loopback_only_when_the_url_names_localhost_and_never_through_a_redirect(self):
         self.assertFalse(self.blocked("http://localhost:8091/mcp", "127.0.0.1"))
+        self.assertFalse(self.blocked("http://localhost:8091/mcp", "::1"))          # R63 pentest: ::1 is also "reserved"
+        self.assertTrue(self.blocked("https://sneaky.example.com/", "::1"))
         self.assertTrue(self.blocked("https://sneaky.example.com/", "127.0.0.1"))        # a name pointing home
         self.assertTrue(self.blocked("http://localhost:8091/", "127.0.0.1", redirected=True))
 

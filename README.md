@@ -589,8 +589,9 @@ and a stand-in model, `LLM_PROVIDER=stub`, so a load test measures the app
 rather than a provider. `loadtest/README.md` has the measured capacity.
 Locally, 2 workers × 45 threads served about 12 questions a second without
 errors. The limits, in order, were the thread pool (`WEB_THREADS`, default
-40), PostgreSQL's `max_connections` and one Python process per worker. It
-also has the estimate for a t4g.xlarge, which is still to be measured there.
+40), PostgreSQL's `max_connections` and one Python process per worker. On
+the EC2 t4g.xlarge the limit is CPU: about 5 questions a second, or 40–50
+people asking at once.
 What to do when an alert fires is in the [on-call notes](docs/on-call.md).
 What is left before v1.0.0 is in the [launch checklist](docs/launch-checklist.md).
 

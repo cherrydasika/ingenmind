@@ -379,6 +379,9 @@ async def logout(request: Request) -> Response:
 
 def _safe_next(value: str | None) -> str:
     value = value or "/"
+    # Browsers read \ as / and drop tabs and newlines, so "/\evil" and "/\t/evil" leave the site.
+    if any(c == "\\" or ord(c) < 0x21 or ord(c) == 0x7f for c in value):
+        return "/"
     return value if value.startswith("/") and not value.startswith("//") else "/"
 
 
