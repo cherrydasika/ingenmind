@@ -37,8 +37,10 @@ import agent_memory as memory_store   # web_api.agent_memory is a route handler
 import answer_cache
 import conversation
 import durable
+import api_keys
 import human
 import knowledge_collections
+import public_api
 import user_memory
 import audit
 import auth
@@ -1129,6 +1131,82 @@ async def runs_cancel(request: Request) -> Response:
     return _json({"ok": True}) if done else _json({"error": "nothing to cancel"}, 409)
 
 
+# ---------- The versioned API and its keys (public_api.py, api_keys.py, R46) ----------
+
+async def v1_ask(request: Request) -> Response:
+    """Ask the live flow; the answer with its sources and answer check (public_api.answer)."""
+    if blocked := await _not_set_up():
+        return blocked
+    body = await request.json()
+    parsed, error = _question(body)
+    if error:
+        return error
+    question, _, max_iterations = parsed
+    if limited := await _over_limit(request):
+        return limited
+    user_id = auth.current_user(request)["user_id"]
+    wanted = body.get("session_id") if isinstance(body.get("session_id"), str) else None
+    # A conversation of its own: the owner's browser session is left alone.
+    session_id = await run_in_threadpool(sessions.current, user_id, wanted, False)
+    result = await run_in_threadpool(_ask_live, question, session_id, {"user_id": user_id, "session_id": session_id},
+                                     max_iterations, lambda *event: None)
+    return _json(public_api.answer(result, session_id))
+
+
+def v1_sessions(request: Request) -> Response:
+    return _json({"sessions": sessions.list_sessions(auth.current_user(request)["user_id"])})
+
+
+def v1_session(request: Request) -> Response:
+    found = sessions.get_session(request.path_params["session_id"])
+    if not found or found["user_id"] != auth.current_user(request)["user_id"]:
+        return _json({"error": "No such session"}, 404)
+    return _json({"session": found})
+
+
+def v1_documents(request: Request) -> Response:
+    return _json({"documents": adhoc_ingest.list_adhoc()})
+
+
+def v1_openapi(request: Request) -> Response:
+    return Response(public_api.spec_json(), media_type="application/json")
+
+
+def v1_docs(request: Request) -> Response:
+    return HTMLResponse(public_api.docs_page())
+
+
+def my_keys(request: Request) -> Response:
+    user = auth.current_user(request)
+    return _json({"keys": api_keys.list_keys(user["user_id"]), "scopes": api_keys.allowed_scopes(user),
+                  "max_days": api_keys.MAX_DAYS})
+
+
+async def my_key_create(request: Request) -> Response:
+    body = await request.json()
+    try:
+        key, record = await run_in_threadpool(api_keys.create, auth.current_user(request), body.get("name"),
+                                              body.get("scopes"), body.get("days", 90))
+    except api_keys.ApiKeyError as error:
+        return _json({"error": str(error)}, 400)
+    return _json({"key": key, "record": record}, 201)   # the key is shown this once
+
+
+def my_key_revoke(request: Request) -> Response:
+    done = api_keys.revoke(request.path_params["key_id"], auth.current_user(request)["user_id"])
+    return _json({"ok": True}) if done else _json({"error": "No such active key"}, 404)
+
+
+def keys_list(request: Request) -> Response:
+    names = {u["user_id"]: u.get("first_name") or u["email"] for u in identity.list_users()}
+    return _json({"keys": [{**k, "owner": names.get(k["user_id"], k["user_id"])} for k in api_keys.list_keys()]})
+
+
+def key_revoke(request: Request) -> Response:
+    done = api_keys.revoke(request.path_params["key_id"])
+    return _json({"ok": True}) if done else _json({"error": "No such active key"}, 404)
+
+
 # ---------- Collections (several knowledge bases, knowledge_collections.py, R35) ----------
 
 def _collections_view(request: Request) -> dict:
@@ -2030,6 +2108,22 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/runs", runs_list),
     Route("/api/runs/{run_id}/resume", runs_resume, methods=["POST"]),
     Route("/api/runs/{run_id}/cancel", runs_cancel, methods=["POST"]),
+    Route("/api/v1/openapi.json", v1_openapi),
+    Route("/api/v1/docs", v1_docs),
+    Route("/api/v1/ask", v1_ask, methods=["POST"]),
+    Route("/api/v1/sessions", v1_sessions),
+    Route("/api/v1/sessions/{session_id}", v1_session),
+    Route("/api/v1/documents", v1_documents),
+    Route("/api/v1/documents", adhoc_submit, methods=["POST"]),
+    Route("/api/v1/flows", flow_list),
+    Route("/api/v1/evaluations", eval_runs),
+    Route("/api/v1/evaluations", eval_start, methods=["POST"]),
+    Route("/api/v1/evaluations/{run_id}", eval_run_detail),
+    Route("/api/me/keys", my_keys),
+    Route("/api/me/keys", my_key_create, methods=["POST"]),
+    Route("/api/me/keys/{key_id}", my_key_revoke, methods=["DELETE"]),
+    Route("/api/keys", keys_list),
+    Route("/api/keys/{key_id}", key_revoke, methods=["DELETE"]),
     Route("/api/collections", collections_list),
     Route("/api/collections", collections_create, methods=["POST"]),
     Route("/api/collections/{collection_id}", collections_update, methods=["PUT"]),

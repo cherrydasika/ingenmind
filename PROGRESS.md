@@ -413,6 +413,19 @@ on #120 that isn't waiting on the user.
   "hr_handbook" collection, its ad-hoc page, a user "Robin"
   (robin-r35@example.com), and the main collection renamed "UK rail travel".
 
+- **R46 (#106) done (before R36, which needs it):** API keys
+  (`app/api_keys.py`: per user, scoped ask/ingest/evaluate/admin within the
+  owner's permissions, expiring, revocable, SHA-256 at rest, shown once) and
+  the versioned API (`/api/v1/ask|sessions|documents|flows|evaluations`,
+  OpenAPI at `/api/v1/openapi.json`, docs at `/api/v1/docs`). Bearer keys
+  are checked in `auth.AuthMiddleware` (only /api/v1/, scopes, owner still
+  active); rate limits apply; key changes and key-made changes are audited
+  with the key prefix. Profile → API keys; Users → all keys. **Done-when
+  checked over real HTTP** (a temporary server in the local container with
+  only the setup-ready check patched, since local guided setup is mid-way):
+  a key got a cited answer that passed the answer check; after revoking, the
+  same call got 401 at once; a missing scope got 403, a non-v1 route 401.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

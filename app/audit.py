@@ -32,6 +32,8 @@ log = logging.getLogger(__name__)
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 NOT_AUDITED = {None, "query_rag"}   # asking questions is in sessions, not the audit log
 READ_ONLY = {"/api/flows/validate", "/api/flows/diff", "/api/adhoc/preview"}   # POSTs that change nothing
+# One's own, but security events: always audited (API keys, R46).
+ALWAYS = re.compile(r"^/api/me/keys(/[^/]+)?$")
 MAX_BODY = 64_000                   # bytes read for the field summary; the rest passes through untouched
 VALUE_CHARS = 120
 SECRET = re.compile(r"secret|password|passwd|token|api_?key|credential|cookie|question|answer|message|text|content|body",
@@ -185,7 +187,8 @@ class AuditMiddleware:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or scope["method"] in SAFE_METHODS or not scope["path"].startswith("/api/"):
             return await self.app(scope, receive, send)
-        if scope["path"] in READ_ONLY or auth.required_permission(scope["method"], scope["path"]) in NOT_AUDITED:
+        if scope["path"] in READ_ONLY or (auth.required_permission(scope["method"], scope["path"]) in NOT_AUDITED
+                                          and not ALWAYS.match(scope["path"])):
             return await self.app(scope, receive, send)
         request_id = uuid.uuid4().hex[:16]
         body = bytearray()
@@ -209,9 +212,11 @@ class AuditMiddleware:
             endpoint = scope.get("endpoint")
             params = scope.get("path_params") or {}
             user = (scope.get("state") or {}).get("user")
+            key = (scope.get("state") or {}).get("api_key")   # called with an API key (R46): which one
             code = status["code"] or 500
             action = getattr(endpoint, "__name__", None) or ("refused" if code in (401, 403) else "unknown")
             await run_in_threadpool(
                 record, action, user, method=scope["method"], path=scope["path"],
                 target=", ".join(f"{k}={v}" for k, v in params.items()) or None, status=code,
-                details=summarise(bytes(body)), ip=client_ip(scope), request_id=request_id)
+                details={**summarise(bytes(body)), **({"api_key": key["prefix"]} if key else {})},
+                ip=client_ip(scope), request_id=request_id)

@@ -38,6 +38,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.routing import Route
 
+import api_keys
 import identity
 import sessions
 
@@ -135,7 +136,21 @@ RULES = [
     ({"GET"}, r"/api/audit(\.csv)?", ("manage_users", "manage_settings")),
     # Own sessions: anyone signed in; others' need view_sessions (checked in web_api).
     ({"GET"}, r"/api/sessions(/[^/]+)?", ANY),
+    # API keys (R46): one's own; everyone's for user managers.
+    ({"GET", "POST"}, r"/api/me/keys", ANY),
+    ({"DELETE"}, r"/api/me/keys/[^/]+", ANY),
+    ({"GET"}, r"/api/keys", "manage_users"),
+    ({"DELETE"}, r"/api/keys/[^/]+", "manage_users"),
+    # The versioned API (R46): a browser session or an API key whose scopes cover the route.
+    ({"GET"}, r"/api/v1/(openapi\.json|docs)", ANY),    # public: AuthMiddleware lets PUBLIC_PATHS through
+    ({"POST"}, r"/api/v1/ask", "query_rag"),
+    ({"GET"}, r"/api/v1/sessions(/[^/]+)?", "query_rag"),
+    ({"GET", "POST"}, r"/api/v1/documents", "upload_documents"),
+    ({"GET", "POST"}, r"/api/v1/evaluations(/[^/]+)?", "run_evaluations"),
+    ({"GET"}, r"/api/v1/flows", "run_evaluations"),
 ]
+# Readable without signing in: the API's description.
+PUBLIC_PATHS = {"/api/v1/openapi.json", "/api/v1/docs"}
 _COMPILED = [(methods, re.compile(f"^{pattern}$"), permission) for methods, pattern, permission in RULES]
 NO_RULE = "no-rule"
 
@@ -169,8 +184,11 @@ class AuthMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not scope["path"].startswith("/api/"):
+        if scope["type"] != "http" or not scope["path"].startswith("/api/") or scope["path"] in PUBLIC_PATHS:
             return await self.app(scope, receive, send)
+        authorization = next((v.decode("latin-1") for k, v in scope.get("headers", []) if k == b"authorization"), "")
+        if authorization.lower().startswith("bearer "):
+            return await self._with_key(authorization[7:].strip(), scope, receive, send)
         session = scope.get("session") or {}
         user = None
         if session.get("user_id"):
@@ -191,6 +209,21 @@ class AuthMiddleware:
         else:
             response = JSONResponse({"error": "You don't have permission for this"}, 403)
         await response(scope, receive, send)
+
+
+    async def _with_key(self, key: str, scope, receive, send):
+        """An API key (R46, api_keys.py): only /api/v1/ routes its scopes and its owner's permissions cover."""
+        found = await run_in_threadpool(api_keys.check, key) if scope["path"].startswith("/api/v1/") else None
+        if found is None:
+            message = ("Invalid, expired or revoked API key" if scope["path"].startswith("/api/v1/")
+                       else "API keys only reach the versioned API (/api/v1/)")
+            return await JSONResponse({"error": message}, 401)(scope, receive, send)
+        record, owner = found
+        scope.setdefault("state", {}).update(user=owner, api_key=record)
+        if api_keys.permits(record, owner, required_permission(scope["method"], scope["path"])):
+            return await self.app(scope, receive, send)
+        await JSONResponse({"error": "This key's scopes (or its owner's permissions) don't cover this"},
+                           403)(scope, receive, send)
 
 
 def _still_active(session: dict, user: dict, path: str, now: float | None = None) -> dict | None:

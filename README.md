@@ -398,6 +398,23 @@ locally with a rail collection and an HR handbook: each answered its own
 questions, a question spanning both cited both, and a plain user's answer
 never touched or named the admin-only HR handbook.
 
+### The API and API keys
+
+Other systems use the versioned API (`/api/v1/`, R46; `app/public_api.py`):
+ask the live flow (`POST /api/v1/ask`, a cited answer with its sources and
+answer check, and a `session_id` to continue the conversation), read your
+sessions, add documents, list flows and run evaluations. The OpenAPI
+description is `/api/v1/openapi.json` and a docs page with a curl example is
+`/api/v1/docs` (both public). Calls carry an API key as
+`Authorization: Bearer im_…`, made under **Profile → API keys** (`app/api_keys.py`):
+a key acts as the user who made it, only within its scopes (`ask`, `ingest`,
+`evaluate`, `admin`), which can't exceed that user's permissions (checked at
+every call), and only on `/api/v1/` routes. Keys are stored as SHA-256 digests
+and shown once; they expire (1–365 days) and are revoked at once (from Profile,
+or by a user manager on **Users**). Rate limits apply as for the owner; making
+and revoking keys, and anything a key changes, are in the audit log with the
+key's prefix. An API conversation never ends the owner's browser conversation.
+
 ### Streaming and cancelling
 
 Questions stream their progress as server-sent events: the first arrives

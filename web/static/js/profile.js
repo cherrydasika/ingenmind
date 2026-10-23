@@ -3,6 +3,7 @@
 // demo). Starting over is on Setup (start_over.js).
 
 import { api } from "./api.js";
+import { KeysBox } from "./api_keys.js";
 import { KnowledgeSystemPage } from "./knowledge_system.js";
 import { applyTheme } from "./theme.js";
 import { card, dataTable, errorBox, h, loading, section } from "./ui.js";
@@ -57,9 +58,11 @@ export class ProfilePage {
         : h("p", { class: "note" }, "No permissions yet. Ask an administrator.") }),
       card({ title: "Appearance", children: this.appearance(u.theme) }),
       card({ title: "Memory", children: this.memoryBox = h("div", {}, loading()) }),
+      card({ title: "API keys", children: this.keysBox = h("div", {}, loading()) }),
       h("p", { class: "note" }, "This app never stores your password: your identity provider signs you in."),
       u.permissions.includes("manage_settings") ? this.knowledgeSystem() : null));
     this.loadMemory();
+    new KeysBox(this.keysBox).load();
   }
 
   // Long-term memory (R28): off unless you turn it on; every fact listed with

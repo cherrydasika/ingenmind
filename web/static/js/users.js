@@ -4,6 +4,7 @@
 // never deleted. manage_users only (app/web_api.py user_*).
 
 import { api } from "./api.js";
+import { AllKeysBox } from "./api_keys.js";
 import { badge, card, errorBox, fmtInt, h, loading, note } from "./ui.js";
 
 const when = (iso) => (iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "—");
@@ -66,6 +67,10 @@ export class UsersPage {
               u.updated_at ? ` · last changed ${when(u.updated_at)}${u.updated_by ? ` by ${names[u.updated_by] || u.updated_by}` : ""}` : ""))) : null,
         ]).filter(Boolean))))
       })));
+    // Everyone's API keys (R46), to revoke any of them.
+    const keys = h("div", {}, loading());
+    this.root.firstChild.append(card({ title: "API keys", children: keys }));
+    new AllKeysBox(keys).load();
   }
 
   // The add form (user null) or a user's edit form.
