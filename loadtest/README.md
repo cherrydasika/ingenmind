@@ -1,0 +1,121 @@
+# Load tests and capacity (R61)
+
+How many people one instance serves, and what breaks first.
+
+## What is here
+
+- `locustfile.py`: three kinds of simulated user against the public API
+  (`/api/v1`) with API keys. **Askers** ask every 5–15 s, sometimes a
+  follow-up in the same session. **Ingesters** add a short document every
+  30–90 s. **Evaluators** start an evaluation of the live flow every 5–10
+  minutes. The mix is 20 : 1 : 1.
+- `make_keys.py`: load-test accounts and keys, on a throwaway install only.
+- `app/llm_stub.py`: `LLM_PROVIDER=stub`, a stand-in model that waits
+  `LLM_STUB_SECONDS` per call and answers the happy path. It measures the
+  app (searches, PostgreSQL, sessions, guardrail plumbing, concurrency)
+  without paying for a model or hitting its rate limits. With a real
+  model, the same scripts measure the whole thing.
+
+## Running it
+
+Never against a real install: it creates accounts, sessions and documents.
+
+```bash
+# 1. a throwaway copy of the database, and an app on it with the stub model
+docker exec <pgvector> psql -U rag -c "CREATE DATABASE rag_loadtest"
+docker exec <pgvector> sh -c "pg_dump -U rag rag | psql -q -U rag -d rag_loadtest"
+docker run -d --name webapp-loadtest --network <compose network> -p 18002:8000 \
+  --env-file <the webapp's env with PGDATABASE=rag_loadtest, LLM_PROVIDER=stub,
+               LLM_STUB_SECONDS=1.0, LIMIT_TOKENS_PER_DAY=0, Langfuse keys blank> \
+  -v "$PWD/app:/app" -v "$PWD/dags:/app/dags:ro" -v "$PWD/web:/web:ro" \
+  rag_systems-web uvicorn web_api:app --app-dir /app --host 0.0.0.0 --port 8000
+# 2. keys (one per simulated person, so per-person limits don't cap the test)
+docker cp loadtest/make_keys.py webapp-loadtest:/tmp/ && \
+  docker exec webapp-loadtest python /tmp/make_keys.py 400 > keys.json
+# 3. Locust, on the same network
+pip install -r loadtest/requirements.txt
+LOADTEST_KEYS=keys.json locust -f loadtest/locustfile.py --headless \
+  -H http://webapp-loadtest:8000 -u 100 -r 10 -t 3m --only-summary
+```
+
+Langfuse is off in the load-test app, so its traces don't fill the real
+project. If PostgreSQL is shared with a real install, keep
+`workers × WEB_THREADS` under its `max_connections` (see below), or the real
+install's queries fail too.
+
+## Results (local, stub model at 1 s a call)
+
+The machine was a Rancher Desktop VM with 6 vCPUs and 16 GB, on Apple
+silicon (arm64, like Graviton). The database had 100 Trainline pages (550
+chunks), local embeddings, and the stub model. A question makes about 6
+model calls, so one takes about 6.2 s when nothing else is waiting.
+
+| Setup | Users | Questions/s | p50 | p95 | Errors | What limited it |
+|---|---|---|---|---|---|---|
+| 1 worker, 40 threads (default) | 50 | 2.7 | 6.2 s | 6.3 s | 0 | nothing |
+| 1 worker, 40 threads | 100 | 5.4 | 6.3 s | 7.0 s | 0 | nothing yet |
+| 1 worker, 40 threads | 200 | ~6.0 | 19 s | 21 s | 0 | the thread pool: 40 ÷ 6.2 s ≈ 6.4 questions/s |
+| 1 worker, 120 threads | 200 | ~9 | 6.7 s | 12 s | <0.1% | nothing yet |
+| 1 worker, 120 threads | 400 | ~10.6 | 21 s | 26 s | 0.1% | one Python process (~1.9 cores: the GIL, local embeddings); PostgreSQL ~1 core |
+| 3 workers, 120 threads | 400–600 | — | — | — | 44–76% | PostgreSQL `max_connections` (100): "too many clients" |
+| 2 workers, 45 threads | 300 | ~12 | 12 s | 17 s | 0 | the threads again: 90 ÷ 6.2 s ≈ 14.5 questions/s |
+| 2 workers, 45 threads | 400 | ~12 | 19 s | 28 s | 0 | as above: queueing, no errors |
+
+**Best local setup:** 2 workers × 45 threads (90 connections at most). It
+gives about 12 questions a second with no errors. Latency stays near the
+unloaded 6 s up to about 8 questions a second. That is roughly **130
+people asking at once** at one question every 10–15 s each. Beyond that,
+answers queue rather than fail.
+
+## What to tune
+
+1. **`WEB_THREADS`** (new, default 40). Each question holds a thread for its
+   whole run, so threads ÷ seconds per question caps throughput. Raise it
+   with care: each thread can hold a PostgreSQL connection.
+2. **PostgreSQL connections.** The app opens a connection per database call
+   and doesn't pool them. Keep `workers × WEB_THREADS` plus the worker and
+   AgentCore KB well under `max_connections` (100 by default), or raise it
+   (`postgres -c max_connections=300`). A shared connection pool (psycopg_pool
+   or PgBouncer) is the proper fix and a follow-up.
+3. **Workers** (`uvicorn --workers N`). One Python process tops out around
+   2 cores. More workers use more cores, within the connection budget above.
+   Background loops (alerts, nightly evaluations, retention) are safe with
+   several workers: each takes a PostgreSQL advisory lock.
+4. **Model latency dominates.** A real model takes 2–10 s a call, not 1 s, so
+   a question holds its thread 2–10× longer. Concurrent questions =
+   questions/s × seconds per question, which is what `WEB_THREADS` has to
+   cover. The provider's own rate limits (tokens a minute) usually bind
+   before the instance does.
+
+## Capacity of a t4g.xlarge
+
+**Not measured yet.** The capacity number needs the same runs on the EC2
+instance, which costs money while it runs, so it waits for an approved EC2
+session. Run steps 1–3 there against a copy of the database: through SSM,
+with Locust on the instance or a second small instance, never against the
+live database.
+
+Until then, an estimate. A t4g.xlarge has 4 Graviton2 vCPUs, slower per
+core than this machine's 6 Apple-silicon cores. The local limit was threads
+and connections, not CPU: two workers used about 3 cores at the peak. So
+expect about two thirds of the local figure, **~8 questions a second, about
+80–100 people asking at once with the stub's 1 s calls**. With a real model
+at about 3 s a call (~18 s a question), the same 90 threads serve
+90 ÷ 18 ≈ **5 questions a second, about 50–60 people at once**, unless
+`WEB_THREADS` and `max_connections` are raised. The provider's rate limits
+come first on most accounts.
+
+## Service levels
+
+Shown on Monitoring → Operations (`app/slo.py`), over the last 30 days of
+real users' questions:
+
+| Objective | Default target | Setting |
+|---|---|---|
+| Availability: answered without an error or a timeout | 99% | `SLO_AVAILABILITY` |
+| Latency: answered within 30 s | 95% | `SLO_LATENCY_SECONDS`, `SLO_LATENCY_TARGET` |
+| Answer pass rate: checked answers that passed | 80% | `SLO_PASS_RATE` |
+
+The error budget is how many questions may miss in the window. The burn
+rate compares the last day's misses with what the budget allows per day:
+above 1× the budget runs out before the window ends.

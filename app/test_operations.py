@@ -9,6 +9,7 @@ import agent
 import answer_cache
 import identity
 import operations
+import slo
 from common import storage
 from flows import store
 from test_auth import AuthDatabase
@@ -96,6 +97,25 @@ class Operations(AuthDatabase):
         self.assertEqual(self.signed_in(self.user).get("/api/operations?from=nope").status_code, 400)
         person = identity.create_user("Bo", f"bo-{uuid.uuid4().hex[:6]}@example.com", "user")
         self.assertEqual(self.signed_in(person).get("/api/operations").status_code, 403)
+
+    def test_service_levels_and_their_error_budgets(self):
+        now = datetime.now(timezone.utc)
+        for i in range(100):                    # 100 users' questions in the window: 2 errors, 10 slow
+            self.run_at(now - timedelta(days=2, minutes=i), seconds=60 if i < 10 else 5, failed=i in (0, 1),
+                        evaluated=True, passed=i >= 30)
+        self.run_at(now - timedelta(hours=1), seconds=5, failed=True, evaluated=False)   # the last day: 1 of 1 failed
+        self.run_at(now - timedelta(days=2), source="eval", seconds=99, failed=True)     # not users': not counted
+        self.run_at(now - timedelta(days=40), seconds=99, failed=True)                   # before the window
+        report = {o["name"]: o for o in slo.report(now)["objectives"]}
+        availability, latency, passing = report["availability"], report["latency"], report["pass_rate"]
+        self.assertEqual((availability["events"], availability["misses"], availability["achieved"]), (101, 3, 0.9703))
+        self.assertEqual((availability["budget"], availability["left"], availability["met"]), (1.0, -1.97, False))
+        self.assertEqual(availability["burn_rate"], 100.0)          # 100% failed in the last day vs 1% allowed
+        self.assertEqual((latency["misses"], latency["met"]), (10, False))
+        self.assertEqual((passing["events"], passing["misses"], passing["achieved"], passing["met"]), (100, 30, 0.7, False))
+        page = self.signed_in(self.user).get("/api/operations").json()
+        self.assertEqual([o["name"] for o in page["slo"]["objectives"]], ["availability", "latency", "pass_rate"])
+
 
 
 class RunLabels(AuthDatabase):

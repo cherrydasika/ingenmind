@@ -578,6 +578,26 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R61 (#117) done locally (EC2 number open):** load tests and service
+  levels. `loadtest/` has Locust scenarios (asks with follow-ups, document
+  ingest, evaluations; one API key per simulated person) and `make_keys.py`;
+  `LLM_PROVIDER=stub` (`app/llm_stub.py`) is a stand-in model with a set
+  latency and schema-valid happy-path output. `WEB_THREADS` (default 40)
+  sizes the worker thread pool. Operations opens with the service levels
+  (`app/slo.py`): availability 99%, 95% within 30 s, pass rate 80%, each
+  with an error budget and a 1-day burn rate. **Checked:** on a throwaway
+  copy (`rag_loadtest`, 100 Trainline pages) with the stub at 1 s a call:
+  1 worker × 40 threads was flat to 100 users (5.4 q/s, p95 7 s), then the
+  thread pool capped it at about 6 q/s. 3 workers × 120 threads ran
+  PostgreSQL out of connections (100). 2 workers × 45 threads gave about
+  12 q/s with no errors up to 400 users. Tuning notes and a t4g.xlarge
+  estimate (~8 q/s with the stub, ~5 with a real model) are in
+  `loadtest/README.md`. **Left:** the measured t4g.xlarge number, at the
+  next approved EC2 session. A connection pool is a follow-up.
+
+- **R60 (#116) deferred** (your choice): multi-tenant workspaces. The
+  design note on #116 suggests a database per workspace if it is picked up.
+
 - **R59 (#115) done:** data lifecycle (`app/data_lifecycle.py`, Profile →
   Privacy and your data, Users → Download data / Delete account and data):
   retention per kind applied daily; a person's data exported as JSON or

@@ -1038,3 +1038,7 @@ button.cite:focus-visible { outline: 2px solid var(--primary); outline-offset: 1
 /* R59: data retention */
 .retention-grid { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
 .retention-grid label { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+/* R61: service levels */
+.slo-ok { color: var(--ok-text, var(--ok)); font-weight: 600; }
+.slo-near { color: var(--warn-text, var(--warn)); font-weight: 600; }
+.slo-miss { color: var(--err-text, var(--err)); font-weight: 600; }

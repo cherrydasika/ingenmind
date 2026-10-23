@@ -8,6 +8,8 @@ import { api } from "./api.js";
 import { chartBox, colours, plot } from "./analytics.js";
 import { card, dataTable, errorBox, fmtInt, h, loading, metric, note, section } from "./ui.js";
 
+const OBJECTIVE_NAMES = { availability: "Availability", latency: "Latency", pass_rate: "Answer pass rate" };
+
 const DAY = 86400000;
 const iso = (d) => d.toISOString().slice(0, 10);
 const pct = (v) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(v && v < 0.1 ? 1 : 0)}%`);
@@ -96,6 +98,24 @@ export class OperationsPage {
       metric("Cache hit rate", cache.hit_rate === null ? "—" : `${pct(cache.hit_rate)} of ${fmtInt(cache.hits + cache.misses)}`));
   }
 
+  // R61 (app/slo.py): each objective over the last 30 days of real users' questions, whatever the filters.
+  objectives(s) {
+    const pct = (v, digits = 1) => (v === null || v === undefined ? "—" : `${(v * 100).toFixed(digits)}%`);
+    const rows = s.objectives.map((o) => ({
+      name: OBJECTIVE_NAMES[o.name] || o.name, what: o.what, target: pct(o.target),
+      achieved: o.events ? h("span", { class: o.met ? "slo-ok" : "slo-miss" }, pct(o.achieved, 2)) : "—",
+      events: fmtInt(o.events),
+      budget: o.left === null ? "—" : h("span", { class: o.left < 0 ? "slo-miss" : o.left < 0.25 ? "slo-near" : "slo-ok" },
+        o.left < 0 ? `spent (${fmtInt(o.misses)} misses, ${o.budget} allowed)` : `${pct(o.left, 0)} left (${fmtInt(o.misses)} of ${o.budget})`),
+      burn: o.burn_rate === null ? "—" : h("span", { class: o.burn_rate > 1 ? "slo-miss" : null }, `${o.burn_rate}×`),
+    }));
+    return section("slo", "Service levels", `Objectives over the last ${s.window_days} days of real users' questions. The error budget is how many may miss; a burn rate above 1× (the last day) spends it before the ${s.window_days} days are up.`,
+      card({ children: dataTable([{ key: "name", label: "Objective" }, { key: "what", label: "Measures" },
+        { key: "target", label: "Target", num: true }, { key: "achieved", label: "Achieved", num: true },
+        { key: "events", label: "Questions", num: true }, { key: "budget", label: "Error budget" },
+        { key: "burn", label: "Burn rate (1 day)", num: true }], rows) }));
+  }
+
   render() {
     const d = this.data;
     const y = d.yesterday;
@@ -116,6 +136,7 @@ export class OperationsPage {
     const nameCol = (label) => ({ key: "name", label });
     this.root.replaceChildren(h("div", { class: "stack" },
       this.filter(),
+      this.objectives(d.slo),
       section("yesterday", `Yesterday (${y.day})`, `What yesterday cost and what was slow${filtered ? ", for the filters chosen" : ""}. Times are a run's whole answer; an agent's and a model's are its model time.`,
         card({ children: y.runs ? [this.tiles(y, y.cache),
           h("p", { class: "note" }, slowest.length ? `Slowest: ${slowest.join(" · ")}.` : "No agent times were recorded yesterday.")]

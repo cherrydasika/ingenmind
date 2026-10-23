@@ -315,3 +315,54 @@ class Routing(unittest.TestCase):
                                             chatModel={"provider": "openai", "model": "gpt-4.1"})["stream"]
             list(stream)
         self.assertEqual(seen, [("openai", "gpt-4.1")])
+
+
+class StubTest(unittest.TestCase):
+    """The load-test stand-in (llm_stub.py, R61): valid happy-path output, no network, its own latency."""
+
+    def setUp(self):
+        import llm_stub
+        self.stub = llm_stub
+        patcher = patch.object(llm_stub, "SECONDS", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_tool_arguments_follow_the_schema_on_the_happy_path(self):
+        from pydantic import BaseModel
+        from typing import Literal
+
+        class Check(BaseModel):
+            decision: Literal["BLOCK", "ALLOW"]
+            evidence: Literal["RETRIEVAL_FAILURE", "GOOD_EVIDENCE"]
+            injection: bool
+            passed: bool
+            score: float
+            missing_information: list[str]
+            reason: str
+
+        reply = self.stub.Stub().send("p", "s", 100, 0, {"name": "check", "description": "", "schema": Check.model_json_schema()})
+        checked = Check.model_validate(reply.tool_input)          # valid against its own schema
+        self.assertEqual((checked.decision, checked.evidence, checked.injection, checked.passed),
+                         ("ALLOW", "GOOD_EVIDENCE", False, True))
+        self.assertEqual(checked.missing_information, [])
+        self.assertGreater(checked.score, 0.8)
+
+    def test_a_conversation_searches_once_then_answers(self):
+        tools = [{"name": "finish", "description": "", "schema": {"type": "object"}},
+                 {"name": "search_knowledge_base", "description": "",
+                  "schema": {"type": "object", "properties": {"query": {"type": "string"}}}}]
+        asked = [{"role": "user", "content": [{"text": "Bikes on trains?"}]}]
+        first = self.stub.Stub().chat("s", asked, tools, 100, 0)
+        use = first.content[0]["toolUse"]
+        self.assertEqual((first.stop_reason, use["name"], use["input"]), ("tool_use", "search_knowledge_base",
+                                                                          {"query": "Bikes on trains?"}))
+        result = asked + [{"role": "assistant", "content": first.content},
+                          {"role": "user", "content": [{"toolResult": {"toolUseId": use["toolUseId"], "content": [{"text": "x"}]}}]}]
+        second = self.stub.Stub().chat("s", result, tools, 100, 0)
+        self.assertEqual(second.stop_reason, "end_turn")
+        self.assertIn("[1]", second.content[0]["text"])
+
+    def test_it_is_a_provider(self):
+        with patch.object(llm, "PROVIDER", "stub"), patch.object(llm, "MODEL", "stub"):
+            self.assertIsNone(llm.config_error())
+            self.assertEqual(llm.generate("hi").text, self.stub.ANSWER)
