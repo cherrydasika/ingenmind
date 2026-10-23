@@ -41,6 +41,7 @@ import a2a
 import api_keys
 import human
 import knowledge_collections
+import mcp_integration
 import public_api
 import user_memory
 import audit
@@ -1231,6 +1232,100 @@ async def _a2a_send(request: Request, user_id: str, message) -> dict:
     return item
 
 
+async def mcp_endpoint(request: Request) -> Response:
+    """IngenMind as an MCP server (R38; Streamable HTTP, JSON replies, no server-sent stream): tools
+    search_knowledge_base and ask, as the API key's owner (ask scope)."""
+    if request.method != "POST":
+        return Response(status_code=405, headers={"Allow": "POST"})
+    try:
+        body = await request.json()
+    except ValueError:
+        return _json({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "Parse error"}}, 400)
+    if not isinstance(body, dict):
+        return _json({"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Invalid request"}}, 400)
+    if "id" not in body:                                    # a notification: accepted, no reply
+        return Response(status_code=202)
+    rpc_id, method, params = body.get("id"), body.get("method"), body.get("params") or {}
+    reply = lambda result: _json({"jsonrpc": "2.0", "id": rpc_id, "result": result})
+    if method == "initialize":
+        return reply(mcp_integration.server_initialize(params))
+    if method == "ping":
+        return reply({})
+    if method == "tools/list":
+        return reply({"tools": mcp_integration.SERVER_TOOLS})
+    if method != "tools/call":
+        return _json({"jsonrpc": "2.0", "id": rpc_id, "error": {"code": -32601, "message": f"Method not found: {method}"}})
+    name, args = params.get("name"), params.get("arguments") or {}
+    user_id = auth.current_user(request)["user_id"]
+    if name == "search_knowledge_base":
+        query = str(args.get("query") or "").strip()[:500]
+        if not query:
+            return reply(mcp_integration.text_result("query is required", error=True))
+        top_k = args.get("top_k") if isinstance(args.get("top_k"), int) and 1 <= args.get("top_k") <= 10 else 5
+        return reply(await run_in_threadpool(_mcp_search, query, top_k, user_id))
+    if name == "ask":
+        question = str(args.get("question") or "").strip()
+        if not question:
+            return reply(mcp_integration.text_result("question is required", error=True))
+        if await _not_set_up():
+            return reply(mcp_integration.text_result(NOT_SET_UP, error=True))
+        if limited := await _over_limit(request):
+            return reply(mcp_integration.text_result(json.loads(limited.body)["error"], error=True))
+        session_id = await run_in_threadpool(sessions.current, user_id, None, False)
+        result = await run_in_threadpool(_ask_live, question, session_id, {"user_id": user_id, "session_id": session_id},
+                                         None, lambda *event: None)
+        sources = "\n".join(f"[{','.join(map(str, s['cited']))}] {s['url']}" for s in result.get("sources") or [])
+        return reply(mcp_integration.text_result((result.get("answer") or "") + (f"\n\nSources:\n{sources}" if sources else "")))
+    return _json({"jsonrpc": "2.0", "id": rpc_id, "error": {"code": -32602, "message": f"Unknown tool: {name}"}})
+
+
+def _mcp_search(query: str, top_k: int, user_id: str) -> dict:
+    """Passages for an MCP client, only from the collections this user may see (R35)."""
+    within = knowledge_collections.scope(user_id)
+    if within is False:
+        return mcp_integration.text_result("No knowledge base is available to you.", error=True)
+    from retrieval import hybrid_search
+    found = hybrid_search(query, top_k=top_k, filters={"collection": within} if within else None)
+    chunks = found["rankings"]["fused"]
+    if not chunks:
+        return mcp_integration.text_result("No passages matched.")
+    lines = [f"[{i}] {c['source_url']}\n{' '.join(c['text'].split())[:1200]}" for i, c in enumerate(chunks, 1)
+             if not injection.flags(c["text"])]
+    return mcp_integration.text_result("\n\n".join(lines) or "No passages matched.")
+
+
+def integrations(request: Request) -> Response:
+    return _json({"servers": mcp_integration.servers(), "secrets": bool(os.environ.get("INTEGRATIONS_KEY"))})
+
+
+async def _integration_change(request: Request, change) -> Response:
+    try:
+        body = await request.json() if request.method in ("POST", "PUT") else {}
+        await run_in_threadpool(change, body if isinstance(body, dict) else {})
+    except mcp_integration.McpError as error:
+        return _json({"error": str(error)}, 400)
+    return integrations(request)
+
+
+async def integration_add(request: Request) -> Response:
+    return await _integration_change(request, lambda b: mcp_integration.add(
+        str(b.get("server_id") or ""), b.get("name"), str(b.get("url") or ""),
+        b.get("headers") if isinstance(b.get("headers"), dict) else None))
+
+
+async def integration_refresh(request: Request) -> Response:
+    return await _integration_change(request, lambda b: mcp_integration.refresh(request.path_params["server_id"]))
+
+
+async def integration_enable(request: Request) -> Response:
+    return await _integration_change(request, lambda b: mcp_integration.enable(
+        request.path_params["server_id"], [t for t in b.get("tools") or [] if isinstance(t, str)]))
+
+
+async def integration_remove(request: Request) -> Response:
+    return await _integration_change(request, lambda b: mcp_integration.remove(request.path_params["server_id"]))
+
+
 def my_keys(request: Request) -> Response:
     user = auth.current_user(request)
     return _json({"keys": api_keys.list_keys(user["user_id"]), "scopes": api_keys.allowed_scopes(user),
@@ -2165,6 +2260,12 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/runs/{run_id}/cancel", runs_cancel, methods=["POST"]),
     Route("/.well-known/agent-card.json", a2a_card),
     Route("/api/v1/a2a", a2a_rpc, methods=["POST"]),
+    Route("/api/v1/mcp", mcp_endpoint, methods=["GET", "POST"]),
+    Route("/api/integrations", integrations),
+    Route("/api/integrations", integration_add, methods=["POST"]),
+    Route("/api/integrations/{server_id}/refresh", integration_refresh, methods=["POST"]),
+    Route("/api/integrations/{server_id}/tools", integration_enable, methods=["PUT"]),
+    Route("/api/integrations/{server_id}", integration_remove, methods=["DELETE"]),
     Route("/api/v1/openapi.json", v1_openapi),
     Route("/api/v1/docs", v1_docs),
     Route("/api/v1/ask", v1_ask, methods=["POST"]),

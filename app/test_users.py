@@ -226,7 +226,7 @@ class AuditLog(UsersDatabase):
                                                and not audit.ALWAYS.match(path)):
                     skipped.add(f"{method} {route.path}")
         # Only asking questions, one's own theme and read-only checks stay out; anything new is audited.
-        self.assertEqual(skipped, {"POST /api/ask", "POST /api/ask/stream", "POST /api/agent/stream", "POST /api/v1/ask", "POST /api/v1/a2a",
+        self.assertEqual(skipped, {"POST /api/ask", "POST /api/ask/stream", "POST /api/agent/stream", "POST /api/v1/ask", "POST /api/v1/a2a", "POST /api/v1/mcp",
                                    "POST /api/agent/resume", "POST /api/session/reset", "POST /api/sessions/new", "PUT /api/me/theme",
                                    "PUT /api/me/memory", "DELETE /api/me/memory", "PUT /api/me/memory/{fact_id:int}",
                                    "DELETE /api/me/memory/{fact_id:int}",

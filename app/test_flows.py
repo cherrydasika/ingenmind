@@ -141,10 +141,13 @@ class Validation(unittest.TestCase):
         self.assertTrue(errors(spec))
 
     def test_an_unsupported_resource_blocks_publishing(self):
+        import dataclasses
         spec = copy.deepcopy(raw())
         spec["nodes"].append({"id": "mcp", "type": "mcp_tool"})
         spec["edges"].append({"source": "mcp", "target": "external_apis_agent", "kind": "resource"})
-        issues = flows.validate(flows.FlowSpec.model_validate(spec))
+        soon = dataclasses.replace(flows.COMPONENTS["mcp_tool"], runnable=False)   # MCP runs now (R38): pretend not
+        with patch.dict(flows.COMPONENTS, {"mcp_tool": soon}):
+            issues = flows.validate(flows.FlowSpec.model_validate(spec))
         self.assertEqual([i["level"] for i in issues], ["error"])                    # "soon": not publishable (#62)
         self.assertIn("remove it to publish", issues[0]["message"])
 

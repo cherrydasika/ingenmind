@@ -447,6 +447,43 @@ passed the answer check; a flow whose agent had a Remote agent pointing at
 that endpoint delegated to it and answered from its reply, both trace ids
 recorded.
 
+### MCP: tools from any MCP server, and IngenMind as one
+
+`app/mcp_integration.py` (R38) speaks MCP over Streamable HTTP both ways.
+
+**Tools from MCP servers.** **Admin → Integrations** adds a server by its URL
+(https, or http to localhost), lists its tools and enables them one by one; a
+token for a server (an `Authorization` header, say) is stored encrypted with
+`INTEGRATIONS_KEY` (a Fernet key; without it, only servers that need no token
+can be added). In the Agent Builder, plug an **MCP tool** node into an agent
+(choose the server, optionally fewer of its enabled tools, and a calls limit
+per run): the agent is offered them as `mcp__<server>__<tool>`. Every call
+goes through the tool guardrails (R13): the arguments are checked against the
+tool's schema, with no personal data, links or instruction-like text; the
+result reaches the agent fenced as untrusted data and is recorded like an API
+call, so the answer check sees it, and the answer names the server as the
+source. (stdio servers aren't supported: they would mean running commands from
+the admin page.)
+
+**IngenMind as an MCP server.** `POST /api/v1/mcp` with an API key (scope
+`ask`) offers `search_knowledge_base` (passages with their sources, only the
+collections the key's owner may see) and `ask` (the live flow's cited
+answer). In Claude Desktop, add it to `claude_desktop_config.json` through the
+`mcp-remote` bridge:
+
+```json
+{"mcpServers": {"ingenmind": {
+  "command": "npx",
+  "args": ["-y", "mcp-remote", "https://YOUR-HOST/api/v1/mcp", "--header", "Authorization:${INGENMIND_AUTH}"],
+  "env": {"INGENMIND_AUTH": "Bearer im_…"}}}}
+```
+
+Checked locally: a flow agent called DeepWiki's public MCP server
+(`ask_wiki_question`) and its answer, naming DeepWiki, passed the answer
+check 3 of 3; a client built on the official MCP Python SDK (2.3.0, in a
+separate container) initialised, listed the two tools, searched the
+knowledge base and got a cited answer from `ask`.
+
 ### Streaming and cancelling
 
 Questions stream their progress as server-sent events: the first arrives

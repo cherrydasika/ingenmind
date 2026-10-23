@@ -91,6 +91,7 @@ import flows
 import guardrails
 import human
 import knowledge_collections
+import mcp_integration
 import injection
 import pii
 import llm
@@ -224,8 +225,9 @@ AGENT_PROMPT = (
     "You are the assistant, and you answer the user yourself. Search the knowledge base with "
     "search_knowledge_base first, rephrasing and searching again if the results don't cover the question; "
     "call your live-data tools when the question needs live data. Answer only from what your tools return, "
-    "citing knowledge-base chunks by their [n] numbers right after the facts they support; never invent "
-    "facts, numbers or links. Keep each fact with what it applies to: when sources describe different "
+    "citing knowledge-base chunks by their [n] numbers right after the facts they support; facts from other "
+    "tools have no [n]: name their source in the sentence instead (for example 'according to Open-Meteo'). "
+    "Never invent facts, numbers or links. Keep each fact with what it applies to: when sources describe different "
     "operators, places or tickets, say which says what, and never merge them into one general rule or call "
     "something 'all' or 'standard' the sources don't. If the results don't answer the question, say so plainly "
     "in one or two sentences. Write a short, direct answer with a hard limit of 120 words, with no sentence "
@@ -818,6 +820,12 @@ class _Run:
                 with self.lock:
                     used = sum(1 for c in getattr(self, "calls", []) if c["tool"] == name)
                 reason = api_tools.check(name, _input(use), used, approval=bool((getattr(self, "settings", None) or {}).get("approval")))
+            elif name.startswith(mcp_integration.TOOL_PREFIX):   # an MCP tool (R38): the same guardrails
+                entry = self._mcp_tools(role).get(name)
+                with self.lock:
+                    used = sum(1 for c in getattr(self, "calls", []) if c["tool"] == name)
+                reason = (mcp_integration.check(entry, _input(use), used) if entry
+                          else f"{name!r} isn't enabled any more")
             if reason is None and (hit := self.over_budget()):
                 reason = hit if hit == CANCEL_REASON else f"{hit} has run out: answer with what you have"
             if reason is None:
@@ -961,7 +969,40 @@ class _Run:
             return self._search(use, delegation)
         if name in ("web_search", "fetch_source"):
             return self._research_tool(use, delegation)
+        if name.startswith(mcp_integration.TOOL_PREFIX):
+            return self._mcp(use, delegation)
         return self._call(use, delegation)
+
+    def _mcp_tools(self, role: str) -> dict:
+        """The MCP tools (R38) the agent behind this role may call, by tool name."""
+        agent = (getattr(self, "tree", None) or {}).get(role.removeprefix("agent:"))
+        return mcp_integration.offered(agent.mcp) if agent is not None and agent.mcp else {}
+
+    def _mcp(self, use: dict, delegation: int) -> dict:
+        """One MCP tool call (R38), after the guardrails passed: recorded like an API call (so the
+        answer check sees its result) and returned fenced as untrusted data."""
+        name, args = use.get("name"), _input(use)
+        run = next((r for r in self.agent_runs if r["n"] == delegation), None)
+        entry = self._mcp_tools(f"agent:{(run or {}).get('node', '')}").get(name)
+        if entry is None:
+            return _result(use, f"{name!r} isn't available.", error=True)
+        with self.lock:
+            record = {"n": len(self.calls) + 1, "turn": use["turn"], "delegation": delegation, "tool": name,
+                      "input": args, "ok": None}
+            self.calls.append(record)
+        self.emit({"type": "call", "state": "start", "agent": "external_apis", "n": record["n"], "turn": use["turn"],
+                   "delegation": delegation, "tool": name, "input": args})
+        result = mcp_integration.call(entry["server"], entry["tool"], args)
+        record.update(ok=result["ok"], summary=result["text"][:2000], error=result["error"], seconds=result["seconds"])
+        self.emit({"type": "call", "state": "done", "agent": "external_apis", "n": record["n"], "turn": use["turn"],
+                   "tool": name, "ok": result["ok"], "error": result["error"], "seconds": result["seconds"]})
+        if not result["ok"]:
+            return _result(use, f"{entry['tool']} failed: {result['error'] or 'no result'}", error=True)
+        if found := injection.flags(result["text"]):
+            return _result(use, f"{entry['tool']}'s result {injection.describe(found)}, so it was withheld.", error=True)
+        server = entry["server"]["name"]
+        return _result(use, injection.quote(f"{entry['tool']} (MCP server {server}) result; name {server} as the "
+                                            "source of these facts, with no [n] numbers for them", result["text"]))
 
     def delegate(self, child: str, task: "contracts.Task", parent: int) -> "contracts.Result":
         """A sub-agent's run under the typed contract (R29): the Task in, a Result out, both recorded and traced."""
