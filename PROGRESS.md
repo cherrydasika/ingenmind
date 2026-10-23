@@ -552,6 +552,20 @@ on #120 that isn't waiting on the user.
   untrusted hook got no question or task text; a first round rejected with
   401 stayed pending for retry.
 
+- **R48 (#108) in part (open):** the connector interface and the first
+  connectors that need no outside account (`app/connectors`): file upload
+  (PDF, DOCX, PPTX, HTML, Markdown, text; DOCX/PPTX read from their XML, no
+  new dependency) and S3/MinIO (list, fetch, changed-since; keys sealed),
+  ingested through the ad-hoc path with a source id and provenance. UI on
+  Data → Ad-hoc documents. **Checked:** three files from a local MinIO
+  bucket imported; an answer cited the .docx's s3:// source and passed the
+  answer check; a .pptx uploaded in the browser. **Left, needs you:** Google
+  Drive (the done-when), SharePoint, Confluence and Notion need OAuth apps
+  on your accounts; also setup's Sources step offering them, and permission
+  sync. Local data: the `ingenmind-docs` MinIO bucket and the `handbook`
+  connector (its keys sealed with a throwaway INTEGRATIONS_KEY, so it can't
+  be browsed from the app).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

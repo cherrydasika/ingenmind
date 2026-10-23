@@ -510,6 +510,24 @@ the source's profile, to download, finish and add in a pull request; nothing
 is written into the app or registered. If the source publishes an OpenAPI
 spec, the draft points to importing it here instead.
 
+### Files and document connectors
+
+Knowledge that lives in files and buckets (`app/connectors`, R48): **Data →
+Ad-hoc documents → Upload a file** takes a PDF, Word (.docx), PowerPoint
+(.pptx), HTML, Markdown or text file (up to 10 MB), and **Document
+connectors** imports files from S3 or anything that speaks S3, such as
+MinIO (a bucket and prefix; access keys stored encrypted with
+`INTEGRATIONS_KEY`, else the server's own AWS credentials). Each file goes
+through the same chunk → embed → store path as a pasted document, keyed by
+its source (`upload://name.pdf`, `s3://bucket/key`) and keeping where it came
+from (connector, item, modified time, ETag), so answers cite it. A connector
+lists, fetches and reports what changed since a time. Google Drive,
+SharePoint/OneDrive, Confluence and Notion need an OAuth app on the
+organisation's own account first, so they aren't here yet. Checked locally:
+a .docx, .pptx and PDF imported from a MinIO bucket, and "How long are items
+found on Northwind shuttle trains kept?" answered from the .docx, citing
+`s3://ingenmind-docs/handbook/lost-property.docx`.
+
 ### Webhooks
 
 **Admin → Integrations → Webhooks** (`app/webhooks.py`, R47) sends events to

@@ -35,8 +35,10 @@ def preview(title: str, text: str) -> dict:
     return {"source_id": sid, "chunks": len(chunks), "chars": len(text), "exists": existing is not None}
 
 
-def ingest(title: str, text: str, ttl_days: float) -> dict:
-    sid = source_id(title)
+def ingest(title: str, text: str, ttl_days: float, source: str | None = None, provenance: dict | None = None) -> dict:
+    """source: a file's own id (upload://name.pdf, s3://bucket/key; R48) instead of one from the title;
+    provenance: where it came from, kept with every chunk."""
+    sid = source or source_id(title)
     t0 = time.perf_counter()
     client = storage.get_client()
     storage.ensure_collection(client)
@@ -65,6 +67,7 @@ def ingest(title: str, text: str, ttl_days: float) -> dict:
     storage.upsert_chunks(
         client, sid, chunks, vectors, doc_hash, ttl_days,
         extra_payload={"title": title.strip(), "source_type": "adhoc", "chunking": config.CHUNKING,
+                       **({"provenance": provenance} if provenance else {}),
                        **{f"dedup_{k}": v for k, v in dedup_stats.items()}},
         paragraph_hashes=owned_hashes,
         replace_existing=bool(existing),
