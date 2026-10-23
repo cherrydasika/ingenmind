@@ -53,6 +53,7 @@ class SetupDatabase(unittest.TestCase):
         blueprint.reset_schema_cache()
         sources.reset_schema_cache()
         sources_run.reset_schema_cache()
+        sources_run.live_sources.reset_schema_cache()
         content.reset_schema_cache()
         plan.reset_schema_cache()
         evaluation.reset_schema_cache()
@@ -729,6 +730,10 @@ class SourcesStep(SetupDatabase):
         inline = patch.object(sources_run, "_start_thread", side_effect=lambda work: work())
         inline.start()
         self.addCleanup(inline.stop)
+        # The live areas' data-source research (R41) has its own tests (test_live_sources.py): not the web here.
+        self.live = patch.object(sources_run.live_sources, "research_all", return_value=[])
+        self.live.start()
+        self.addCleanup(self.live.stop)
         version = blueprint.start_version()
         blueprint.finish(version, blueprint.DomainBlueprint.model_validate(blueprint._normalise(
             {**RAIL_BLUEPRINT, "flow": {**RAIL_BLUEPRINT["flow"], "brief": "UK trains", "scope": "UK rail only",

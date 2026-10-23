@@ -802,7 +802,23 @@ export class SetupPage {
           : h("div", { class: "note" }, "⚠ no chosen source yet"))),
       sv.live_areas?.length ? h("div", { class: "setup-fact", style: "margin-top:12px" },
         h("div", { class: "metric-label" }, "Answered by live tools, not sources"),
-        h("div", { class: "note" }, sv.live_areas.join(", "))) : null);
+        h("div", { class: "note" }, sv.live_areas.join(", "))) : null,
+      ...(sv.live_sources || []).map((a) => this.renderLiveSource(a)));
+  }
+
+  // A live area's data source (R41): what research recommends and the live tool the area needs.
+  renderLiveSource(a) {
+    const tool = a.tool || {};
+    const needs = [tool.name ? `Needs a live tool: ${tool.name}${tool.exists ? " (here already)" : " (not built yet: draft it from the report)"}` : "",
+      a.existing?.length ? `Tools here that may help: ${a.existing.join(", ")}` : ""].filter(Boolean).join(" · ");
+    const status = a.status === "researching" ? "Looking for its data source…"
+      : a.status === "failed" ? `Research failed: ${a.error || "unknown"}`
+        : a.status === "not researched" ? "Not researched yet"
+          : a.recommended ? `Recommended: ${a.recommended} (${(a.method || "").replace("_", " ")})` : "No data source fits";
+    return h("div", { class: "setup-fact" }, h("div", { class: "metric-label" }, `${a.name} (live)`),
+      h("div", {}, status), a.rationale && a.status === "ready" ? h("div", { class: "note" }, a.rationale) : null,
+      needs ? h("div", { class: "note" }, needs) : null,
+      a.report_id ? h("div", { class: "note" }, "The full report is in Knowledge base → Ingestion → Data source reports.") : null);
   }
 
   async act(call, button) {

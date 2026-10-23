@@ -490,6 +490,18 @@ on #120 that isn't waiting on the user.
   Checked in the browser on the local Darwin report: drafted and downloaded
   darwin_rail_api.py.
 
+- **R41 (#33) done:** setup's Sources step researches the blueprint's live
+  areas too (`app/initialization/live_sources.py`, after site discovery, in
+  its background work): per live area (at most 4) two web searches, the best
+  few distinct sites fetched, profiled and judged as in research, saved as a
+  data-source report, and the area's needed tool recorded (name, whether it
+  exists here, method, endpoint) plus tools here that may help. The Sources
+  step's Coverage card shows each live area's recommendation and tool.
+  Checked on a copy of the local blueprint with two live areas: live
+  departures → UK Rail Schedule API (api_tool), weather → a weather API with
+  get_weather and the imported Open-Meteo tool listed as already here.
+  (The recommendations' quality is R42's business.)
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

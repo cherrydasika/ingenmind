@@ -27,7 +27,7 @@ import knowledge_system
 import research
 from common import config
 
-from . import blueprint, content, conversation, sources, state
+from . import blueprint, content, conversation, live_sources, sources, state
 
 STALE_MINUTES = 15
 CONTINUED = ("Thanks. Next I'll look through the sites you chose and show you their sections and pages, so you "
@@ -91,8 +91,9 @@ def _confirmed_blueprint() -> dict:
     return row["blueprint"]
 
 
-def start(discover=None) -> int:
-    """Discover sources in the background; from DISCOVERING_SOURCES, or again from the selection."""
+def start(discover=None, research_live: bool = True) -> int:
+    """Discover sources in the background; from DISCOVERING_SOURCES, or again from the selection.
+    research_live: also research the live areas' data sources (R41)."""
     current = knowledge_system.status()["state"]
     if current not in (state.DISCOVERING_SOURCES, state.AWAITING_SOURCE_SELECTION):
         raise state.TransitionNotAllowed("the sources step is not open now")
@@ -113,6 +114,11 @@ def start(discover=None) -> int:
             status, error = "ready", None
         except Exception as exc:
             record, status, error = None, "failed", f"{type(exc).__name__}: {exc}"[:1000]
+        if status == "ready" and research_live:   # the live areas' data sources (R41); a failure stays with its area
+            try:
+                live_sources.research_all(bp)
+            except Exception as exc:
+                print(f"live data source research skipped: {exc}")
         with _connect() as connection:
             connection.execute("UPDATE app_source_discoveries SET status = %s, record = %s, error = %s WHERE run_id = %s",
                                (status, Jsonb(record) if record else None, error, run_id))
@@ -199,4 +205,5 @@ def view() -> dict:
         return {"run": None, "sources": [], "coverage": [], "live_areas": []}
     listed = sources.list_sources()
     return {"run": latest_run(), "sources": listed, "coverage": sources.coverage(bp, listed),
-            "live_areas": [a["name"] for a in bp["knowledge_areas"] if a["knowledge_class"] not in sources.SOURCED_CLASSES]}
+            "live_areas": [a["name"] for a in bp["knowledge_areas"] if a["knowledge_class"] not in sources.SOURCED_CLASSES],
+            "live_sources": live_sources.view(bp)}
