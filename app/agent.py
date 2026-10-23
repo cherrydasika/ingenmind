@@ -79,6 +79,7 @@ import agent_runtime
 import agent_tree
 import answer_eval
 import api_tools
+import analytics
 import citations
 import blackboard
 import contracts
@@ -3179,6 +3180,10 @@ def _drive(run_id: str, run: "_Run", config: dict, question: str, graph_input, s
     shown = ((final.get("output_guardrail") or {}).get("decision") in (None, "ALLOW")
              and evaluation.get("passed") is not False)
     result["citations"] = citations.passages(result["answer"], internal["searches"]) if shown else {}
+    try:   # what retrieval found, kept and cited, for Analytics (R52): counts, chunk ids and pages
+        result["funnel"] = analytics.funnel({"searches": internal["searches"], "answer": result["answer"]})
+    except Exception as error:
+        log.warning("no retrieval summary: %s", error)
     if getattr(run, "plan", None):   # a Planner's task graph as it ended (R31)
         result["plan"] = [s.public() for s in run.plan]
     if getattr(run, "board", None):  # a Blackboard's board as it ended (R33)

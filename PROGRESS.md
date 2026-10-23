@@ -578,6 +578,17 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R52 (#6) done:** Monitoring → Analytics (`app/analytics.py`): views
+  `analytics_questions` and `analytics_runs`; a question-journey Sankey, the
+  search funnel (each turn now keeps a `funnel` summary, built in
+  `agent._drive` where the real searches are: counts, chunk ids, pages), most
+  and least cited sources and pages never found, a 3-D knowledge map
+  coloured by use, daily questions / pass rate / p50 and p95 time / tokens
+  and approximate cost, and content freshness; a date filter; admins
+  (manage_settings). **Checked:** with real local questions, all seven
+  charts render in the light and dark themes and at phone width (no
+  sideways scroll); queries tested against the test database.
+
 - **R50 (#110) built; the real Slack check needs you (open):** channels
   (`app/channels`): an embeddable widget (script tag, allowed origins via
   the frame's `frame-ancestors`, public or signed-in), a Slack app (signed

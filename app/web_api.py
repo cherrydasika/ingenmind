@@ -58,6 +58,7 @@ import research
 from initialization import (blueprint_run, build as setup_build, content as setup_content,
                             evaluation as setup_evaluation, labels as setup_labels, plan as setup_plan, readiness as setup_readiness, sources_run,
                             state as setup_state, supervisor)
+import analytics
 import answer_feedback
 import sessions
 import source_profiles
@@ -1810,6 +1811,15 @@ def channel_usage(request: Request) -> Response:
     return _json(channels.usage())
 
 
+# ---------- Analytics (analytics.py, R52) ----------
+
+def analytics_report(request: Request) -> Response:
+    try:
+        return _json(analytics.report(request.query_params.get("from"), request.query_params.get("to")))
+    except ValueError as error:
+        return _json({"error": str(error)}, 400)
+
+
 def _shape_agent_result(result: dict) -> dict:
     """The browser needs no chunk vectors (no page plots them any more)."""
     return {**result, "searches": [{**s, "retrieval": _strip_vectors(s["retrieval"])} for s in result["searches"]]}
@@ -2628,6 +2638,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/flow-evals/runs/{run_id}/cancel", eval_cancel, methods=["POST"]),
     Route("/api/session/reset", reset_session, methods=["POST"]),
     Route("/api/sessions", session_list),
+    Route("/api/analytics", analytics_report),
     Route("/api/channels", channel_list),
     Route("/api/channels", channel_add, methods=["POST"]),
     Route("/api/channels/usage", channel_usage),

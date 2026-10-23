@@ -997,3 +997,11 @@ button.cite:focus-visible { outline: 2px solid var(--primary); outline-offset: 1
 .dag-plan-task[data-state="error"] { border-color: var(--err-text, #dc2626); }
 .dag-plan-task[data-state="skipped"] { opacity: 0.55; }
 .dag-plan-label { font-weight: 600; }
+
+/* Analytics (R52, analytics.js) */
+.chart { width: 100%; min-width: 0; }
+.analytics-filter { flex-wrap: wrap; gap: 8px; }
+.analytics-dates { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.never-list { columns: 2 260px; margin: 0; padding-left: 18px; font-size: 13px; }
+.never-list li { break-inside: avoid; overflow-wrap: anywhere; }

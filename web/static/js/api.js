@@ -98,6 +98,7 @@ export const api = {
   agentSession: (sessionId) => request(`/api/agent/session?session_id=${encodeURIComponent(sessionId)}`),
   resetSession: (sessionId) => post("/api/session/reset", { session_id: sessionId }),
   currentSession: () => request("/api/sessions/current"),
+  analytics: ({ from, to }) => request(`/api/analytics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   channels: () => request("/api/channels"),
   addChannel: (body) => post("/api/channels", body),
   removeChannel: (id) => request(`/api/channels/${id}`, { method: "DELETE" }),
