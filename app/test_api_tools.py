@@ -65,5 +65,46 @@ class Geocoding(unittest.TestCase):
         self.assertIn("No place called 'Nowhereville, UK'", result["error"])
 
 
+class PoliteRetry(unittest.TestCase):
+    """R45: a 429 or 503 from Open-Meteo is retried once, after its Retry-After (up to 3 s)."""
+
+    def reply(self, body=b'{"ok": 1}'):
+        class Reply:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return body
+        return Reply()
+
+    def error(self, code, retry_after=None):
+        import email.message
+        import urllib.error
+        headers = email.message.Message()
+        if retry_after is not None:
+            headers["Retry-After"] = str(retry_after)
+        return urllib.error.HTTPError("https://api.open-meteo.com/v1/forecast", code, "busy", headers, None)
+
+    def test_a_busy_reply_is_retried_once(self):
+        waits = []
+        with patch("urllib.request.urlopen", side_effect=[self.error(503, 2), self.reply()]) as get:
+            self.assertEqual(weather._get(weather.FORECAST, {"latitude": 1}, sleep=waits.append), {"ok": 1})
+        self.assertEqual((get.call_count, waits), (2, [2.0]))
+
+    def test_only_once_and_only_when_it_is_worth_waiting(self):
+        import urllib.error
+        cases = [([self.error(429), self.error(429)], 2),     # still busy: give up after one retry
+                 ([self.error(404)], 1),                       # not a busy reply: no retry
+                 ([self.error(503, 120)], 1)]                  # asks for two minutes: not waited for
+        for replies, calls in cases:
+            with self.subTest(calls=calls), patch("urllib.request.urlopen", side_effect=replies) as get:
+                with self.assertRaises(urllib.error.HTTPError):
+                    weather._get(weather.FORECAST, {}, sleep=lambda s: None)
+                self.assertEqual(get.call_count, calls)
+
+
 if __name__ == "__main__":
     unittest.main()

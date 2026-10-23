@@ -533,6 +533,11 @@ on #120 that isn't waiting on the user.
   the profile's terms went from unknown to "non-commercial display only …
   no scraping or extraction, no redistribution".
 
+- **R45 (#29) done:** Open-Meteo calls (`api_tools/weather._get`) retry once
+  on a 429 or 503, after its Retry-After (1 s if none; not waited for when
+  it asks for more than 3 s). Tests cover the retry, giving up after one,
+  no retry for other errors, and a long Retry-After.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
