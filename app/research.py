@@ -31,7 +31,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from typing import Annotated, Callable, Literal
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 import boto3
 from pydantic import BaseModel, Field, field_validator
@@ -487,6 +487,21 @@ def verify_profile(profile: SourceProfile, pages: list[dict]) -> SourceProfile:
                                       "unknowns": list(dict.fromkeys(u[:MAX_FACT_CHARS] for u in unknowns))})
 
 
+TERMS_LINK = re.compile(r"\b(terms|conditions|legal|copyright|acceptable[ -]use|licen[cs]e|disclaimer)\b",
+                        re.IGNORECASE)
+
+
+def terms_link(pages: list[dict]) -> str | None:
+    """A terms-of-use link on these pages (by its text or address), the same site's first; None if none."""
+    seen = {p.get("url") for p in pages}
+    hosts = {urlsplit(p.get("url") or "").netloc for p in pages}
+    links = [link for p in pages for link in p.get("links") or []
+             if link.get("url") not in seen and (TERMS_LINK.search(link.get("text") or "")
+                                                 or TERMS_LINK.search(urlsplit(link.get("url") or "").path))]
+    links.sort(key=lambda link: urlsplit(link["url"]).netloc not in hosts)    # the same site first
+    return links[0]["url"] if links else None
+
+
 def profile_sources(task: str, candidates: list[dict], fetched: dict[str, dict], brief: str = "",
                     profiler: Callable[..., tuple[SourceProfiles, dict]] = profile_with_llm,
                     fetch: Callable[[str], dict] = fetch_source, max_profiles: int = MAX_PROFILES) -> dict:
@@ -542,6 +557,23 @@ def profile_sources(task: str, candidates: list[dict], fetched: dict[str, dict],
             fetched[url] = page
             c["pages"] = c["pages"][:MAX_PROFILE_PAGES - 1] + [page]
             reprofile.append(c)
+
+    # Probe (R44): a website's terms page, when its terms are still unknown and a fetched page links one.
+    for number, found in profiles.items():
+        if not any(p.access_method in ("web_page", "scrape_only") and _vague(p.licence_and_terms) for p in found):
+            continue
+        c = by_number[number]
+        url = terms_link(c["pages"])
+        if not url:
+            continue
+        page = fetch(url)
+        probes.append({"url": url, "candidate": number, "kind": "terms",
+                       "ok": not page.get("error") and bool(page.get("text")), "error": page.get("error")})
+        if probes[-1]["ok"]:
+            fetched[url] = page
+            c["pages"] = c["pages"][:MAX_PROFILE_PAGES - 1] + [page]
+            if c not in reprofile:
+                reprofile.append(c)
     if reprofile:
         result, spent = profiler(task, brief, reprofile)
         add(spent)

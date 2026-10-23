@@ -360,6 +360,39 @@ class SourceProfiling(unittest.TestCase):
         self.assertEqual(out["profiles"][0]["evidence_urls"], [DOCS, SPEC])
         self.assertEqual(out["usage"], {"input_tokens": 20, "output_tokens": 10})
 
+    def test_a_websites_terms_page_is_read_when_its_terms_are_unknown(self):
+        """R44: a web-page candidate's terms link is followed, and the candidate profiled again with it."""
+        home = "https://www.example-rail.co.uk/live"
+        fetched = {home: {**page(home, "Live departures for every station."), "links": [
+            {"url": "https://www.example-rail.co.uk/help", "text": "Help", "nav": True},
+            {"url": "https://other.example/terms", "text": "Terms", "nav": False},          # another site: later
+            {"url": TERMS, "text": "Terms and conditions", "nav": False}]}}
+        site = dict(access_method="web_page", licence_and_terms="unknown", docs_url=None, evidence_urls=[home])
+        fake = profiler([profile(**site)], [profile(**{**site, "licence_and_terms": "Personal use only; no scraping.",
+                                                       "evidence_urls": [home, TERMS]})])
+        probed = []
+
+        def fetch(url):
+            probed.append(url)
+            return page(url, "You may not scrape or reuse this site's data. Personal use only.")
+        out = research.profile_sources("live departures", [{"name": "Site", "provider": "Rail", "urls": [home]}],
+                                       fetched, profiler=fake, fetch=fetch)
+        self.assertEqual(probed, [TERMS])                                    # the same site's terms first
+        self.assertEqual(out["probes"][0]["kind"], "terms")
+        self.assertEqual(fake.calls[1]["candidates"][0]["urls"], [home, TERMS])
+        self.assertIn("no scraping", out["profiles"][0]["licence_and_terms"])
+
+    def test_no_terms_page_is_fetched_when_the_terms_are_known_or_it_is_an_api(self):
+        home = "https://www.example-rail.co.uk/live"
+        fetched = {home: {**page(home, "x"), "links": [{"url": TERMS, "text": "Terms", "nav": False}]}}
+        for fields in (dict(access_method="web_page", licence_and_terms="Open Government Licence"), dict()):
+            probed = []
+            research.profile_sources("q", [{"name": "S", "provider": "p", "urls": [home]}], fetched,
+                                     profiler=profiler([profile(**fields)]),
+                                     fetch=lambda url: probed.append(url) or page(url, "x"))
+            self.assertEqual(probed, [], fields)
+        self.assertIsNone(research.terms_link([page(home, "x")]))           # no links: nothing to follow
+
     def test_a_link_no_fetched_page_gives_is_never_probed(self):
         fetched = {DOCS: page(DOCS, "Free with a token.")}
         probed = []
