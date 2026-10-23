@@ -2,6 +2,7 @@ import { api } from "./api.js";
 import { badge, card, errorBox, fmtTime, h, heatCell, loading, markdown, note, shortUrl } from "./ui.js";
 import { FlowEvals } from "./flow_evals.js";
 import { GoldenSet } from "./golden.js";
+import { FeedbackReview } from "./feedback.js";
 import { SearchQuality } from "./search_quality.js";
 
 const POLL_MS = 2000;
@@ -41,6 +42,7 @@ export class EvaluationsPage {
     this.matrixView = "summary";
     this.flowEvals = new FlowEvals();
     this.searchQuality = new SearchQuality();
+    this.feedback = new FeedbackReview();
     this.golden = new GoldenSet({ onSaved: (set) => { this.flowEvals.form.set = set.id; this.flowEvals.load(); } });
     try { this.selected = sessionStorage.getItem(SELECTED_KEY); } catch { this.selected = null; }
   }
@@ -55,7 +57,7 @@ export class EvaluationsPage {
 
   async mount() {
     this.root.replaceChildren(loading());
-    await Promise.all([this.refresh(), this.flowEvals.load(), this.golden.load(), this.searchQuality.load()]);
+    await Promise.all([this.refresh(), this.flowEvals.load(), this.golden.load(), this.searchQuality.load(), this.feedback.load()]);
   }
 
   async refresh() {
@@ -89,6 +91,7 @@ export class EvaluationsPage {
   render() {
     this.root.replaceChildren(h("div", { class: "stack" },
       this.golden.root,
+      this.feedback.root,
       this.flowEvals.root,
       this.searchQuality.root,
       h("h2", { class: "fe-archive-title" }, "Archived local-model evaluations"),

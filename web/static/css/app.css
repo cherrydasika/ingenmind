@@ -421,6 +421,18 @@ select {
 .reply-body h4, .prose h4 { margin: 12px 0 4px; font-size: 13.5px; font-weight: 650; }
 .reply-body h4:first-child { margin-top: 0; }
 .reply-meta { font-size: 12px; color: var(--faint); }
+/* Answer feedback (R51, feedback.js) */
+.feedback { margin-top: 6px; }
+.feedback-row { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.feedback .thumb { padding: 2px 8px; filter: grayscale(1); opacity: .7; }
+.feedback .thumb.on, .feedback .thumb:hover { filter: none; opacity: 1; }
+.feedback .thumb.on { background: var(--accent-soft, rgba(37, 99, 235, .12)); }
+.feedback-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.feedback-form input { flex: 1 1 200px; min-width: 0; }
+.feedback-shown { font-size: 12px; margin-top: 4px; }
+.feedback-item { border-top: 1px solid var(--border); padding-top: 10px; display: grid; gap: 4px; }
+.feedback-item:first-child { border-top: 0; padding-top: 0; }
+.feedback-promote { display: grid; gap: 6px; }   /* not .stack: it hides an empty textarea */
 .reply.error .reply-body { color: var(--err-text); }
 .sources { font-size: 12.5px; }
 .sources summary { padding: 6px 10px; }

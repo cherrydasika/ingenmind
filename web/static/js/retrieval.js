@@ -8,6 +8,7 @@ import { api } from "./api.js";
 import { linkCitations } from "./citations.js";
 import { AgenticFlow, shortModel } from "./flow.js";
 import { card, errorBox, fmtTime, h, markdown, section, sourceItem } from "./ui.js";
+import { feedbackBar } from "./feedback.js";
 import { whyButton } from "./why.js";
 
 // The answer's [n] become previews of the passages they cite (R23).
@@ -55,7 +56,7 @@ export class RetrievalPage {
   load(session) {
     const turns = session?.turns || [];
     this.messages = turns.map((t) => ({ question: t.question, interaction_id: String(t.turn_id),
-      result: { ...t.result, question: t.question } }));
+      result: { ...t.result, question: t.question, turn_id: t.turn_id }, feedback: t.feedback }));
     this.latest = this.messages.length ? this.messages[this.messages.length - 1].result : null;
   }
 
@@ -165,7 +166,8 @@ export class RetrievalPage {
     turn.append(h("div", { class: `reply ${ae && !ae.passed ? "withheld" : ""}` },
       h("div", { class: "reply-role" }, "◆ Answer", verdict),
       linked(h("div", { class: "reply-body", html: markdown(r.answer) }), r.citations),
-      h("div", { class: "reply-meta" }, meta)));
+      h("div", { class: "reply-meta" }, meta),
+      r.turn_id && r.answer ? feedbackBar(r.turn_id, msg.feedback, (f) => { msg.feedback = f; }) : null));
     if (r.sources?.length) {
       turn.append(h("details", { class: "sources" },
         h("summary", {}, `Sources (${r.sources.length})`),

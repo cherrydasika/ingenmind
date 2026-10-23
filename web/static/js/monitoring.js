@@ -83,6 +83,8 @@ export class MonitoringPage {
     const used = usage(metrics);
     const catalogue = can("manage_agents") || can("manage_settings") ? await api.modelCatalogue().catch(() => null) : null;
     const cache = can("manage_settings") ? await api.answerCache().catch(() => null) : null;
+    const rated = can("view_sessions") || can("manage_agents") || can("manage_settings")
+      ? await api.feedbackSummary().catch(() => null) : null;   // R51
 
     const ready = system?.state === "READY";
     const kpis = h("div", { class: "kpis" },
@@ -93,7 +95,9 @@ export class MonitoringPage {
       overview ? kpi("Knowledge base", `${fmtInt(overview.rows?.length || 0)} pages`, overview.count != null ? `${fmtInt(overview.count)} chunks` : null,
         "#/knowledge-base") : null,
       used ? kpi("Questions, last 7 days", fmtInt(used.runs), `${pct(used.passRate)} passed the answer check · ${secs(used.p50)} typical`) : null,
-      used ? kpi("Blocked, last 7 days", fmtInt(used.blocked), "by the input or output guardrail") : null);
+      used ? kpi("Blocked, last 7 days", fmtInt(used.blocked), "by the input or output guardrail") : null,
+      rated && rated.up + rated.down ? kpi("Feedback, last 7 days", `👍 ${fmtInt(rated.up)} · 👎 ${fmtInt(rated.down)}`,
+        `${pct(rated.up / (rated.up + rated.down))} helpful`, can("run_evaluations") && can("view_sessions") ? "#/evaluations" : null) : null);
 
     const down = services.filter((s) => !s.up);
     const list = h("div", {}, services.map((s) => h("div", { class: "service-row" },

@@ -528,6 +528,21 @@ a .docx, .pptx and PDF imported from a MinIO bucket, and "How long are items
 found on Northwind shuttle trains kept?" answered from the .docx, citing
 `s3://ingenmind-docs/handbook/lost-property.docx`.
 
+### Answer feedback
+
+Every answer on the Ask page has a thumbs up and a thumbs down
+(`app/answer_feedback.py`, `web/static/js/feedback.js`, R51); a thumbs-down
+takes an optional reason (wrong, incomplete, out of date, not cited, other)
+and comment. The rating is kept with the session turn (shown on the Sessions
+page) and is also the `user_feedback` score (BOOLEAN, the reason and comment
+as its comment) on the answer's Langfuse trace; changing it replaces the
+score. **Evaluations → From answer feedback** lists the thumbs-down with the
+question and answer: write the corrected answer and **Add to golden set**
+puts the question in the `user_feedback` evaluation set, ready to evaluate
+flows against. Monitoring → Overview shows the last 7 days' counts.
+`POST /api/feedback/<turn_id>` (one's own answers), `GET /api/feedback`
+(view_sessions), `POST /api/feedback/<turn_id>/promote` (run_evaluations).
+
 ### Re-crawl and freshness
 
 Web pages in the knowledge base are checked again on a schedule
@@ -1976,6 +1991,7 @@ app/
   ingestion_info.py        # manual job descriptions + state labels (Ingestion)
   ingestion_worker.py      # resumes and processes queued PostgreSQL jobs; runs the re-crawl
   recrawl.py               # re-crawl schedules, change detection, freshness (R49)
+  answer_feedback.py       # thumbs up/down on answers, Langfuse score, into golden sets (R51)
   ttl_cache.py             # small time-based cache with .clear()
   pipeline.py                    # answer_question(): retrieval → generation, one trace
   retrieval.py                   # hybrid_search(): question → ranked chunks (no LLM)

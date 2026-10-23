@@ -91,13 +91,15 @@ def current_trace_id() -> str | None:
         return None
 
 
-def score(trace_id: str | None, name: str, value, data_type: str | None = None, comment: str | None = None) -> None:
+def score(trace_id: str | None, name: str, value, data_type: str | None = None, comment: str | None = None,
+          score_id: str | None = None) -> None:
     """Best-effort: record a score on a trace (filterable and chartable in
-    Langfuse). By trace ID, so it works from any thread. Never raises."""
+    Langfuse). By trace ID, so it works from any thread. Never raises.
+    score_id: the same id again replaces the score (a changed thumb, R51)."""
     if not trace_id or value is None:
         return
     try:
         get_langfuse_client().create_score(trace_id=trace_id, name=name, value=value, data_type=data_type,
-                                           comment=comment)
+                                           comment=comment, **({"score_id": score_id} if score_id else {}))
     except Exception:
         pass

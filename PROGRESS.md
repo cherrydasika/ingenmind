@@ -578,6 +578,21 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R51 (#111) done:** answer feedback (`app/answer_feedback.py`): thumbs
+  up/down under each Ask-page answer, a reason (wrong, incomplete, out of
+  date, not cited, other) and comment when down; kept per session turn
+  (`answer_feedback`, shown on Sessions) and sent as the `user_feedback`
+  BOOLEAN score on the answer's Langfuse trace (score id per turn, so a
+  change replaces it). Evaluations → From answer feedback: an admin writes
+  the corrected answer and adds the question to the `user_feedback` golden
+  set. Monitoring → Overview: last 7 days' counts. No gap report exists yet
+  to feed (R55's alerts can use `answer_feedback.summary`). **Done-when
+  checked:** a thumbs-down given in the browser showed under the answer after
+  a reload and on the Sessions page, and the score `feedback-23` (value 0,
+  "Incomplete; …") is on the answer's trace in Langfuse (read from its
+  ClickHouse: the local Langfuse v4 is events-only, so its read API is off);
+  it was then added to the golden set from Evaluations.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
