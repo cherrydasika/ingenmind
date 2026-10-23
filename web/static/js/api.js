@@ -99,6 +99,8 @@ export const api = {
   resetSession: (sessionId) => post("/api/session/reset", { session_id: sessionId }),
   currentSession: () => request("/api/sessions/current"),
   analytics: ({ from, to }) => request(`/api/analytics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  evalSchedule: () => request("/api/flow-evals/schedule"),
+  evalScheduleSave: (body) => post("/api/flow-evals/schedule", body),
   alerts: () => request("/api/alerts"),
   alertsCheck: () => post("/api/alerts/check", {}),
   alertRule: (kind, body) => request(`/api/alerts/rules/${encodeURIComponent(kind)}`, { method: "PATCH", body: JSON.stringify(body) }),

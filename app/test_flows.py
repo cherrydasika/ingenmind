@@ -773,6 +773,86 @@ class FlowStore(unittest.TestCase):
         self.assertEqual(self.client.post("/api/flows/travel_assistant/live", json={"version": 0}).status_code, 200)
         self.assertEqual(agent.live_flow(), (agent.FLOW, 0))
 
+    def set_run(self, flow_id, version, set_id, pass_rate, scheduled=False):
+        from psycopg.types.json import Jsonb
+        flows.evals.ensure_schema()
+        with flows.store._connect() as connection:
+            connection.execute("""
+                INSERT INTO agent_eval_runs (id, batch, set_id, set_name, flow_id, version, status, total, completed,
+                                             spec, summary, options, finished_at)
+                VALUES (%s, 'b', %s, %s, %s, %s, 'done', 10, 10, '{}'::jsonb, %s, %s, now())""",
+                (uuid.uuid4().hex[:12], set_id, set_id.title(), flow_id, str(version),
+                 Jsonb({"pass_rate": pass_rate, "evaluated": 10}), Jsonb({"scheduled": True} if scheduled else {})))
+
+    def publish_next(self, flow_id, name):
+        self.client.put(f"/api/flows/{flow_id}/draft", json={"flow": blank(flow_id) | {"name": name}})
+        return self.client.post(f"/api/flows/{flow_id}/publish", json={}).json()["version"]
+
+    def test_the_gate_blocks_a_worse_version_unless_given_a_reason(self):
+        flow_id = f"flow_{uuid.uuid4().hex[:6]}"
+        self.client.post("/api/flows", json={"flow": blank(flow_id)})
+        self.client.post(f"/api/flows/{flow_id}/publish", json={})
+        self.set_run(flow_id, 1, "travel_basics", 0.9)
+        self.assertEqual(self.client.post(f"/api/flows/{flow_id}/live", json={"version": 1}).status_code, 200)
+        worse = self.publish_next(flow_id, "Worse")
+        self.set_run(flow_id, worse, "travel_basics", 0.6)               # deliberately worse
+        refused = self.client.post(f"/api/flows/{flow_id}/live", json={"version": worse})
+        self.assertEqual(refused.status_code, 409)
+        [check] = refused.json()["gate"]["checks"]
+        self.assertEqual((check["candidate"], check["live"], check["ok"]), (0.6, 0.9, False))
+        self.assertIn("60% vs live 90%", refused.json()["error"])
+        self.assertEqual(agent.live_flow()[1], 1)                          # users still get v1
+        too_short = self.client.post(f"/api/flows/{flow_id}/live", json={"version": worse, "gate_override_reason": "ok"})
+        self.assertEqual(too_short.status_code, 409)
+        reason = "Known drop on fares; the fix ships tomorrow"
+        anyway = self.client.post(f"/api/flows/{flow_id}/live", json={"version": worse, "gate_override_reason": reason})
+        self.assertEqual(anyway.status_code, 200)
+        import audit
+        [entry] = [e for e in audit.entries(limit=50)[0] if e["action"] == "gate_overridden"][:1]
+        self.assertEqual((entry["details"]["reason"], entry["target"]), (reason, f"{flow_id}/v{worse}"))
+        # As good as the live one (within the tolerance) passes without asking.
+        better = self.publish_next(flow_id, "Better")
+        self.set_run(flow_id, better, "travel_basics", 0.6)
+        self.assertEqual(self.client.post(f"/api/flows/{flow_id}/live", json={"version": better}).status_code, 200)
+        self.client.post("/api/flows/travel_assistant/live", json={"version": 0})   # going back is never gated
+
+    def test_configured_gate_sets_must_have_been_run(self):
+        flow_id = f"flow_{uuid.uuid4().hex[:6]}"
+        self.client.post("/api/flows", json={"flow": blank(flow_id)})
+        self.client.post(f"/api/flows/{flow_id}/publish", json={})
+        self.set_run(flow_id, 1, "travel_basics", 0.8)
+        self.set_run(flow_id, 1, "lakeshore_demo", 0.8)
+        self.client.post(f"/api/flows/{flow_id}/live", json={"version": 1})
+        saved = self.client.post("/api/flow-evals/schedule", json={"gate_sets": ["lakeshore_demo"], "tolerance": 0.05})
+        self.assertEqual(saved.json()["schedule"]["gate_sets"], ["lakeshore_demo"])
+        self.addCleanup(flows.eval_gate.save_schedule, gate_sets=[], tolerance=0)
+        nxt = self.publish_next(flow_id, "Next")
+        self.set_run(flow_id, nxt, "travel_basics", 0.9)                 # only the other set
+        refused = self.client.post(f"/api/flows/{flow_id}/live", json={"version": nxt})
+        self.assertEqual(refused.json()["gate"]["checks"][0]["why"], "not run on this version")
+        self.set_run(flow_id, nxt, "lakeshore_demo", 0.76)              # 4 points down: within 5
+        self.assertEqual(self.client.post(f"/api/flows/{flow_id}/live", json={"version": nxt}).status_code, 200)
+        self.assertEqual(self.client.post("/api/flow-evals/schedule", json={"hour": 30}).status_code, 400)
+        self.client.post("/api/flows/travel_assistant/live", json={"version": 0})
+
+    def test_nightly_runs_on_the_live_flow_once_a_day(self):
+        from datetime import datetime, timezone
+        flows.eval_gate.save_schedule(enabled=True, sets=["travel_basics"], hour=2)
+        self.addCleanup(flows.eval_gate.save_schedule, enabled=False, sets=[])
+        early = datetime(2026, 10, 23, 1, tzinfo=timezone.utc)
+        late = datetime(2026, 10, 23, 3, tzinfo=timezone.utc)
+        self.assertFalse(flows.eval_gate.due(early))
+        target = lambda: ("travel_assistant", 0, raw())
+        with patch.object(flows.evals, "_ensure_worker"):                # queued only: no worker in the test
+            self.assertEqual(flows.eval_gate.run_nightly(target, None, early), [])
+            [run_id] = flows.eval_gate.run_nightly(target, None, late)
+            self.assertEqual(flows.eval_gate.run_nightly(target, None, late), [])   # once a day
+        run = flows.evals.get_run(run_id)
+        self.assertEqual((run["set_id"], run["flow_id"], run["options"]), ("travel_basics", "travel_assistant", {"scheduled": True}))
+        self.set_run("travel_assistant", 0, "travel_basics", 0.7, scheduled=True)
+        series = {s["set_id"]: s for s in self.client.get("/api/flow-evals/schedule").json()["trends"]}
+        self.assertEqual(series["travel_basics"]["runs"][-1]["scheduled"], True)
+
     def red_team_run(self, flow_id, version, met, judged, status="done"):
         from psycopg.types.json import Jsonb
         flows.evals.ensure_schema()

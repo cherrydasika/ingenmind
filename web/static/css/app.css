@@ -1018,5 +1018,7 @@ button.cite:focus-visible { outline: 2px solid var(--primary); outline-offset: 1
 .alert-history td:first-child { white-space: nowrap; }
 .alert-history td:nth-child(4) { min-width: 240px; }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.eval-sched-sets { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 6px 0 10px; }
+.form-grid label.sched-check, label.sched-check { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; font-size: 13px; }
 .form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .ops-metrics .metric-value { font-size: 17px; overflow-wrap: anywhere; }

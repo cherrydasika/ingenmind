@@ -9,7 +9,7 @@ from pathlib import Path
 from .compiler import FlowError, Runtime, compile_flow, validate
 from .registry import COMPONENTS
 from .spec import FlowSpec
-from . import architectures, compiler, evals, store
+from . import architectures, compiler, eval_gate, evals, store
 from .diff import diff
 from .templates import templates
 

@@ -1161,7 +1161,8 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
 
   // Make live: confirm, then the server checks the version was evaluated; if not, a
   // third click makes it live anyway (#62). A version that refused too few red-team
-  // questions (R14) asks once more first.
+  // questions (R14) asks once more first. One that does worse than the live version on
+  // the gate sets (R56) goes live only with a reason, kept in the audit log.
   const redTeamOk = useRef(null);
   const makeLive = (version) => {
     const anyway = confirm === `live-anyway:${version}`;
@@ -1172,7 +1173,20 @@ export function App({ initialFlowId = "travel_assistant", session, colorMode = "
     }
     guard(async () => {
       try {
-        const { live } = await flowsApi.setLive(spec.id, version, anyway, despite || redTeamOk.current === version);
+        const call = (reason) => flowsApi.setLive(spec.id, version, anyway, despite || redTeamOk.current === version, reason);
+        let live;
+        try {
+          ({ live } = await call(null));
+        } catch (err) {
+          if (!err.data?.gate) throw err;
+          const reason = window.prompt(`${err.message}\n\nTo make it live anyway, say why (at least 10 characters; kept in the audit log):`);
+          if (!reason || reason.trim().length < 10) {
+            setConfirm(null);
+            say(err.message, "error");
+            return;
+          }
+          ({ live } = await call(reason.trim()));
+        }
         redTeamOk.current = null;
         setRecord((r) => ({ ...r, live }));
         setConfirm(null);

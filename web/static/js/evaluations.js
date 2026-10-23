@@ -4,6 +4,7 @@ import { FlowEvals } from "./flow_evals.js";
 import { GoldenSet } from "./golden.js";
 import { FeedbackReview } from "./feedback.js";
 import { SearchQuality } from "./search_quality.js";
+import { EvalSchedule } from "./eval_schedule.js";
 
 const POLL_MS = 2000;
 const SELECTED_KEY = "rag.eval.selected";
@@ -43,6 +44,7 @@ export class EvaluationsPage {
     this.flowEvals = new FlowEvals();
     this.searchQuality = new SearchQuality();
     this.feedback = new FeedbackReview();
+    this.schedule = new EvalSchedule();
     this.golden = new GoldenSet({ onSaved: (set) => { this.flowEvals.form.set = set.id; this.flowEvals.load(); } });
     try { this.selected = sessionStorage.getItem(SELECTED_KEY); } catch { this.selected = null; }
   }
@@ -57,7 +59,8 @@ export class EvaluationsPage {
 
   async mount() {
     this.root.replaceChildren(loading());
-    await Promise.all([this.refresh(), this.flowEvals.load(), this.golden.load(), this.searchQuality.load(), this.feedback.load()]);
+    await Promise.all([this.refresh(), this.flowEvals.load(), this.golden.load(), this.searchQuality.load(), this.feedback.load(),
+      this.schedule.load()]);
   }
 
   async refresh() {
@@ -93,6 +96,7 @@ export class EvaluationsPage {
       this.golden.root,
       this.feedback.root,
       this.flowEvals.root,
+      this.schedule.root,
       this.searchQuality.root,
       h("h2", { class: "fe-archive-title" }, "Archived local-model evaluations"),
       note("Earlier runs of the local-model workflow, read-only."),
