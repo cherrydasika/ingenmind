@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-22
+Last updated: 2026-10-23
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -134,11 +134,16 @@ on #120 that isn't waiting on the user.
   and CI's tests start PostgreSQL in a step, signing in to Docker Hub only
   when the secret exists, so Dependabot's PRs (which get no secrets) run.
 
-- **R08 (#22) code done, waiting on the user to apply:** daily snapshots
-  by Data Lifecycle Manager (`infra/terraform/backup.tf`: 03:00 UTC, 14
-  kept) and `scripts/aws/restore-test.sh` (a new volume from a snapshot,
-  a throwaway database on it, row counts compared with production, all
-  removed after). Needs approval for `terraform apply` and the test run.
+- **R08 (#22) restore test done; the daily schedule waits on the user's
+  `terraform apply`:** daily snapshots by Data Lifecycle Manager
+  (`infra/terraform/backup.tf`: 03:00 UTC, 14 kept) and
+  `scripts/aws/restore-test.sh` (a new volume from a snapshot, a throwaway
+  database on it, row counts compared with production, all removed after).
+  **Checked on EC2 (2026-10-23):** a snapshot taken by hand before deploying
+  440185a restored and matched production row for row; the test volume was
+  deleted. `terraform apply` was not allowed from the agent's session, so
+  the DLM policy (3 resources to add, nothing changed, plan checked) and
+  R55's CloudWatch alarms wait for the user to apply from `main`.
 - **R09 (#23) waits on the user:** a domain, HTTPS and inbound access.
 - **R10 (#20) done:** a signed-in question's Langfuse trace carries the
   app's session and user IDs, and a session's questions group together
@@ -578,7 +583,7 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
-- **R63 (#119) in part (open):** the launch checklist
+- **R63 (#119) EC2 part done (open for the user's steps):** the launch checklist
   ([docs/launch-checklist.md](docs/launch-checklist.md)) has every item's
   status. **Done:**
   - security review: `docs/security.md` updated for everything since R02;
@@ -590,11 +595,23 @@ on #120 that isn't waiting on the user.
   - local restore test: the installer's dump restored with all 74 tables'
     rows, and the app migrated and served it;
   - on-call notes (`docs/on-call.md`); both new pages are on the docs site.
+  - **EC2 session (2026-10-23, the user's go-ahead):** a snapshot by hand,
+    then 440185a deployed (it had been on 6160793). Pentest: passive ZAP
+    on the live site; ZAP active (signed in as admin) and API scans and 64
+    manual checks against a throwaway copy on the instance (no scan
+    failures; 62/64 manual passed). Fixed and deployed in #192: an open
+    redirect after "confirm it's you" (`/\evil.example`), and localhost
+    refused over IPv6 by `outbound.py` (an R63 regression). Also the
+    restore test (R08), the export over SSM (R57), the t4g.xlarge load
+    test (R61). Throwaway databases, containers, keys and images removed;
+    the instance is stopped. The manual snapshot is kept as a backup.
 
   **Left, needs you:**
-  - EC2 session: pentest, the EBS restore test (R08), the t4g.xlarge load
-    test;
-  - real alert delivery (R55);
+  - `terraform apply` from `main` (not allowed from the agent's session):
+    R08's DLM policy and R55's CloudWatch alarms (`monitoring.tf`; set
+    `alarm_email`), then `sudo bash scripts/aws/cloudwatch-agent.sh` on
+    the instance. Plan: 10 to add, nothing changed or destroyed;
+  - real alert delivery (R55): a Slack webhook and SMTP;
   - a model key with credit: demo from a clean install, and new README
     screenshots (the four in `docs/images` show the old sidebar);
   - the v1.0.0 tag.
@@ -619,7 +636,7 @@ on #120 that isn't waiting on the user.
   (Actions source). **Left:** tag `v1.0.0` (publishes the docs site), which
   is R63's launch checklist.
 
-- **R61 (#117) done locally (EC2 number open):** load tests and service
+- **R61 (#117) done:** load tests and service
   levels. `loadtest/` has Locust scenarios (asks with follow-ups, document
   ingest, evaluations; one API key per simulated person) and `make_keys.py`;
   `LLM_PROVIDER=stub` (`app/llm_stub.py`) is a stand-in model with a set
@@ -633,8 +650,11 @@ on #120 that isn't waiting on the user.
   PostgreSQL out of connections (100). 2 workers × 45 threads gave about
   12 q/s with no errors up to 400 users. Tuning notes and a t4g.xlarge
   estimate (~8 q/s with the stub, ~5 with a real model) are in
-  `loadtest/README.md`. **Left:** the measured t4g.xlarge number, at the
-  next approved EC2 session. A connection pool is a follow-up.
+  `loadtest/README.md`. **On EC2 (2026-10-23)**, a copy of the production
+  database and the stub, Locust on the instance: one t4g.xlarge serves
+  about **5 questions a second** (40–50 people at once), limited by CPU
+  (the app ~1.8 cores, PostgreSQL ~1.6), with no errors to 300 users;
+  answers queue beyond that. A connection pool is the first follow-up.
 
 - **R60 (#116) deferred** (your choice): multi-tenant workspaces. The
   design note on #116 suggests a database per workspace if it is picked up.
@@ -676,8 +696,11 @@ on #120 that isn't waiting on the user.
   `--include-text`. **Done-when checked:** exported the local install
   (32 questions, 386 runs, 34 evaluation answers…), copied the files out and
   ran every example query in DuckDB; a scan of every file found no email
-  address or user id. The SSM path on EC2 was not run (the instance is
-  stopped; starting it costs money).
+  address or user id. **On EC2 (2026-10-23):** `scripts/aws/export-analytics.sh`
+  brought the ten files over SSM and they opened in DuckDB (4 questions, 29
+  runs, 19 pages, pseudonymised). It had returned no files when run
+  without a terminal: the Session Manager plugin closes the session when
+  its stdin ends. The script now holds stdin open with a pipe.
 
 - **R56 (#114) done:** nightly evaluations and a promotion gate
   (`app/flows/eval_gate.py`): chosen sets run each night on the live flow
@@ -703,8 +726,12 @@ on #120 that isn't waiting on the user.
   endpoint (8/8) and a local SMTP server (8/8), and unit tests make every
   measured rule fire from real run records, resolve, and stay quiet when
   muted. **Left, needs you:** a real Slack incoming webhook URL and an SMTP
-  account (e.g. SES) for the done-when; CloudWatch alarms for the EC2
-  instance, disk, memory and health check (an AWS change; EC2 is stopped).
+  account (e.g. SES) for the done-when. **CloudWatch, written in #192, not
+  applied:** `infra/terraform/monitoring.tf` alarms (status check, CPU,
+  memory, both disks) to the SNS topic `rag-systems-alarms` (email with
+  `alarm_email`), and `scripts/aws/cloudwatch-agent.sh` for the memory and
+  disk metrics. The app is private, so there is no outside health check;
+  the app's own alerts cover its health.
 
 - **R54 (#4) done:** knowledge-gap report on Analytics
   (`app/knowledge_gaps.py`): each KNOWLEDGE_GAP's missing information kept

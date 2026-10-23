@@ -41,6 +41,10 @@ versioning: minor releases keep your settings, data and API working.
     - A one-command installer that backs up before upgrading.
     - The database is migrated on start, and a downgrade is refused.
     - A docs site.
+- **Checked before release.** A security review and a pentest of the
+  deployed site (ZAP active and API scans, signed in, and manual checks).
+  A restore test of a backup, and a measured capacity: one 4-vCPU server
+  serves about 5 questions a second.
 
 **Upgrade notes** (from a 0.1.0 pre-release)
 
