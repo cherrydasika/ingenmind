@@ -33,7 +33,7 @@ docker compose run --rm --no-deps -v "$PWD/data:/data:ro" \
   -e EMBEDDING_PROVIDER=bedrock -e LLM_PROVIDER=bedrock \
   -e PYTHONPATH=/app:/app/dags -e WEB_DIR=/web webapp \
   python -m unittest test_agent_runtime test_demo test_llm test_embeddings test_pg_store \
-    test_evidence test_research test_answer_eval test_guardrails test_flows test_api_tools test_auth test_sessions test_agent_memory test_users test_setup test_search_eval test_chunking test_rerank test_citations test_conversation test_user_memory test_contracts test_durable test_planner test_human test_blackboard test_collections test_api_keys test_a2a test_mcp test_openapi_tools test_tool_stub test_live_sources test_webhooks test_connectors test_recrawl test_feedback test_channels test_analytics test_operations
+    test_evidence test_research test_answer_eval test_guardrails test_flows test_api_tools test_auth test_sessions test_agent_memory test_users test_setup test_search_eval test_chunking test_rerank test_citations test_conversation test_user_memory test_contracts test_durable test_planner test_human test_blackboard test_collections test_api_keys test_a2a test_mcp test_openapi_tools test_tool_stub test_live_sources test_webhooks test_connectors test_recrawl test_feedback test_channels test_analytics test_operations test_knowledge_gaps
 npm test --prefix web/flows-app   # after editing web/flows-app/src: npm run build --prefix web/flows-app
 # The pages are ES modules: check them as modules (a plain `node --check` misses
 # errors), as CI does. One syntax error stops the whole app loading.

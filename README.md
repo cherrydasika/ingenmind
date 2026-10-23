@@ -538,6 +538,14 @@ into charts for a date range (the last 30 days by default):
 - **Search funnel:** passages the searches found (by meaning and by words),
   kept for the answer, and cited in it. Each turn keeps this as a small
   summary (`funnel`: counts, chunk ids and pages, no text).
+- **Knowledge gaps** (R54, `app/knowledge_gaps.py`): what people asked that
+  the knowledge base couldn't answer, as topics with counts, how many are
+  still unanswered, example questions and when last asked. When the
+  evidence check decides KNOWLEDGE_GAP, each missing-information item is
+  kept with the question's session turn (`knowledge_gaps`; deleted with the
+  session, never sent to the asker); the report embeds the items and groups
+  close ones (cosine ≥ 0.78), naming each topic by its most typical item.
+  Questions blocked as off-topic never ran, so they are never gaps.
 - **Most and least used sources,** and the pages no search found in the
   period (curated and research pages alike).
 - **Knowledge map by use:** passages placed by meaning (PCA to 3-D), the ones
@@ -2106,6 +2114,7 @@ app/
   channels/                # web widget, Slack and Teams (R50)
   analytics.py             # the Analytics page's views and queries (R52)
   operations.py            # the Operations page: latency, errors, tokens and cost (R53)
+  knowledge_gaps.py        # what the knowledge base couldn't answer, grouped into topics (R54)
   ttl_cache.py             # small time-based cache with .clear()
   pipeline.py                    # answer_question(): retrieval → generation, one trace
   retrieval.py                   # hybrid_search(): question → ranked chunks (no LLM)

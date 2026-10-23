@@ -80,6 +80,7 @@ import agent_tree
 import answer_eval
 import api_tools
 import analytics
+import knowledge_gaps
 import citations
 import blackboard
 import contracts
@@ -3049,6 +3050,8 @@ def _run_to_end(run: "_Run", graph, spec: flows.FlowSpec, version, source: str, 
     evaluations = run.evaluations if isinstance(getattr(run, "evaluations", None), list) else []
     result["evidence"] = [{"decision": e["decision"], "attempt": e.get("attempt", 1),
                            "confidence": e.get("overall_confidence")} for e in evaluations]
+    # What the knowledge base lacked (R54): server-side only, kept with the session turn for admins.
+    result["gaps"] = knowledge_gaps.of_run(evaluations)
     if limits := settings.get("budget"):   # what the run used of its budget (R15)
         used = {k: v for k, v in run.budget_used().items() if k in limits}
         over = next((k for k in limits if used[k] > limits[k]), None)

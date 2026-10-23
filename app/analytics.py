@@ -24,6 +24,7 @@ import numpy as np
 import psycopg
 from psycopg.rows import dict_row
 
+import knowledge_gaps
 from common import config
 
 MAX_DAYS = 366
@@ -296,4 +297,5 @@ def report(start: str | None = None, end: str | None = None) -> dict:
     begin, finish = period(start, end)
     return {"from": begin.date().isoformat(), "to": (finish - timedelta(days=1)).isoformat()[:10],
             "journey": journey(begin, finish), "funnel": search_funnel(begin, finish), "sources": sources(begin, finish),
-            "map": knowledge_map(begin, finish), "trends": trends(begin, finish), "freshness": freshness()}
+            "map": knowledge_map(begin, finish), "trends": trends(begin, finish), "freshness": freshness(),
+            "gaps": knowledge_gaps.report(begin, finish)}
