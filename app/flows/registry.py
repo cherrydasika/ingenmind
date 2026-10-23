@@ -348,12 +348,21 @@ class ScraperConfig(BaseModel):
     chunk_overlap: int = 200
 
 
-ApiToolName = Literal[tuple(api_tools.TOOLS)]
+
 
 
 class ApiToolsConfig(BaseModel):
-    tools: list[ApiToolName] = Field(list(api_tools.TOOLS), min_length=1,
-                                     description="The external APIs the agent may call (app/api_tools)")
+    tools: list[str] = Field(list(api_tools.TOOLS), min_length=1,
+                             description="The external APIs the agent may call (app/api_tools, and those imported "
+                                         "from OpenAPI specs in Admin → Integrations)")
+
+    @field_validator("tools")
+    @classmethod
+    def _known(cls, tools: list[str]) -> list[str]:
+        unknown = sorted(set(tools) - set(api_tools.all_tools()))
+        if unknown:
+            raise ValueError(f"unknown API tool(s): {', '.join(unknown)}")
+        return tools
 
 
 class McpToolConfig(BaseModel):
@@ -383,13 +392,19 @@ class Component:
     applied: tuple[str, ...] = ()           # settings the runtime reads from the node
     extra: dict = field(default_factory=dict)
 
+    def _schema(self) -> dict:
+        schema = self.config.model_json_schema()
+        if self.type == "api_tools":   # the choices include tools imported since start-up (R39)
+            schema["properties"]["tools"]["items"] = {"type": "string", "enum": sorted(api_tools.all_tools())}
+        return schema
+
     def describe(self) -> dict:
         return {"type": self.type, "title": self.title, "kind": self.kind, "category": self.category,
                 "description": self.description, "outcomes": list(self.outcomes), "fan_out": self.fan_out,
                 "inputs": list(self.inputs), "provides": self.provides, "plugs": self.plugs,
                 "bounds_loops": self.bounds_loops,
                 "runnable": self.runnable, "applied": list(self.applied),
-                "config_schema": self.config.model_json_schema(),
+                "config_schema": self._schema(),
                 **({"contract": self.extra["contract"]} if "contract" in self.extra else {})}
 
 

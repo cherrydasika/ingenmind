@@ -58,6 +58,89 @@ export class IntegrationsPage {
     ] });
   }
 
+  // API tools from OpenAPI specs (R39): load a spec, pick operations, set auth, import; try one; remove.
+  renderOpenApi() {
+    const field = (label, input) => h("label", {}, h("div", { class: "faint" }, label), input);
+    const url = h("input", { type: "text", placeholder: "https://…/openapi.json or .yml" });
+    const box = h("div", {});
+    const load = async () => {
+      try {
+        this.preview = { url: url.value.trim(), ...(await api.openapiPreview({ spec_url: url.value.trim() })) };
+        this.flash = null;
+      } catch (err) {
+        this.flash = err.message;
+      }
+      this.render();
+    };
+    const tools = (this.data.api_tools || []).map((t) => {
+      const args = h("textarea", { class: "input", rows: 2, style: "min-height: 50px", placeholder: '{"latitude": "53.38", "longitude": "-1.47"}' });
+      const out = h("pre", { class: "faint", style: "white-space: pre-wrap; max-height: 160px; overflow: auto" });
+      const test = async () => {
+        let parsed;
+        try { parsed = JSON.parse(args.value || "{}"); } catch { out.textContent = "The arguments must be JSON."; return; }
+        try {
+          const r = await api.testApiTool(t.name, parsed);
+          out.textContent = r.ok ? JSON.stringify(r.summary, null, 1).slice(0, 1500) : `Failed: ${r.error}`;
+        } catch (err) {
+          out.textContent = err.message;
+        }
+      };
+      return card({ children: [
+        h("div", { class: "toolbar" },
+          h("div", {}, h("strong", {}, t.title), " ", h("code", {}, t.name), " ",
+            badge(t.side_effects ? "changes things: needs approval" : "read-only", t.side_effects ? "warn" : "ok"),
+            t.has_secret ? " " : null, t.has_secret ? badge("secret stored", "neutral") : null),
+          h("button", { class: "btn btn-ghost btn-sm", type: "button",
+            onclick: () => this.change(() => api.removeApiTool(t.name)) }, "Remove")),
+        h("div", { class: "faint" }, `${t.method} ${t.base_url}${t.path}`),
+        t.side_effects ? null : h("div", {}, args, h("div", { class: "actions" },
+          h("button", { class: "btn btn-ghost btn-sm", type: "button", onclick: test }, "Try it")), out),
+      ] });
+    });
+    if (this.preview) {
+      const p = this.preview;
+      const prefix = h("input", { type: "text", placeholder: "a short prefix, e.g. openmeteo" });
+      const base = h("input", { type: "text", value: p.base_url || "", placeholder: "https://api.example.com" });
+      const kind = h("select", {}, [["none", "No auth"], ["api_key", "API key"], ["oauth_client_credentials", "OAuth client credentials"]]
+        .map(([v, l]) => h("option", { value: v }, l)));
+      const keyIn = h("select", {}, ["header", "query"].map((v) => h("option", { value: v }, v)));
+      const keyName = h("input", { type: "text", placeholder: "X-Api-Key" });
+      const secret = h("input", { type: "text", placeholder: "the key or client secret (stored encrypted)" });
+      const tokenUrl = h("input", { type: "text", placeholder: "OAuth token URL" });
+      const clientId = h("input", { type: "text", placeholder: "OAuth client id" });
+      const picks = p.operations.map((op) => h("label", { class: "check-row" },
+        h("input", { type: "checkbox", value: op.id, checked: op.method === "GET" }),
+        h("code", {}, `${op.method} ${op.path}`), h("span", { class: "faint" }, ` ${op.summary}`),
+        op.side_effects ? badge("changes things", "warn") : null));
+      const doImport = () => {
+        const auth = kind.value === "api_key" ? { type: "api_key", in: keyIn.value, name: keyName.value.trim(), value: secret.value }
+          : kind.value === "oauth_client_credentials" ? { type: "oauth_client_credentials", token_url: tokenUrl.value.trim(),
+            client_id: clientId.value.trim(), client_secret: secret.value } : { type: "none" };
+        this.change(async () => {
+          const out = await api.importOpenapi({ spec_url: p.url, prefix: prefix.value.trim(), base_url: base.value.trim(), auth,
+            operations: picks.map((l) => l.querySelector("input")).filter((i) => i.checked).map((i) => i.value) });
+          this.preview = null;
+          return out;
+        });
+      };
+      box.append(h("div", { class: "stack" },
+        h("strong", {}, p.title || "Operations"), h("div", {}, ...picks),
+        field("Prefix for the tool names", prefix), field("Base URL", base), field("Auth", kind),
+        field("API key goes in", keyIn), field("API key name", keyName), field("Token URL (OAuth)", tokenUrl),
+        field("Client id (OAuth)", clientId), field("Key or client secret", secret),
+        h("div", { class: "actions" }, h("button", { class: "btn btn-sm", type: "button", onclick: doImport }, "Import as API tools"),
+          h("button", { class: "btn btn-ghost btn-sm", type: "button", onclick: () => { this.preview = null; this.render(); } }, "Cancel"))));
+    }
+    return [card({ title: "API tools from OpenAPI specs", children: [
+      h("p", { class: "note" }, "Import operations from an API's OpenAPI spec as API tools: no code. GET operations are "
+        + "read-only; any other is flagged as changing things, so it only runs in a flow with an approval step. Once "
+        + "imported, choose them in an API tools node in the Agent Builder."),
+      h("div", { class: "stack" }, field("Spec URL", url),
+        h("div", { class: "actions" }, h("button", { class: "btn btn-sm", type: "button", onclick: load }, "Load operations"))),
+      box,
+    ] }), ...tools];
+  }
+
   renderAdd() {
     const field = (label, input) => h("label", {}, h("div", { class: "faint" }, label), input);
     const id = h("input", { type: "text", placeholder: "deepwiki" });
@@ -83,6 +166,7 @@ export class IntegrationsPage {
         + "data. IngenMind is an MCP server too, at /api/v1/mcp (search_knowledge_base and ask), with an API key."),
       this.flash ? errorBox(this.flash) : null,
       ...this.data.servers.map((s) => this.renderServer(s)),
-      this.renderAdd()));
+      this.renderAdd(),
+      ...this.renderOpenApi()));
   }
 }

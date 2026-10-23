@@ -484,6 +484,25 @@ check 3 of 3; a client built on the official MCP Python SDK (2.3.0, in a
 separate container) initialised, listed the two tools, searched the
 knowledge base and got a cited answer from `ask`.
 
+### API tools from OpenAPI specs
+
+Most APIs publish an OpenAPI spec, so adding one needs no code
+(`app/openapi_tools.py`, R39). In **Admin → Integrations → API tools from
+OpenAPI specs**, paste the spec's URL (JSON or YAML, OpenAPI 3), load its
+operations, pick some, give a short prefix for their names, set the base URL
+if the spec has none, and choose auth: none, an API key in a header or the
+query, or OAuth client credentials (the key or client secret is stored
+encrypted with `INTEGRATIONS_KEY`). Each operation becomes an API tool beside
+the built-in ones, with its parameters (path, query, header) and JSON body as
+its arguments: **Try it** calls it from the page through the tool guardrails,
+and an **API tools** node in the Agent Builder lists it. GET operations are
+read-only; any other method is flagged as changing things, so it is refused
+unless the flow has an approval step (Ask a human), like a built-in
+side-effecting tool. Answers name the API as the source. Checked with
+Open-Meteo's spec (`openapi/forecast.yml` in its repository): imported from
+the page, tried, and used by a flow's agent for "What's the temperature in
+Sheffield right now?" (3 of 3 passed the answer check).
+
 ### Streaming and cancelling
 
 Questions stream their progress as server-sent events: the first arrives

@@ -227,7 +227,7 @@ AGENT_PROMPT = (
     "call your live-data tools when the question needs live data. Answer only from what your tools return, "
     "citing knowledge-base chunks by their [n] numbers right after the facts they support; facts from other "
     "tools have no [n]: name their source in the sentence instead (for example 'according to Open-Meteo'). "
-    "Never invent facts, numbers or links. Keep each fact with what it applies to: when sources describe different "
+    "Never invent facts, numbers or links, and add no conversions or figures the tools didn't give. Keep each fact with what it applies to: when sources describe different "
     "operators, places or tickets, say which says what, and never merge them into one general rule or call "
     "something 'all' or 'standard' the sources don't. If the results don't answer the question, say so plainly "
     "in one or two sentences. Write a short, direct answer with a hard limit of 120 words, with no sentence "
@@ -816,7 +816,7 @@ class _Run:
             reason = None
             if offered is not None and name not in offered:
                 reason = f"{name!r} isn't one of this agent's tools"
-            elif name in api_tools.TOOLS:
+            elif api_tools.get(name):
                 with self.lock:
                     used = sum(1 for c in getattr(self, "calls", []) if c["tool"] == name)
                 reason = api_tools.check(name, _input(use), used, approval=bool((getattr(self, "settings", None) or {}).get("approval")))
@@ -1448,7 +1448,7 @@ class _Run:
         allowed = self.settings.get("api_tools")
         if allowed is not None and name not in allowed:
             return _result(use, f"Tool {name!r} is not available in this flow.", error=True)
-        tool = api_tools.TOOLS.get(name)
+        tool = api_tools.get(name)
         if tool and tool.side_effects:   # passed the guardrail only because the flow has an approval step (R32)
             with self.lock:
                 self.proposals.append({"n": len(self.proposals) + 1, "tool": name, "title": tool.title,
@@ -1474,7 +1474,9 @@ class _Run:
                    "status": tool.status() if tool else None})
         if not result["ok"]:
             return _result(use, result["error"], error=True)
-        return _result(use, injection.quote(f"{name} result (JSON)", json.dumps(result["summary"], ensure_ascii=False)))
+        source = (tool.attribution if tool else "") or (tool.title if tool else name)
+        return _result(use, injection.quote(f"{name} result (JSON); name {source} as the source of these facts",
+                                            json.dumps(result["summary"], ensure_ascii=False)))
 
 
 # ---------- the graph ----------
@@ -2708,7 +2710,7 @@ def _roles_and_graph() -> dict:
 
     def role(key: str) -> dict:
         if key == "external_apis":
-            tools = [t.describe() for t in api_tools.TOOLS.values()]
+            tools = [t.describe() for t in api_tools.all_tools().values()]
         elif key == "knowledge_base":
             tools = [{"name": "search_knowledge_base", "title": "Hybrid search", "description": search_tool["description"],
                       "params": [{"name": "query", "type": "string", "description": "What to search for", "required": True}],
