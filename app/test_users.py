@@ -222,10 +222,11 @@ class AuditLog(UsersDatabase):
                 continue
             path = re.sub(r"\{[^}]+\}", "1", route.path)
             for method in (route.methods or set()) - audit.SAFE_METHODS:
-                if path in audit.READ_ONLY or auth.required_permission(method, path) in audit.NOT_AUDITED:
+                if path in audit.READ_ONLY or (auth.required_permission(method, path) in audit.NOT_AUDITED
+                                               and not audit.ALWAYS.match(path)):
                     skipped.add(f"{method} {route.path}")
         # Only asking questions, one's own theme and read-only checks stay out; anything new is audited.
-        self.assertEqual(skipped, {"POST /api/ask", "POST /api/ask/stream", "POST /api/agent/stream",
+        self.assertEqual(skipped, {"POST /api/ask", "POST /api/ask/stream", "POST /api/agent/stream", "POST /api/v1/ask",
                                    "POST /api/agent/resume", "POST /api/session/reset", "POST /api/sessions/new", "PUT /api/me/theme",
                                    "PUT /api/me/memory", "DELETE /api/me/memory", "PUT /api/me/memory/{fact_id:int}",
                                    "DELETE /api/me/memory/{fact_id:int}",

@@ -88,10 +88,11 @@ def ensure_schema() -> None:
         _schema_ready = True
 
 
-def current(user_id: str, session_id: str | None) -> str:
+def current(user_id: str, session_id: str | None, exclusive: bool = True) -> str:
     """The session a new question belongs to: session_id when it is this
     user's, active, and was used in the last IDLE_MINUTES; else a new one
-    (any older active session of the user is ended)."""
+    (exclusive: any older active session of the user is ended; the API, R46,
+    leaves the user's browser conversation alone)."""
     ensure_schema()
     with _connect() as connection:
         if session_id:
@@ -100,8 +101,9 @@ def current(user_id: str, session_id: str | None) -> str:
                 "AND last_activity > now() - make_interval(mins => %s)", (session_id, user_id, IDLE_MINUTES)).fetchone()
             if row:
                 return row["session_id"]
-        connection.execute("UPDATE app_sessions SET status = 'ended', ended_at = last_activity "
-                           "WHERE user_id = %s AND status = 'active'", (user_id,))
+        if exclusive:
+            connection.execute("UPDATE app_sessions SET status = 'ended', ended_at = last_activity "
+                               "WHERE user_id = %s AND status = 'active'", (user_id,))
         new_id = f"s_{uuid.uuid4().hex}"
         connection.execute("INSERT INTO app_sessions (session_id, user_id) VALUES (%s, %s)", (new_id, user_id))
         return new_id
