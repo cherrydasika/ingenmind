@@ -99,6 +99,7 @@ export const api = {
   resetSession: (sessionId) => post("/api/session/reset", { session_id: sessionId }),
   currentSession: () => request("/api/sessions/current"),
   analytics: ({ from, to }) => request(`/api/analytics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  operations: (params) => request(`/api/operations?${new URLSearchParams(Object.entries(params).filter(([, v]) => v))}`),
   channels: () => request("/api/channels"),
   addChannel: (body) => post("/api/channels", body),
   removeChannel: (id) => request(`/api/channels/${id}`, { method: "DELETE" }),

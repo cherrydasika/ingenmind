@@ -6,7 +6,9 @@ saved versions comes later.
     agent_flows          id, name, draft (jsonb, null when none), published_version
     agent_flow_versions  flow_id, version, spec (jsonb), note, published_at
     agent_live_flow      the one flow version users get (none: the built-in flow)
-    agent_flow_runs      one row of numbers per run, for per-flow metrics
+    agent_flow_runs      one row of numbers per run, for per-flow metrics; who
+                         asked, the channel and the model, for Operations (R53)
+    agent_flow_run_agents  per run, each agent's model, seconds and tokens
 """
 
 import threading
@@ -91,6 +93,22 @@ def ensure_schema() -> None:
                 )""")
             connection.execute("""
                 CREATE INDEX IF NOT EXISTS agent_flow_runs_recent ON agent_flow_runs (flow_id, started_at DESC)""")
+            # Added for Operations (R53): older rows have none of these.
+            for column in ("user_id text", "channel text", "model text", "budget_hit boolean NOT NULL DEFAULT false",
+                           "timed_out boolean NOT NULL DEFAULT false"):
+                connection.execute(f"ALTER TABLE agent_flow_runs ADD COLUMN IF NOT EXISTS {column}")
+            connection.execute("CREATE INDEX IF NOT EXISTS agent_flow_runs_started ON agent_flow_runs (started_at)")
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS agent_flow_run_agents (
+                    run_id bigint NOT NULL REFERENCES agent_flow_runs (id) ON DELETE CASCADE,
+                    role text NOT NULL,
+                    model text,
+                    seconds real NOT NULL DEFAULT 0,
+                    input_tokens int NOT NULL DEFAULT 0,
+                    output_tokens int NOT NULL DEFAULT 0,
+                    turns int NOT NULL DEFAULT 0
+                )""")
+            connection.execute("CREATE INDEX IF NOT EXISTS agent_flow_run_agents_run ON agent_flow_run_agents (run_id)")
         _schema_ready = True
 
 
@@ -254,19 +272,30 @@ def set_live(flow_id: str, version: int, builtin: FlowSpec, check) -> None:
 # Each run field and its value when a run does not report it (None: unknown).
 RUN_FIELDS = {"seconds": 0.0, "rounds": 0, "tasks": 0, "input_tokens": 0, "output_tokens": 0,
               "input_blocked": False, "output_blocked": False, "evaluated": False, "passed": None,
-              "overall": None, "failed": False}
+              "overall": None, "failed": False, "timed_out": False, "budget_hit": False,
+              "user_id": None, "channel": None, "model": None}
+AGENT_FIELDS = ("role", "model", "seconds", "input_tokens", "output_tokens", "turns")
 
 
 def record_run(flow_id: str, version, source: str, metrics: dict) -> None:
-    """Store one run's numbers (RUN_FIELDS); anything else in `metrics` is ignored."""
+    """Store one run's numbers (RUN_FIELDS) and its agents' (metrics["agents"], AGENT_FIELDS);
+    anything else in `metrics` is ignored."""
     ensure_schema()
+    metrics = {**metrics, "budget_hit": bool(metrics.get("budget_hit"))}   # the run reports why: kept as a flag
     columns = list(RUN_FIELDS)
     values = [default if metrics.get(k) is None else metrics[k] for k, default in RUN_FIELDS.items()]
+    agents = [a for a in metrics.get("agents") or [] if isinstance(a, dict) and a.get("role")]
     with _connect() as connection:
-        connection.execute(
+        run_id = connection.execute(
             f"INSERT INTO agent_flow_runs (flow_id, version, source, {', '.join(columns)}) "
-            f"VALUES (%s, %s, %s, {', '.join(['%s'] * len(columns))})",
-            (flow_id, str(version), source[:20], *values))
+            f"VALUES (%s, %s, %s, {', '.join(['%s'] * len(columns))}) RETURNING id",
+            (flow_id, str(version), source[:20], *values)).fetchone()["id"]
+        if agents:
+            with connection.cursor() as cursor:
+                cursor.executemany(
+                    f"INSERT INTO agent_flow_run_agents (run_id, {', '.join(AGENT_FIELDS)}) "
+                    f"VALUES (%s, {', '.join(['%s'] * len(AGENT_FIELDS))})",
+                    [(run_id, *(a.get(k) or (None if k == "model" else 0) for k in AGENT_FIELDS)) for a in agents])
 
 
 def metrics(flow_id: str, days: int = 30) -> list[dict]:

@@ -1005,3 +1005,7 @@ button.cite:focus-visible { outline: 2px solid var(--primary); outline-offset: 1
 .analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .never-list { columns: 2 260px; margin: 0; padding-left: 18px; font-size: 13px; }
 .never-list li { break-inside: avoid; overflow-wrap: anywhere; }
+
+/* Operations (R53, operations.js) */
+.ops-metrics { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+.ops-metrics .metric-value { font-size: 17px; overflow-wrap: anywhere; }

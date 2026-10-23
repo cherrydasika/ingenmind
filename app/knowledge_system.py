@@ -265,6 +265,7 @@ MASTER_EMPTIED = (
     ("answer_feedback", "Answer feedback (thumbs on answers)"),
     ("app_session_turns", "People's questions and answers (sessions)"),
     ("app_sessions", "Sessions"),
+    ("agent_flow_run_agents", "Per-agent run metrics"),
     ("agent_flow_runs", "Flow run metrics"),
     ("agent_live_flow", "The live flow (the built-in flow again)"),
     ("agent_flow_versions", "Published flow versions"),

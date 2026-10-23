@@ -578,6 +578,21 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R53 (#112) done:** Monitoring → Operations (`app/operations.py`):
+  yesterday's cost and slowest flow, agent and model at the top; for the
+  period, p50/p95 time, error, timeout, guardrail-block and budget-breach
+  counts, tokens and approximate cost per day, flow, agent, model, channel,
+  source and user (filters for each), the cache hit rate (R19) and the
+  ingestion queue and its failures. Runs now record user, channel, model,
+  `timed_out` and `budget_hit` (channel: app, slack, teams, widget, or the source for the playground and evaluations); `agent_flow_run_agents` keeps each agent's
+  model, seconds and tokens. **Done-when checked:** against the local
+  database (194 runs in 7 days, 133 yesterday) the page showed yesterday's
+  $3.64 and the slowest flow on one screen; two new playground runs were
+  recorded with their user, model and per-agent rows; light and dark
+  themes and phone width checked (no sideways scroll). The local install is
+  mid-setup, so the Ask page refused questions: new runs came from the
+  playground.
+
 - **R52 (#6) done:** Monitoring → Analytics (`app/analytics.py`): views
   `analytics_questions` and `analytics_runs`; a question-journey Sankey, the
   search funnel (each turn now keeps a `funnel` summary, built in
