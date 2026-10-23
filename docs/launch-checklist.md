@@ -4,7 +4,7 @@ R63 ([#119](https://github.com/cherrydasika/ingenmind/issues/119)): one
 place to confirm IngenMind is ready to ship. v1.0.0 is tagged when every
 line is done or consciously deferred.
 
-Status as of 2026-10-23, on `main` after v1.0.0-rc.5.
+Status as of 2026-10-23, on `main` after the EC2 session (release 0fdb310).
 
 ## Roadmap
 
@@ -18,17 +18,17 @@ Status as of 2026-10-23, on `main` after v1.0.0-rc.5.
 |---|---|
 | Review against the security model | **Done** (2026-10-23). [Security model](security.md) updated for everything since R02. One fix: requests to admin-configured addresses (webhooks, alert channels, MCP, OpenAPI tools, A2A) now refuse the metadata service and other special addresses, redirects included (`app/outbound.py`) |
 | Automated scans | **Done.** On every PR: CodeQL, pip-audit, npm audit, Trivy and gitleaks. A ZAP baseline scan of the app had no failures |
-| Pentest of the EC2 site | **Waiting**: needs an approved EC2 session. An active, signed-in scan (ZAP full scan with an admin and a user account) through the SSM tunnel, plus a manual pass over sign-in, permissions and the public API |
+| Pentest of the EC2 site | **Done** (2026-10-23). Passive ZAP scan of the live site; ZAP full active scan signed in as an admin and API scan of `/api/v1`, against a throwaway copy on the instance; 64 manual checks of sign-in, permissions, sessions, keys, cookies, cross-site requests and SSRF. No scan failures. Two findings, fixed and deployed (#192): an open redirect after "confirm it's you" (`/\evil.example`), and local MCP servers refused over IPv6. Details in the [security model](security.md) |
 | The image runs as root | **Accepted for v1.0** while the app is only reached through 127.0.0.1 or SSM. A non-root user comes before public access (R09) |
 
 ## Operations
 
 | Item | Status |
 |---|---|
-| Restore test | **Local: done** (2026-10-23). The installer's database dump restored into a new database with every table's rows (74 tables), and the app migrated it and served sign-in, sessions, the audit log and Operations. **EC2: waiting** on R08: apply the snapshot policy and run `scripts/aws/restore-test.sh` |
-| Alerts verified | **Rules: done**: every rule fires a test alert and records each channel's result. **Delivery: waiting** on a real Slack incoming webhook, an SMTP account and CloudWatch on EC2 (R55) |
+| Restore test | **Local: done** (2026-10-23). The installer's database dump restored into a new database with every table's rows (74 tables), and the app migrated it and served sign-in, sessions, the audit log and Operations. **EC2: done** (2026-10-23): a snapshot restored and matched production row for row. **Daily schedule: waiting** on `terraform apply` of `backup.tf` (R08) from `main`; it wasn't allowed from the agent's session |
+| Alerts verified | **Rules: done**: every rule fires a test alert and records each channel's result. **Delivery: waiting** on a real Slack incoming webhook and an SMTP account (R55). **CloudWatch: written, waiting** on `terraform apply` of `monitoring.tf`, then `scripts/aws/cloudwatch-agent.sh` on the instance |
 | On-call notes | **Done**: [On call](on-call.md) |
-| Capacity | **Local: done**: 2 workers × 45 threads served about 12 questions a second with no errors. **EC2: waiting**: the same run on a t4g.xlarge (`loadtest/README.md`) |
+| Capacity | **Local: done**: 2 workers × 45 threads served about 12 questions a second with no errors. **EC2: done** (2026-10-23): one t4g.xlarge serves about 5 questions a second (40–50 people at once), limited by CPU, no errors to 300 users (`loadtest/README.md`) |
 
 ## Product
 
