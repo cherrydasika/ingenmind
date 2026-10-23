@@ -63,6 +63,8 @@ class SecurityHeaders:
         async def send_with_headers(message):
             if message["type"] == "http.response.start":
                 names = {name.lower() for name, _ in message.get("headers", [])}
+                if b"content-security-policy" in names:   # a page with its own policy (the widget's frame, R50)
+                    names.add(b"x-frame-options")
                 message.setdefault("headers", [])
                 message["headers"] = list(message["headers"]) + [h for h in self.headers if h[0] not in names]
             await send(message)

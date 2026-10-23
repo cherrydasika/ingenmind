@@ -6,6 +6,7 @@
 
 import { api } from "./api.js";
 import { badge, card, errorBox, h, loading, note } from "./ui.js";
+import { ChannelsBox } from "./channels.js";
 
 export class IntegrationsPage {
   title = "Integrations";
@@ -23,6 +24,8 @@ export class IntegrationsPage {
       this.root.replaceChildren(errorBox(`Couldn't load integrations: ${err.message}`));
       return;
     }
+    this.channels = this.channels || new ChannelsBox();
+    this.channels.load();
     this.render();
   }
 
@@ -219,6 +222,7 @@ export class IntegrationsPage {
       ...this.data.servers.map((s) => this.renderServer(s)),
       this.renderAdd(),
       ...this.renderOpenApi(),
-      ...this.renderWebhooks()));
+      ...this.renderWebhooks(),
+      this.channels.root));
   }
 }
