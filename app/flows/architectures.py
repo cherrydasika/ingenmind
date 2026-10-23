@@ -17,9 +17,10 @@ WEB = ["web_search", "scraper"]
 LIVE = ["api_tools"]
 
 
-def _agent(id_, label, instructions, tools=(), checks=(), subs=(), type_="agent"):
+def _agent(id_, label, instructions, tools=(), checks=(), subs=(), type_="agent", **settings):
+    """settings: more of the agent's own settings (a brief and domain, say)."""
     return {"id": id_, "label": label, "instructions": instructions, "tools": list(tools),
-            "checks": list(checks), "subs": list(subs), "type": type_}
+            "checks": list(checks), "subs": list(subs), "type": type_, "settings": settings}
 
 
 def _check(id_, label, checks="answer", criteria="", max_attempts=2):
@@ -60,13 +61,14 @@ def _flow(top: dict, answer_check: bool = True, human: tuple[str, ...] = ()) -> 
 
     def add(agent: dict, parent: str | None) -> None:
         nodes.append({"id": agent["id"], "type": agent.get("type", "agent"), "label": agent["label"],
-                      "config": {"instructions": agent["instructions"]}})
+                      "config": {"instructions": agent["instructions"], **agent.get("settings", {})}})
         edges.append({"source": "llm", "target": agent["id"], "kind": "resource"})
         if parent:
             edges.append({"source": agent["id"], "target": parent, "kind": "resource", "port": "agents"})
-        for tool in agent["tools"]:
+        for tool in agent["tools"]:       # a type, or (type, its settings)
+            tool, settings = tool if isinstance(tool, tuple) else (tool, None)
             tool_id = f"{agent['id']}_{tool}"
-            nodes.append({"id": tool_id, "type": tool})
+            nodes.append({"id": tool_id, "type": tool, **({"config": settings} if settings else {})})
             edges.append({"source": tool_id, "target": agent["id"], "kind": "resource"})
         for check in agent["checks"]:
             config = {k: v for k, v in check.items() if k not in ("id", "label")}
@@ -88,8 +90,48 @@ def _entry(id_, name, group, steps, summary, when, top=None, answer_check=True, 
 KB_HELPER = "Searches the knowledge base and reports what it says, with [n] citations; says what is missing."
 
 
-def architectures() -> list[dict]:
-    """The gallery, simplest first. Steps are the pattern in a few words."""
+MAX_KNOWLEDGE_AGENTS = 6
+
+
+def _knowledge_agents(collections: list[dict] | None) -> dict:
+    """Knowledge agents (R35): one per collection (its Retriever set to it), under a router."""
+    steps = ["Router reads the question", "Each part to the collection that covers it", "Knowledge agents search",
+             "Answer citing each collection"]
+    summary = ("Several knowledge bases (Data → Knowledge base → Collections), each with its own knowledge agent "
+               "that searches only it: a router sends each part of the question to the collection that covers "
+               "it, several when it spans them, and the answer cites which collection each fact is from. Users "
+               "only search the collections their role may see.")
+    when = "Organisations with separate bodies of knowledge (an HR handbook, product docs, policies)."
+    if not collections or len(collections) < 2:
+        return _entry("knowledge_agents", "Knowledge agents (collections + router)", "Coming soon", steps,
+                      summary + " Make a second collection first.", when, ready=False)
+    subs = [_agent(f"kb_{c['collection_id']}", c["name"][:40],
+                   ((c.get("description") or "").strip() or f"Covers the {c['name']} collection.") + " " + KB_HELPER,
+                   [("retriever", {"collection": c["collection_id"]})])
+            for c in collections[:MAX_KNOWLEDGE_AGENTS]]
+    shown = collections[:MAX_KNOWLEDGE_AGENTS]
+    # The scope the guardrails check against: every collection, as its description says.
+    # {collections}: filled in per run with the ones the user may search (knowledge_collections.expand),
+    # so neither the agents nor the guardrails' messages name a collection a user can't see.
+    brief = ("An assistant that answers from several knowledge bases. ALLOW any question about their subjects, "
+             "read as broadly as possible, including offers, products, rules and names you don't recognise: "
+             "{collections}")
+    domain = "our knowledge bases"
+    entry = _entry("knowledge_agents", "Knowledge agents (collections + router)", "Multi-agent", steps, summary, when,
+                   _agent("router", "Router", "Always ask at least one knowledge agent before answering a question "
+                          "about these knowledge bases: send each part to the knowledge agent whose collection covers "
+                          "it (several, in the same turn, when it spans them or you are unsure which covers it), then "
+                          "answer from what they report, keeping their [n] citations and saying which collection each "
+                          "fact comes from.", (), (), subs, brief=brief, domain=domain))
+    # The guardrails follow the router's brief and domain (every collection), not the default rail scope.
+    guard = next(n for n in entry["flow"]["nodes"] if n["type"] == "input_guardrail")
+    guard["config"] = {"stage": "input", "scope": "", "block_message": "", "clarify_message": "", "output_message": ""}
+    return entry
+
+
+def architectures(collections: list[dict] | None = None) -> list[dict]:
+    """The gallery, simplest first. Steps are the pattern in a few words. collections: this
+    deployment's (knowledge_collections.all_collections()), for the knowledge agents card."""
     return deepcopy([
         _entry("tool_agent", "Tool-calling agent", "Single agent",
                ["Question", "Agent", "Tools (search, APIs)", "Answer"],
@@ -175,6 +217,7 @@ def architectures() -> list[dict]:
                               "keeping their [n] citations."),
                        _agent("fact_checker", "Fact-checker", "Checks every sentence of a draft against the findings "
                               "it is given; returns the draft with anything unsupported removed.")])),
+        _knowledge_agents(collections),
         _entry("planner_executor", "Planner–executor (task graph)", "Multi-agent",
                ["Plan a task graph", "Run independent tasks in parallel", "Pass results on", "Re-plan on failure",
                 "Answer"],

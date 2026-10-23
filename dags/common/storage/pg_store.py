@@ -387,11 +387,18 @@ FILTER_KEYS = ("topic", "organisation", "content_type")   # and "fields.<name>" 
 def meta_filter(filters: dict | None) -> tuple[str, list]:
     """An SQL condition on the chunks' labels (payload `meta`, #15) and its parameters:
     all of the given keys, any of each key's values. {"topic": ["refunds"],
-    "organisation": "National Rail", "fields.ticket_type": ["advance"]}. Empty: no condition."""
+    "organisation": "National Rail", "fields.ticket_type": ["advance"]}. Empty: no condition.
+    "collection" (R35, app/knowledge_collections.py): the sources' collections, from
+    knowledge_collection_sources ("main": not assigned). The chunk table is aliased `chunk`."""
     conditions, params = [], []
     for key, values in (filters or {}).items():
         values = [v for v in (values if isinstance(values, (list, tuple)) else [values]) if isinstance(v, str) and v]
         if not values:
+            continue
+        if key == "collection":
+            conditions.append("coalesce((SELECT k.collection_id FROM knowledge_collection_sources k "
+                              "WHERE k.source_url = chunk.source_url), 'main') = ANY(%s)")
+            params.append(values)
             continue
         if key in ("topic",):
             probes = [{"topic": [v]} for v in values]
@@ -417,10 +424,10 @@ def search_dense(client: PgStore, vector: list[float], limit: int, filters: dict
         rows = connection.execute(f"""
             SELECT id, payload, embedding, 1 - distance AS score FROM (
                 (SELECT id, payload, embedding, embedding <=> %s AS distance
-                 FROM rag_chunks WHERE expires_at > now(){where} ORDER BY embedding <=> %s LIMIT %s)
+                 FROM rag_chunks AS chunk WHERE expires_at > now(){where} ORDER BY embedding <=> %s LIMIT %s)
                 UNION ALL
                 (SELECT id, payload, embedding, embedding <=> %s AS distance
-                 FROM research_chunks WHERE expires_at > now(){where} ORDER BY embedding <=> %s LIMIT %s)
+                 FROM research_chunks AS chunk WHERE expires_at > now(){where} ORDER BY embedding <=> %s LIMIT %s)
             ) AS candidates ORDER BY distance, id LIMIT %s
         """, (vector, *params, vector, limit, vector, *params, vector, limit, limit)).fetchall()
     return [{**row, "id": str(row["id"]), "vector": row["embedding"].to_list()} for row in rows]
@@ -432,11 +439,11 @@ def search_text(client: PgStore, question: str, limit: int, filters: dict | None
         rows = connection.execute(f"""
             SELECT id, payload, embedding, score FROM (
                 (SELECT id, payload, embedding, ts_rank_cd(search_document, plainto_tsquery('english', %s)) AS score
-                 FROM rag_chunks WHERE expires_at > now() AND search_document @@ plainto_tsquery('english', %s){where}
+                 FROM rag_chunks AS chunk WHERE expires_at > now() AND search_document @@ plainto_tsquery('english', %s){where}
                  ORDER BY score DESC, id LIMIT %s)
                 UNION ALL
                 (SELECT id, payload, embedding, ts_rank_cd(search_document, plainto_tsquery('english', %s)) AS score
-                 FROM research_chunks WHERE expires_at > now() AND search_document @@ plainto_tsquery('english', %s){where}
+                 FROM research_chunks AS chunk WHERE expires_at > now() AND search_document @@ plainto_tsquery('english', %s){where}
                  ORDER BY score DESC, id LIMIT %s)
             ) AS candidates ORDER BY score DESC, id LIMIT %s
         """, (question, question, *params, limit, question, question, *params, limit, limit)).fetchall()

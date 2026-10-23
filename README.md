@@ -377,6 +377,27 @@ answer cache. The gallery's **Human-in-the-loop** architecture uses both.
 Checked on the local stack: a run paused for approval, the web app was
 restarted, the approval (in the browser) resumed it and it finished.
 
+### Collections: several knowledge bases
+
+A deployment can hold several knowledge bases (`app/knowledge_collections.py`,
+R35): **Data → Knowledge base → Collections**. Each collection has a name, a
+description of what it covers and the roles that may search it (none: everyone);
+sources are moved into one there, and a source in none is in the **main**
+collection (what guided setup builds; renameable, always searchable by
+everyone). Membership is kept per source outside the chunks, so re-ingesting a
+page keeps it. Every knowledge-base search is limited to the collections the
+user's role may see; a Retriever can be set to one collection, which makes the
+Agent it plugs into a **knowledge agent**. In the Agent Builder, **Architectures
+→ Knowledge agents** (ready once there are two collections) makes one knowledge
+agent per collection under a **router** that sends each part of a question to
+the collection that covers it; cited sources show their collection. The
+router's brief lists the collections (`{collections}`, filled in per user), so
+neither the agents nor the guardrails' messages name a collection the user
+can't see, and its knowledge agent isn't offered to them at all. Checked
+locally with a rail collection and an HR handbook: each answered its own
+questions, a question spanning both cited both, and a plain user's answer
+never touched or named the admin-only HR handbook.
+
 ### Streaming and cancelling
 
 Questions stream their progress as server-sent events: the first arrives

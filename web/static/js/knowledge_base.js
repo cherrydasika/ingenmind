@@ -1,8 +1,10 @@
-// Knowledge base (Data): what is stored and how it got there, as two tabs on one
-// page: Sources (every page indexed, with its labels) and Ingestion (the jobs
-// that read them, and the pages research added). The tab is in the address:
-// #/knowledge-base/sources or #/knowledge-base/ingestion.
+// Knowledge base (Data): what is stored and how it got there, as tabs on one
+// page: Sources (every page indexed, with its labels), Ingestion (the jobs
+// that read them, and the pages research added) and Collections (several
+// knowledge bases, R35). The tab is in the address: #/knowledge-base/sources,
+// #/knowledge-base/ingestion or #/knowledge-base/collections.
 
+import { CollectionsPage } from "./collections.js";
 import { IngestionPage } from "./ingestion.js";
 import { SourcesPage } from "./sources.js";
 import { h } from "./ui.js";
@@ -10,6 +12,7 @@ import { h } from "./ui.js";
 const TABS = [
   ["sources", "Sources", SourcesPage, "Every page in the knowledge base, with what it is about"],
   ["ingestion", "Ingestion", IngestionPage, "Reading pages in: jobs, the pages research added, data-source reports"],
+  ["collections", "Collections", CollectionsPage, "Several knowledge bases: their sources and who may search each (R35)"],
 ];
 
 export class KnowledgeBasePage {

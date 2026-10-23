@@ -341,6 +341,13 @@ class AnswerMetricsCallback(unittest.TestCase):
 class SettingsAreLive(unittest.TestCase):
     """Phase 6: the settings that used to be for reference reach the runtime."""
 
+    def setUp(self):
+        # Whatever collections this database has (R35) stay out of these searches.
+        for name, value in (("scope", None), ("names", {"main": "Main"})):
+            patcher = patch.object(agent.knowledge_collections, name, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
     def test_default_flow_settings(self):
         settings = agent._flow_settings(flows.load_flow())
         self.assertEqual(settings["word_limit"], 120)
