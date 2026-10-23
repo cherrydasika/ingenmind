@@ -566,6 +566,18 @@ on #120 that isn't waiting on the user.
   connector (its keys sealed with a throwaway INTEGRATIONS_KEY, so it can't
   be browsed from the app).
 
+- **R49 (#109) done:** scheduled re-crawl (`app/recrawl.py`): a schedule
+  per web page (weekly default; daily/off on Ingestion → Freshness), the
+  worker's round every 10 minutes (`RECRAWL=false` off), a conditional GET
+  (`scraping.check_changed`; 304 renews the lifetime), else a re-ingest
+  with labels kept (`recheck` keeps the hash check) that re-embeds only
+  chunks whose text changed (`ingest` reuses stored vectors from
+  `pg_store.page_chunks`) and removes the old ones; a chunk-text diff per
+  change; stale when gone, failing 3 times or overdue twice over.
+  **Done-when checked:** a page served from a local container was edited;
+  on its next due check the round said changed, the old text was gone and
+  the new stored, the diff recorded; the next check was a 304, unchanged.
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

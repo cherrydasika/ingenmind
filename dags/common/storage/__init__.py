@@ -3,6 +3,7 @@ from .pg_store import (
     PgStore,
     background_vectors,
     chunk_bodies,
+    page_chunks,
     claim_job,
     count_points,
     delete_expired,
@@ -54,6 +55,7 @@ __all__ = [
     "sample_record",
     "update_job",
     "chunk_bodies",
+    "page_chunks",
     "replace_embeddings",
     "stored_embedding",
 ]

@@ -193,6 +193,14 @@ def stored_embedding(client: PgStore) -> dict | None:
     return dict(stored) if stored else None
 
 
+def page_chunks(client: PgStore, url: str) -> list[dict]:
+    """A page's stored chunks: text and vector, in order (R49: unchanged chunks keep their vectors)."""
+    with client.connection() as connection:
+        rows = connection.execute(sql.SQL("SELECT body, embedding FROM {} WHERE source_url = %s ORDER BY chunk_index")
+                                  .format(sql.Identifier(client.table)), (url,)).fetchall()
+    return [{"text": r["body"], "vector": r["embedding"].to_list()} for r in rows]
+
+
 def chunk_bodies(client: PgStore) -> dict[str, list[tuple]]:
     """Every stored chunk's id and text, per document table (for re-embedding)."""
     with client.connection() as connection:

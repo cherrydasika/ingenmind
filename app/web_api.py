@@ -59,6 +59,7 @@ from initialization import (blueprint_run, build as setup_build, content as setu
 import sessions
 import source_profiles
 import connectors
+import recrawl
 import tool_stub
 import webhooks
 import usage_limits
@@ -2223,6 +2224,31 @@ async def adhoc_upload(request: Request) -> Response:
     return _json(result)
 
 
+def recrawl_view(request: Request) -> Response:
+    """Freshness per web page (R49): schedule, last check and change, stale or not."""
+    try:
+        recrawl.sync()
+    except Exception as error:   # nothing ingested yet
+        print(f"re-crawl sync skipped: {error}", file=sys.stderr)
+    return _json({"sources": recrawl.freshness(), "intervals": list(recrawl.INTERVALS),
+                  "can_manage": auth.allowed(auth.current_user(request), "manage_knowledge")})
+
+
+async def recrawl_schedule(request: Request) -> Response:
+    body = await request.json()
+    try:
+        await run_in_threadpool(recrawl.set_every, str(body.get("url") or ""), str(body.get("every") or ""))
+    except ValueError as error:
+        return _json({"error": str(error)}, 400)
+    return recrawl_view(request)
+
+
+async def recrawl_check(request: Request) -> Response:
+    """Check one page now (a conditional GET, then re-ingest if it changed)."""
+    body = await request.json()
+    return _json(await run_in_threadpool(recrawl.check, str(body.get("url") or "")))
+
+
 def connector_list(request: Request) -> Response:
     return _json({"connectors": connectors.listing(), "formats": connectors.FORMATS, "secrets": secrets_box.available()})
 
@@ -2491,6 +2517,9 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/adhoc/preview", adhoc_preview, methods=["POST"]),
     Route("/api/adhoc/submit", adhoc_submit, methods=["POST"]),
     Route("/api/adhoc/upload", adhoc_upload, methods=["POST"]),
+    Route("/api/recrawl", recrawl_view),
+    Route("/api/recrawl/schedule", recrawl_schedule, methods=["POST"]),
+    Route("/api/recrawl/check", recrawl_check, methods=["POST"]),
     Route("/api/connectors", connector_list),
     Route("/api/connectors", connector_add, methods=["POST"]),
     Route("/api/connectors/{connector_id}/items", connector_items),

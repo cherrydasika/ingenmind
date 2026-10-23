@@ -132,6 +132,8 @@ RULES = [
     ({"POST"}, r"/api/(ingestion/trigger|sources/remove|source-reports/remove)", "manage_knowledge"),
     ({"GET", "POST"}, r"/api/adhoc(/.*)?", "upload_documents"),
     ({"GET", "POST", "DELETE"}, r"/api/connectors(/[^/]+(/items|/import)?)?", "manage_knowledge"),   # R48
+    ({"GET"}, r"/api/recrawl", "view_knowledge"),                                             # R49
+    ({"POST"}, r"/api/recrawl/(schedule|check)", "manage_knowledge"),
     ({"GET", "POST", "PUT"}, r"/api/users(/.*)?", "manage_users"),
     ({"GET"}, r"/api/models/catalogue", ("manage_agents", "manage_settings")),
     ({"GET", "POST"}, r"/api/answer-cache(/clear)?", "manage_settings"),

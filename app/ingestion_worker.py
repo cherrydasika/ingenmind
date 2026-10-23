@@ -1,6 +1,7 @@
 """Process manually queued ingestion and prune jobs, one at a time."""
 
 import logging
+import os
 import signal
 import threading
 import time
@@ -77,6 +78,9 @@ def main() -> None:
         stop_requested.wait()
         return
     storage.recover_running_jobs(client)
+    if os.environ.get("RECRAWL", "true").strip().lower() not in ("0", "false", "no"):
+        import recrawl   # scheduled re-crawl beside the jobs (R49)
+        threading.Thread(target=recrawl.loop, args=(stop_requested,), name="recrawl", daemon=True).start()
     while not stop_requested.is_set():
         job = storage.claim_job(client)
         if job:
