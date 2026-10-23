@@ -553,6 +553,32 @@ The queries read two PostgreSQL views, `analytics_questions` (over
 is small enough that no separate analytics store is needed (#7 is about
 when one helps).
 
+### Operations
+
+**Monitoring → Operations** (`app/operations.py`, `web/static/js/operations.js`,
+R53; admins, `GET /api/operations?from=&to=&flow=&model=&channel=&user=&source=`)
+answers "what did yesterday cost and what was slow" on one screen, from the
+run records in PostgreSQL rather than Langfuse:
+- **Yesterday:** cost, runs, p50/p95 time, errors, timeouts, guardrail
+  blocks, budget breaches, tokens, cache hit rate, and the slowest flow,
+  agent and model.
+- **The period** (the last 7 days by default): the same numbers, and per
+  day the cost by model, p50/p95 time and the errors, timeouts, blocks and
+  budget breaches.
+- **Breakdowns** per flow, agent, model, channel, source and the top users
+  by cost; filters for each.
+- **Ingestion:** the worker's queue now (and how long the oldest job has
+  waited), and the jobs that succeeded or failed in the period, with errors.
+
+Each run (`agent_flow_runs`) now keeps who asked, the channel, the agents'
+model, whether it timed out and whether it hit its budget (R15); its agents'
+models, seconds and tokens go in `agent_flow_run_agents`. Cost is
+approximate: an agent's tokens at its model's list price, the rest of the
+run's (guardrails, evaluators, rewrites) at the run's model
+(`app/model_prices.json`). Runs recorded before this have no user, channel
+or per-agent rows, and are priced at the current model. Cache hits come from
+`answer_cache_stats` (per day, not per flow or channel).
+
 ### Channels: web widget, Slack and Teams
 
 People can ask from where they already are (`app/channels`, R50), through
@@ -2079,6 +2105,7 @@ app/
   answer_feedback.py       # thumbs up/down on answers, Langfuse score, into golden sets (R51)
   channels/                # web widget, Slack and Teams (R50)
   analytics.py             # the Analytics page's views and queries (R52)
+  operations.py            # the Operations page: latency, errors, tokens and cost (R53)
   ttl_cache.py             # small time-based cache with .clear()
   pipeline.py                    # answer_question(): retrieval → generation, one trace
   retrieval.py                   # hybrid_search(): question → ranked chunks (no LLM)

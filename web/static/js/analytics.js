@@ -9,14 +9,14 @@ const DAY = 86400000;
 const iso = (d) => d.toISOString().slice(0, 10);
 const pct = (v) => (v === null || v === undefined ? "—" : `${Math.round(v * 100)}%`);
 
-function colours() {
+export function colours() {
   const css = getComputedStyle(document.documentElement);
   const v = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
   return { text: v("--text", "#162026"), faint: v("--faint", "#74838a"), border: v("--border", "#d8dfde"),
     primary: v("--primary", "#1e3a8a"), ok: v("--ok", "#16a34a"), err: v("--err", "#dc2626"), warn: v("--warn", "#ca8a04") };
 }
 
-function plot(el, data, layout = {}) {
+export function plot(el, data, layout = {}) {
   const c = colours();
   const base = { paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)", font: { color: c.text, size: 12 },
     margin: { l: 48, r: 16, t: 8, b: 40 }, autosize: true, showlegend: false };
@@ -26,7 +26,7 @@ function plot(el, data, layout = {}) {
     modeBarButtonsToRemove: ["select2d", "lasso2d", "toImage"] });
 }
 
-const chartBox = (height = 320) => h("div", { class: "chart", style: `height:${height}px` });
+export const chartBox = (height = 320) => h("div", { class: "chart", style: `height:${height}px` });
 
 export class AnalyticsPage {
   title = "Analytics";

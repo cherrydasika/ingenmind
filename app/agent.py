@@ -563,9 +563,9 @@ class _Run:
         run["_sent_chars"] = len(json.dumps({"s": params.get("systemPrompt"), "m": messages, "t": params.get("tools")},
                                             ensure_ascii=False, default=str))
         chosen = params.get("chatModel") or {}   # the flow's LLM node's model, on the local runtime (R16)
-        with observation(as_type="generation", name=f"{run['role']}_agent",
-                         model=(chosen.get("model") or llm.DEFAULT_MODELS.get(chosen.get("provider"), "")) or _model_id()
-                         if chosen else _model_id(),
+        run["model"] = ((chosen.get("model") or llm.DEFAULT_MODELS.get(chosen.get("provider"), "")) or _model_id()
+                        if chosen else _model_id())   # per agent, for Operations (R53)
+        with observation(as_type="generation", name=f"{run['role']}_agent", model=run["model"],
                          input={"system": params["systemPrompt"], "messages": messages},
                          metadata={"delegation": run.get("delegation"), "turn": before[0] + 1,
                                    "tools": [t.get("name") for t in params.get("tools") or [] if isinstance(t, dict)]}
@@ -2876,10 +2876,17 @@ def memory_view(session_id: str) -> dict:
             "facts": records(f"/actors/{actor}/facts/")}
 
 
-def _record_run(spec: flows.FlowSpec, version, source: str, metrics: dict) -> None:
-    """Per-flow metrics: numbers only. A failure to record never fails the run."""
+def _run_labels(user_id: str | None, trace_metadata: dict | None, source: str) -> dict:
+    """Who asked, where from and the agents' model: what Operations (R53) groups runs by."""
+    return {"user_id": user_id, "model": _model_id(),
+            # the Ask page is "app"; the playground and evaluations are their own channel
+            "channel": (trace_metadata or {}).get("channel") or ("app" if source == "users" else source)}
+
+
+def _record_run(spec: flows.FlowSpec, version, source: str, metrics: dict, labels: dict | None = None) -> None:
+    """Per-flow metrics: numbers and labels only. A failure to record never fails the run."""
     try:
-        flows.store.record_run(spec.id, version, source, metrics)
+        flows.store.record_run(spec.id, version, source, {**metrics, **(labels or {})})
     except Exception as error:
         log.warning("could not record flow run metrics: %s", error)
 
@@ -2898,6 +2905,7 @@ def answer(question: str, session_id: str, user_id: str | None, max_iterations: 
     scores and labels, and the URLs of the pages retrieved and cited — never
     their text), for flow evaluations."""
     spec, version = flow or live_flow()
+    labels = _run_labels(user_id, trace_metadata, source)
     # Personal data first (pii.py): masked or refused before any model, tool,
     # session or trace sees the question.
     found = pii.kinds(question)
@@ -2905,7 +2913,7 @@ def answer(question: str, session_id: str, user_id: str | None, max_iterations: 
     if found and policy == "refuse":
         message = (_flow_settings(spec).get("guardrail") or {}).get("personal_data_message") \
             or "Please ask without personal details."
-        _record_run(spec, version, source, {"input_blocked": True})
+        _record_run(spec, version, source, {"input_blocked": True}, labels)
         if on_metrics:
             on_metrics({"input_blocked": True})
         return {**_public_result(pii.mask(question), message, {"input": {"decision": "BLOCK"}}),
@@ -2923,7 +2931,7 @@ def answer(question: str, session_id: str, user_id: str | None, max_iterations: 
         trace_id = current_trace_id()
         try:
             result = _answer(question, session_id, user_id, max_iterations, on_event, retrieval_view, spec, version,
-                             source, on_metrics, trace_id)
+                             source, on_metrics, trace_id, labels)
         except Exception as error:
             root.update(level="ERROR", status_message=f"{type(error).__name__}: {error}"[:500])
             raise
@@ -2937,7 +2945,8 @@ def answer(question: str, session_id: str, user_id: str | None, max_iterations: 
 
 
 def _answer(question: str, session_id: str, user_id: str | None, max_iterations: int | None, on_event, retrieval_view,
-            spec: flows.FlowSpec, version, source: str, on_metrics, trace_id: str | None) -> dict:
+            spec: flows.FlowSpec, version, source: str, on_metrics, trace_id: str | None,
+            labels: dict | None = None) -> dict:
     graph = graph_for(spec)
     settings = _flow_settings(spec)
     on_event({"type": "guardrail", "stage": "input", "state": "start"})
@@ -2948,7 +2957,7 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
     on_event({"type": "guardrail", "stage": "input", "state": "done", "decision": verdict.decision})
     score(trace_id, "input_guardrail", verdict.decision, "CATEGORICAL", verdict.reason[:500])
     if not verdict.allowed:
-        _record_run(spec, version, source, {"input_blocked": True})
+        _record_run(spec, version, source, {"input_blocked": True}, labels)
         if on_metrics:
             on_metrics({"input_blocked": True})
         return {**_public_result(question, verdict.message, {"input": verdict.model_dump()}),
@@ -2975,6 +2984,7 @@ def _answer(question: str, session_id: str, user_id: str | None, max_iterations:
     run = _prepare_run(spec, settings, session_id, user_id, limit, progress, retrieval_view, source, asked,
                        trace_id)
     run.run_id = run_id = str(uuid.uuid4())
+    run.labels = labels
     # The run's record, so it can resume after a restart (durable.py, R30).
     durable.begin(run_id, source=source, session_id=session_id, user_id=user_id, flow_id=spec.id, version=version,
                   spec=spec.model_dump(mode="json"), question=asked, asked=question, read_as=read_as)
@@ -3012,17 +3022,20 @@ def _run_to_end(run: "_Run", graph, spec: flows.FlowSpec, version, source: str, 
     durable.LIVE[run_id] = run
     config = {"configurable": {"run": run, "thread_id": run_id}, "recursion_limit": 60}
     cancelled = lambda: bool(getattr(run, "cancelled", None) and run.cancelled.is_set())
+    # A resumed run (R30): its channel was not kept with its record, so the source's.
+    labels = getattr(run, "labels", None) or _run_labels(getattr(run, "user_id", None), None, source)
     try:
         result = _drive(run_id, run, config, run.question, graph_input, started, graph=graph)
     except Exception as error:
-        _record_run(spec, version, source, {"failed": True, "seconds": round(time.time() - started, 3)})
+        _record_run(spec, version, source, {"failed": True, "timed_out": _timed_out(error),
+                                            "seconds": round(time.time() - started, 3)}, labels)
         durable.finish(run_id, "cancelled" if cancelled() else "failed", error=f"{type(error).__name__}: {error}"[:500])
         raise
     if result["status"] == "waiting":
         durable.wait(run_id)          # its checkpoints stay until a person answers (R32)
         result.update(flow={"id": spec.id, "version": version}, question=question)
         return result
-    _record_run(spec, version, source, run.metrics)
+    _record_run(spec, version, source, run.metrics, labels)
     if on_metrics:
         on_metrics(run.metrics)
     result["flow"] = {"id": spec.id, "version": version}
@@ -3050,6 +3063,16 @@ def _run_to_end(run: "_Run", graph, spec: flows.FlowSpec, version, source: str, 
                                                "overall": check.get("overall"), "scores": check.get("scores")},
                       private={"question": question, "draft_answer": result.get("draft_answer") or ""})
     return result
+
+
+def _timed_out(error: Exception) -> bool:
+    """A run that failed because something took too long: a timeout anywhere in its chain of causes."""
+    while error is not None:
+        if isinstance(error, TimeoutError) or "timeout" in type(error).__name__.lower() \
+                or re.search(r"timed? ?out", str(error), re.I):
+            return True
+        error = error.__cause__ or error.__context__
+    return False
 
 
 def resume_run(run_id: str, retrieval_view, on_event=lambda event: None, answer=None) -> dict:
@@ -3202,7 +3225,8 @@ def _drive(run_id: str, run: "_Run", config: dict, question: str, graph_input, s
                    "retrieved": sorted({c["source_url"] for search in internal["searches"]
                                         for c in search["retrieval"]["chunks"] if c.get("source_url")}),
                    "cited": [s["url"] for s in result["sources"]],
-                   "live_tools": sorted({c["tool"] for c in run.calls if c.get("tool")})}
+                   "live_tools": sorted({c["tool"] for c in run.calls if c.get("tool")}),
+                   "agents": _agent_usage(run)}
     for key in ("rounds", "usage", "model_seconds", "search_seconds", "api_seconds", "max_iterations", "path"):
         result[key] = internal[key]
     result["answer_check"] = {key: evaluation.get(key) for key in (
@@ -3217,6 +3241,20 @@ def _drive(run_id: str, run: "_Run", config: dict, question: str, graph_input, s
     except Exception as error:
         log.warning("could not record agent memory: %s", error)
     return {**result, "status": "done", "run_id": run_id}
+
+
+def _agent_usage(run: "_Run") -> list[dict]:
+    """Per agent (role) and model: its seconds, tokens and turns in this run, for Operations (R53)."""
+    out: dict[tuple, dict] = {}
+    for r in getattr(run, "runs", None) or []:
+        if not r.get("turns"):
+            continue
+        row = out.setdefault((r["role"], r.get("model")), {"role": r["role"], "model": r.get("model"), "seconds": 0.0,
+                                                             "input_tokens": 0, "output_tokens": 0, "turns": 0})
+        row["seconds"] += r.get("model_seconds") or 0
+        for key in ("input_tokens", "output_tokens", "turns"):
+            row[key] += r.get(key) or 0
+    return [{**row, "seconds": round(row["seconds"], 3)} for row in out.values()]
 
 
 def _score_run(trace_id: str | None, final: dict, internal: dict) -> None:

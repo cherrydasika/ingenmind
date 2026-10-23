@@ -70,7 +70,7 @@ class SetupDatabase(unittest.TestCase):
                           "app_source_discoveries", "kb_site_analyses", "kb_content", "kb_ingestion_plan_pages",
                           "kb_ingestion_plans", "rag_chunks", "research_chunks", "ingestion_jobs", "app_setup_evaluations",
                           "agent_eval_results", "agent_eval_runs", "agent_eval_sets", "agent_flow_versions",
-                          "agent_live_flow", "agent_flow_runs", "agent_flows", "kb_labelling_runs"):
+                          "agent_live_flow", "agent_flow_run_agents", "agent_flow_runs", "agent_flows", "kb_labelling_runs"):
                 connection.execute(sql.SQL("DROP TABLE IF EXISTS {}").format(sql.Identifier(table)))
         self.reset_caches()
         with patch.object(config, "URLS_CONFIG_PATH", Path("/nonexistent/urls.json")):

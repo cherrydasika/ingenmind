@@ -59,6 +59,7 @@ from initialization import (blueprint_run, build as setup_build, content as setu
                             evaluation as setup_evaluation, labels as setup_labels, plan as setup_plan, readiness as setup_readiness, sources_run,
                             state as setup_state, supervisor)
 import analytics
+import operations
 import answer_feedback
 import sessions
 import source_profiles
@@ -1820,6 +1821,18 @@ def analytics_report(request: Request) -> Response:
         return _json({"error": str(error)}, 400)
 
 
+# ---------- Operations (operations.py, R53) ----------
+
+def operations_report(request: Request) -> Response:
+    """Latency, errors, tokens and cost for a period, with optional filters (flow, model, channel, user, source)."""
+    params = request.query_params
+    try:
+        return _json(operations.report(params.get("from"), params.get("to"),
+                                       {name: params.get(name) for name in operations.FILTERS}))
+    except ValueError as error:
+        return _json({"error": str(error)}, 400)
+
+
 def _shape_agent_result(result: dict) -> dict:
     """The browser needs no chunk vectors (no page plots them any more)."""
     return {**result, "searches": [{**s, "retrieval": _strip_vectors(s["retrieval"])} for s in result["searches"]]}
@@ -2639,6 +2652,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/session/reset", reset_session, methods=["POST"]),
     Route("/api/sessions", session_list),
     Route("/api/analytics", analytics_report),
+    Route("/api/operations", operations_report),
     Route("/api/channels", channel_list),
     Route("/api/channels", channel_add, methods=["POST"]),
     Route("/api/channels/usage", channel_usage),
