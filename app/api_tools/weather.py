@@ -45,11 +45,34 @@ _cache: dict[tuple, tuple[float, dict]] = {}
 _lock = threading.Lock()
 
 
-def _get(url: str, params: dict) -> dict:
+RETRY_ON = (429, 503)
+MAX_RETRY_WAIT = 3.0     # seconds: a longer Retry-After isn't waited for
+
+
+def _wait_before_retry(error: urllib.error.HTTPError) -> float | None:
+    """How long to wait before the one retry (R45), or None when there should be none."""
+    if error.code not in RETRY_ON:
+        return None
+    try:
+        wait = float((error.headers or {}).get("Retry-After") or 1)
+    except (TypeError, ValueError):
+        wait = 1.0
+    return max(0.0, wait) if wait <= MAX_RETRY_WAIT else None
+
+
+def _get(url: str, params: dict, sleep=time.sleep) -> dict:
+    """One GET; a 429 or 503 is retried once, politely (Retry-After up to MAX_RETRY_WAIT)."""
     request = urllib.request.Request(f"{url}?{urllib.parse.urlencode(params)}",
                                      headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
-    with urllib.request.urlopen(request, timeout=15) as response:
-        return json.loads(response.read())
+    for attempt in (1, 2):
+        try:
+            with urllib.request.urlopen(request, timeout=15) as response:
+                return json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            wait = _wait_before_retry(error) if attempt == 1 else None
+            if wait is None:
+                raise
+            sleep(wait)
 
 
 def _geocode(location: str) -> dict | None:
