@@ -144,6 +144,7 @@ RULES = [
     ({"GET", "POST"}, r"/api/channels", "manage_settings"),
     ({"GET"}, r"/api/analytics", "manage_settings"),                 # R52: admins
     ({"GET"}, r"/api/operations", "manage_settings"),                # R53: admins
+    ({"GET", "POST", "PATCH", "PUT"}, r"/api/alerts(/.*)?", "manage_settings"),   # R55: admins
     ({"GET"}, r"/api/channels/usage", ("view_sessions", "manage_agents", "manage_settings")),
     ({"DELETE"}, r"/api/channels/[^/]+", "manage_settings"),
     # Answer feedback (R51): on one's own answers; everyone's shows their questions.

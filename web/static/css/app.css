@@ -1011,4 +1011,12 @@ button.cite:focus-visible { outline: 2px solid var(--primary); outline-offset: 1
 
 /* Operations (R53, operations.js) */
 .ops-metrics { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+.alert-inputs { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.alert-inputs span { display: inline-flex; align-items: center; gap: 6px; }
+.alert-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.alert-table td:first-child { min-width: 200px; }
+.alert-history td:first-child { white-space: nowrap; }
+.alert-history td:nth-child(4) { min-width: 240px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .ops-metrics .metric-value { font-size: 17px; overflow-wrap: anywhere; }

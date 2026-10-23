@@ -587,6 +587,26 @@ run's (guardrails, evaluators, rewrites) at the run's model
 or per-agent rows, and are priced at the current model. Cache hits come from
 `answer_cache_stats` (per day, not per flow or channel).
 
+### Alerts
+
+**Monitoring → Alerts** (`app/alerts.py`, `web/static/js/alerts.js`, R55;
+admins) tells admins when something needs them. Rules, each with a
+threshold, a window, on/off, mute (1 hour to a week) and **Send test**:
+answer pass rate below, cost today above, error rate above, slowest-5%
+response time above, ingestion failures, a guardrail-block spike, stale
+sources (R49), and an evaluation regression (an event from
+`flows/evals.py`). Rates need a minimum number of users' runs before they
+judge. The checker runs every 5 minutes (`ALERT_CHECK_SECONDS`) in the web
+app; a rule alerts once when breached and once when it clears, and muted
+rules record without sending. History is kept in `alert_events`.
+
+Where alerts go: a **Slack incoming webhook** (stored sealed with
+`INTEGRATIONS_KEY`, never shown back, kept out of the audit log), **email**
+over SMTP (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`,
+`SMTP_TLS` = starttls | ssl | none, `ALERT_EMAIL_FROM`), and the R47
+webhooks subscribed to `alert.fired`. Messages carry numbers and labels
+only, never questions or answers.
+
 ### Channels: web widget, Slack and Teams
 
 People can ask from where they already are (`app/channels`, R50), through
@@ -2115,6 +2135,7 @@ app/
   analytics.py             # the Analytics page's views and queries (R52)
   operations.py            # the Operations page: latency, errors, tokens and cost (R53)
   knowledge_gaps.py        # what the knowledge base couldn't answer, grouped into topics (R54)
+  alerts.py                # alert rules, the checker, Slack / email / webhook delivery (R55)
   ttl_cache.py             # small time-based cache with .clear()
   pipeline.py                    # answer_question(): retrieval → generation, one trace
   retrieval.py                   # hybrid_search(): question → ranked chunks (no LLM)

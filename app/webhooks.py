@@ -45,6 +45,7 @@ EVENTS = {
     "ingestion.finished": "An ingestion job finished",
     "evaluation.regressed": "An evaluation run passed fewer questions than the version's previous run",
     "version.live": "A flow version was made live",
+    "alert.fired": "An alert rule fired, resolved or was tested (R55)",
     "ping": "A test delivery (Send test)",
 }
 RETRY_AFTER = (60, 300, 1800, 7200)        # seconds before each retry; then it's failed

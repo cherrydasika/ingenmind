@@ -36,7 +36,8 @@ READ_ONLY = {"/api/flows/validate", "/api/flows/diff", "/api/adhoc/preview"}   #
 ALWAYS = re.compile(r"^/api/me/keys(/[^/]+)?$")
 MAX_BODY = 64_000                   # bytes read for the field summary; the rest passes through untouched
 VALUE_CHARS = 120
-SECRET = re.compile(r"secret|password|passwd|token|api_?key|credential|cookie|question|answer|message|text|content|body",
+SECRET = re.compile(r"secret|password|passwd|token|api_?key|credential|cookie|question|answer|message|text|content|body"
+                    r"|webhook_url",   # a Slack incoming-webhook URL is its own credential (R55)
                     re.IGNORECASE)
 SCHEMA_LOCK = 72616712
 
