@@ -58,6 +58,7 @@ from initialization import (blueprint_run, build as setup_build, content as setu
                             state as setup_state, supervisor)
 import sessions
 import source_profiles
+import connectors
 import tool_stub
 import webhooks
 import usage_limits
@@ -2201,6 +2202,69 @@ async def adhoc_submit(request: Request) -> Response:
     return _json(result)
 
 
+async def adhoc_upload(request: Request) -> Response:
+    """A file (PDF, DOCX, PPTX, HTML, Markdown, text) into the knowledge base (R48), base64 in JSON."""
+    import base64
+    body = await request.json()
+    name = re.sub(r"[^A-Za-z0-9._ -]+", "_", str(body.get("filename") or "")).strip()[:120]
+    try:
+        ttl_days = float(body.get("ttl_days"))
+        data = base64.b64decode(str(body.get("data") or ""), validate=True)
+    except (TypeError, ValueError):
+        return _json({"error": "filename, data (base64) and ttl_days are required"}, 400)
+    if not name or ttl_days <= 0 or not data:
+        return _json({"error": "filename, data (base64) and a positive ttl_days are required"}, 400)
+    try:
+        result = await run_in_threadpool(connectors.ingest, f"upload://{name}", name, data, ttl_days,
+                                         {"connector": "upload", "uploaded_by": auth.current_user(request)["user_id"]})
+    except connectors.ConnectorError as error:
+        return _json({"error": str(error)}, 400)
+    fetch_qdrant_overview.clear()
+    return _json(result)
+
+
+def connector_list(request: Request) -> Response:
+    return _json({"connectors": connectors.listing(), "formats": connectors.FORMATS, "secrets": secrets_box.available()})
+
+
+async def connector_add(request: Request) -> Response:
+    body = await request.json()
+    secret = ({"access_key": str(body["access_key"]), "secret_key": str(body.get("secret_key") or "")}
+              if body.get("access_key") else None)
+    try:
+        await run_in_threadpool(connectors.add, str(body.get("connector_id") or ""), str(body.get("kind") or "s3"),
+                                body.get("name"), body, secret)
+    except connectors.ConnectorError as error:
+        return _json({"error": str(error)}, 400)
+    return connector_list(request)
+
+
+async def connector_items(request: Request) -> Response:
+    try:
+        connector = await run_in_threadpool(connectors.get, request.path_params["connector_id"])
+        items = await run_in_threadpool(connector.list)
+    except connectors.ConnectorError as error:
+        return _json({"error": str(error)}, 400)
+    return _json({"items": [i.public() for i in items]})
+
+
+async def connector_import(request: Request) -> Response:
+    body = await request.json()
+    ids = [i for i in body.get("items") or [] if isinstance(i, str)]
+    try:
+        ttl_days = float(body.get("ttl_days") or 30)
+        results = await run_in_threadpool(connectors.import_items, request.path_params["connector_id"], ids, ttl_days)
+    except (connectors.ConnectorError, ValueError) as error:
+        return _json({"error": str(error)}, 400)
+    fetch_qdrant_overview.clear()
+    return _json({"results": results})
+
+
+def connector_remove(request: Request) -> Response:
+    done = connectors.remove(request.path_params["connector_id"])
+    return _json({"ok": True}) if done else _json({"error": "No such connector"}, 404)
+
+
 # ---------- Docs ----------
 
 def docs(request: Request) -> Response:
@@ -2426,6 +2490,12 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/adhoc", adhoc_settings),
     Route("/api/adhoc/preview", adhoc_preview, methods=["POST"]),
     Route("/api/adhoc/submit", adhoc_submit, methods=["POST"]),
+    Route("/api/adhoc/upload", adhoc_upload, methods=["POST"]),
+    Route("/api/connectors", connector_list),
+    Route("/api/connectors", connector_add, methods=["POST"]),
+    Route("/api/connectors/{connector_id}/items", connector_items),
+    Route("/api/connectors/{connector_id}/import", connector_import, methods=["POST"]),
+    Route("/api/connectors/{connector_id}", connector_remove, methods=["DELETE"]),
     Route("/api/docs", docs),
     Route("/api/docs/sample", docs_sample),
     Route("/api/evaluations", evaluations),

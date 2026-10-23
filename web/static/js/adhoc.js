@@ -2,6 +2,7 @@
 // chunking and embeddings as URL ingestion. Mirrors app/adhoc_tab.py.
 
 import { api } from "./api.js";
+import { ConnectorsBox, uploadCard } from "./documents.js";
 import { card, daysLeft, errorBox, fmtInt, fmtTimestamp, h, loading, md, metric, note, richText } from "./ui.js";
 
 const PREVIEW_DEBOUNCE_MS = 350;
@@ -76,6 +77,10 @@ export class AdhocPage {
     this.renderResult();
     this.renderPreview(null);
     this.renderStored();
+    // Files and document connectors (R48).
+    const connectors = h("div", {});
+    this.root.firstChild.append(uploadCard(() => this.mount()), card({ title: "Document connectors", children: connectors }));
+    new ConnectorsBox(connectors).load();
   }
 
   renderMode() {
