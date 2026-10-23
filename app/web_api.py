@@ -14,7 +14,7 @@ import re
 import sys
 import threading
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, "/app/dags")
@@ -60,6 +60,7 @@ from initialization import (blueprint_run, build as setup_build, content as setu
                             state as setup_state, supervisor)
 import alerts
 import analytics
+import analytics_export
 import knowledge_gaps
 import operations
 import answer_feedback
@@ -1856,6 +1857,15 @@ def channel_usage(request: Request) -> Response:
 
 # ---------- Analytics (analytics.py, R52) ----------
 
+async def analytics_download(request: Request) -> Response:
+    """The analytics data as Parquet files for DuckDB, zipped (R57); ?include_text=1 adds what people wrote."""
+    include_text = request.query_params.get("include_text") in ("1", "true")
+    data, _ = await run_in_threadpool(analytics_export.bundle, include_text)
+    name = f"ingenmind-analytics-{datetime.now(timezone.utc):%Y%m%d-%H%M}{'-with-text' if include_text else ''}.zip"
+    return Response(data, media_type="application/zip", headers={**NO_CACHE,
+                    "Content-Disposition": f'attachment; filename="{name}"'})
+
+
 def analytics_report(request: Request) -> Response:
     try:
         return _json(analytics.report(request.query_params.get("from"), request.query_params.get("to")))
@@ -2759,6 +2769,7 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/session/reset", reset_session, methods=["POST"]),
     Route("/api/sessions", session_list),
     Route("/api/analytics", analytics_report),
+    Route("/api/analytics/export", analytics_download),
     Route("/api/operations", operations_report),
     Route("/api/alerts", alerts_overview),
     Route("/api/alerts/check", alerts_check_now, methods=["POST"]),

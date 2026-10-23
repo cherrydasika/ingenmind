@@ -578,6 +578,17 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R57 (#7) done:** analytics export for DuckDB (`app/analytics_export.py`,
+  `export_analytics.py`, Analytics → Download export,
+  `scripts/aws/export-analytics.sh` over SSM): ten Parquet files typed from
+  PostgreSQL, `explore.sql` with views and example queries. People are
+  salted-hash references; no emails or names; text only with
+  `--include-text`. **Done-when checked:** exported the local install
+  (32 questions, 386 runs, 34 evaluation answers…), copied the files out and
+  ran every example query in DuckDB; a scan of every file found no email
+  address or user id. The SSM path on EC2 was not run (the instance is
+  stopped; starting it costs money).
+
 - **R56 (#114) done:** nightly evaluations and a promotion gate
   (`app/flows/eval_gate.py`): chosen sets run each night on the live flow
   (claimed once a day in the database; a drop raises the R55 alert), a

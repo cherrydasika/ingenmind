@@ -117,12 +117,23 @@ export class AnalyticsPage {
           h("div", {}, h("div", { class: "faint" }, "Response time: typical and slowest (95%)"), this.charts.speed),
           h("div", {}, h("div", { class: "faint" }, t.priced ? "Tokens and approximate cost" : "Tokens"), this.charts.tokens))
           : note("No questions from users in this period.") })),
+      this.exportCard(),
       section("freshness", "Content freshness", "Pages by when they leave the knowledge base, so they can be refreshed (re-crawled) first.",
         card({ children: [this.charts.freshness,
           fresh.stale !== null ? h("p", { class: "note" }, `${fmtInt(fresh.stale)} page(s) flagged stale by the re-crawl (gone, failing or overdue).`) : null,
           fresh.soonest.length ? h("ul", { class: "never-list" }, fresh.soonest.map((p) => h("li", {}, shortUrl(p.url), h("span", { class: "faint" }, ` · ${p.expires_at.slice(0, 10)}`)))) : null] })),
     ));
     this.draw();
+  }
+
+  // R57: the same data as Parquet files for DuckDB, offline (app/analytics_export.py).
+  exportCard() {
+    const text = h("input", { type: "checkbox" });
+    const link = h("a", { class: "btn btn-sm", href: "/api/analytics/export", download: "" }, "Download export (.zip)");
+    text.addEventListener("change", () => { link.href = `/api/analytics/export${text.checked ? "?include_text=1" : ""}`; });
+    return section("export", "Export for offline analysis", "Every question, run, evaluation, ingestion job and page summary as Parquet files with a DuckDB starter (explore.sql), for one-off analysis away from the live database. People are pseudonymous and never named; what they wrote is left out unless you include it.",
+      card({ children: h("div", { class: "alert-actions" }, link,
+        h("label", { class: "sched-check" }, text, "Include what people wrote (questions, answers, comments)")) }));
   }
 
   draw() {
