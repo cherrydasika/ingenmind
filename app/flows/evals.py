@@ -407,6 +407,10 @@ def _finish(run_id: str, status: str) -> None:
             "pass_rate": summary["pass_rate"], "previous": {"run_id": previous["id"], "version": previous["version"],
                                                            "pass_rate": before},
             "drop": round(before - summary["pass_rate"], 3)})
+        import alerts   # R55: to Slack, email and alert.fired webhooks too
+        alerts.event("eval_regression", summary["pass_rate"], {
+            "flow_id": run["flow_id"], "version": run["version"], "set_id": run["set_id"], "previous": before,
+            "drop": round(before - summary["pass_rate"], 3)})
 
 
 def _run_view(row: dict) -> dict:

@@ -578,6 +578,20 @@ on #120 that isn't waiting on the user.
   on its next due check the round said changed, the old text was gone and
   the new stored, the diff recorded; the next check was a 304, unchanged.
 
+- **R55 (#113) built; the real Slack and email check and CloudWatch need
+  you (open):** Monitoring → Alerts (`app/alerts.py`): eight rules (pass
+  rate, cost today, error rate, p95 time, ingestion failures, guardrail
+  spike, stale sources, evaluation regression) with threshold, window,
+  on/off, mute and Send test; a 5-minute checker that alerts on breach and
+  on clearing; history; delivery to a Slack incoming webhook (sealed), email
+  over SMTP (`SMTP_*`, `ALERT_EMAIL_FROM`) and `alert.fired` webhooks.
+  **Checked locally:** every rule's test alert reached a stand-in Slack
+  endpoint (8/8) and a local SMTP server (8/8), and unit tests make every
+  measured rule fire from real run records, resolve, and stay quiet when
+  muted. **Left, needs you:** a real Slack incoming webhook URL and an SMTP
+  account (e.g. SES) for the done-when; CloudWatch alarms for the EC2
+  instance, disk, memory and health check (an AWS change; EC2 is stopped).
+
 - **R54 (#4) done:** knowledge-gap report on Analytics
   (`app/knowledge_gaps.py`): each KNOWLEDGE_GAP's missing information kept
   with its session turn (server-side only: removed before any reply, and

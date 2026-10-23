@@ -58,6 +58,7 @@ import research
 from initialization import (blueprint_run, build as setup_build, content as setup_content,
                             evaluation as setup_evaluation, labels as setup_labels, plan as setup_plan, readiness as setup_readiness, sources_run,
                             state as setup_state, supervisor)
+import alerts
 import analytics
 import knowledge_gaps
 import operations
@@ -1853,6 +1854,53 @@ def _record_gaps(turn: dict, asked: str, gaps: list | None, result: dict) -> Non
         print(f"could not record knowledge gaps: {error}", file=sys.stderr)
 
 
+# ---------- Alerts (alerts.py, R55) ----------
+
+def _alerts_view() -> dict:
+    return {"rules": alerts.rules(), "settings": alerts.settings(), "history": alerts.history(),
+            "check_every": alerts.CHECK_EVERY}
+
+
+def alerts_overview(request: Request) -> Response:
+    return _json(_alerts_view())
+
+
+async def alert_rule_update(request: Request) -> Response:
+    body = await request.json()
+    if not isinstance(body, dict):
+        return _json({"error": "a JSON object is required"}, 400)
+    try:
+        rule = await run_in_threadpool(alerts.update_rule, request.path_params["kind"], body.get("enabled"),
+                                       body.get("threshold"), body.get("window"), body.get("mute_minutes"))
+    except alerts.AlertError as error:
+        return _json({"error": str(error)}, 400)
+    return _json(rule)
+
+
+async def alert_rule_test(request: Request) -> Response:
+    try:
+        return _json(await run_in_threadpool(alerts.test, request.path_params["kind"]))
+    except alerts.AlertError as error:
+        return _json({"error": str(error)}, 404)
+
+
+async def alert_settings_save(request: Request) -> Response:
+    body = await request.json()
+    if not isinstance(body, dict):
+        return _json({"error": "a JSON object is required"}, 400)
+    try:
+        saved = await run_in_threadpool(alerts.save_settings, body.get("slack_webhook_url"), body.get("emails"),
+                                        bool(body.get("clear_slack")))
+    except alerts.AlertError as error:
+        return _json({"error": str(error)}, 400)
+    return _json(saved)
+
+
+async def alerts_check_now(request: Request) -> Response:
+    events = await run_in_threadpool(alerts.check)
+    return _json({**await run_in_threadpool(_alerts_view), "events": events})
+
+
 def _shape_agent_result(result: dict) -> dict:
     """The browser needs no chunk vectors (no page plots them any more), nor the knowledge gaps (admins', R54)."""
     result = {k: v for k, v in result.items() if k != "gaps"}
@@ -2602,6 +2650,7 @@ async def _lifespan(app):
         print(f"durable run recovery skipped: {exc}", file=sys.stderr)
     threading.Thread(target=_expire_human_requests, name="human-expiry", daemon=True).start()
     threading.Thread(target=webhooks.sweep_forever, name="webhook-retries", daemon=True).start()   # R47
+    threading.Thread(target=alerts.loop, name="alerts", daemon=True).start()                        # R55
     yield
 
 
@@ -2674,6 +2723,11 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/sessions", session_list),
     Route("/api/analytics", analytics_report),
     Route("/api/operations", operations_report),
+    Route("/api/alerts", alerts_overview),
+    Route("/api/alerts/check", alerts_check_now, methods=["POST"]),
+    Route("/api/alerts/settings", alert_settings_save, methods=["PUT"]),
+    Route("/api/alerts/rules/{kind}", alert_rule_update, methods=["PATCH"]),
+    Route("/api/alerts/rules/{kind}/test", alert_rule_test, methods=["POST"]),
     Route("/api/channels", channel_list),
     Route("/api/channels", channel_add, methods=["POST"]),
     Route("/api/channels/usage", channel_usage),
