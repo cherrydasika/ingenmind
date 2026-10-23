@@ -10,7 +10,7 @@ Status as of 2026-10-23, on `main` after the EC2 session (release 0fdb310).
 
 | Item | Status |
 |---|---|
-| R01–R63 closed or deferred | 51 of 63 done. Deferred: R60 (multi-tenant workspaces). Skipped earlier: R01, R03, R08, R09, R17, R25. Built in part, waiting on outside accounts: R48 (OAuth connectors), R50 (a real Slack app and Teams bot), R55 (alert delivery) |
+| R01–R63 closed or deferred | 53 of 63 done. Deferred: R60 (multi-tenant workspaces). Waiting on the user: R01 (guided setup on EC2, a sign-in), R03 (rotating EC2's Langfuse secrets), R08 (the daily snapshot schedule, `terraform apply`), R09 (public access), R25 (station pages, list ready on #35). Built in part, waiting on outside accounts: R48 (OAuth connectors), R50 (a real Slack app and Teams bot), R55 (alert delivery) |
 
 ## Security
 

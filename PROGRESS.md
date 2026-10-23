@@ -100,7 +100,13 @@ on #120 that isn't waiting on the user.
   (`FETCH_ALLOW_PRIVATE=true` for an intranet).
 
 - **R03 (#21) waits on the user:** rotating the EC2 Langfuse secrets
-  changes the SSM parameter and needs EC2 running (AWS approval).
+  changes the SSM parameter and needs EC2 running. Checked 2026-10-23
+  (by hash, nothing printed): `NEXTAUTH_SECRET`, `SALT`, `ENCRYPTION_KEY`,
+  the init project keys and admin password, `POSTGRES_PASSWORD`,
+  `CLICKHOUSE_PASSWORD`, `MINIO_ROOT_PASSWORD` and `REDIS_AUTH` still match
+  the local `.env`; `SESSION_SECRET` and the OIDC secret differ. The
+  agent's session wasn't allowed to read Langfuse's key and user tables on
+  production, so the rotation is the user's (steps on #21).
 - **R04 (#82) done:** `.github/workflows/security.yml` (every PR, main,
   weekly): pip-audit, npm audit, Trivy on the web image, gitleaks over the
   history, CodeQL; every Action pinned by SHA; Dependabot. Fixed: Vite
@@ -206,13 +212,17 @@ on #120 that isn't waiting on the user.
   up). Monitoring → Overview → Models lists them with list prices
   (`app/model_prices.json`).
 
-- **R17 (#27) code done, check on EC2 left:** a harness turn whose stream
+- **R17 (#27) done:** a harness turn whose stream
   carries no usage (AgentCore reports usage only on an agent's final
   turn) is estimated from the text sent and received (~4 characters a
   token) and counted in `usage.estimated_turns`, so totals, budgets (R15)
   and costs aren't low. `AGENTCORE_STREAM_LOG=1` logs each harness event's
-  type and any usage it carries (never text), to find where AgentCore puts
-  the real numbers: needs EC2 running.
+  type and any usage it carries (never text). **Checked on EC2
+  (2026-10-23)** with a direct harness call that stopped for a tool: that
+  turn's stream has no `metadata` event and no usage anywhere; usage comes
+  only after the final `end_turn` call (1,104 in, 17 out: that call
+  alone). There are no real numbers for tool turns to use, so the
+  estimate stays.
 
 - **R18 (#92) done:** progress already streamed; added heartbeats (a
   comment line every 15 s, for the SSM tunnel and proxies) and **Cancel**
@@ -277,8 +287,12 @@ on #120 that isn't waiting on the user.
   (`thetrainline.com/via/trips/…`, no scheme or "www."); the full address
   on hover.
 
-- **R25 (#35) waits on the user:** a data change on the deployed UK-rail
-  knowledge base (EC2, or guided setup there: R01); noted on the issue.
+- **R25 (#35) prepared, waits on the user:** a data change on the deployed
+  UK-rail knowledge base, made as a signed-in admin so the audit log
+  records it. 30 National Rail station pages (the busiest stations) were
+  fetched with the app's own fetcher on 2026-10-23: each has a "Station
+  highlights" list (step-free category, lifts, toilets, opening hours).
+  The list is on #35.
 - **R26 (#94) done:** follow-up context from the session's stored turns
   (`app/conversation.py`) instead of process memory, a standalone-question
   rewrite the agents get (both runtimes), a rolling summary for long
