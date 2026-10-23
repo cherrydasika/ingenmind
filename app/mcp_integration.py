@@ -33,6 +33,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+import outbound
 import secrets_box
 from common import config
 
@@ -128,7 +129,7 @@ class Session:
                    **({"Mcp-Session-Id": self.session_id} if self.session_id else {})}
         request = urllib.request.Request(self.url, data=json.dumps(body).encode(), method="POST", headers=headers)
         try:
-            reply = urllib.request.urlopen(request, timeout=self.timeout)
+            reply = outbound.urlopen(request, timeout=self.timeout)
         except urllib.error.HTTPError as error:
             raise McpError(f"HTTP {error.code}: {error.read()[:200].decode(errors='replace')}") from None
         except (urllib.error.URLError, TimeoutError, OSError) as error:

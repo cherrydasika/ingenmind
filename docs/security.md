@@ -6,7 +6,9 @@ names the roadmap issue that closes it (R-numbers, tracker
 up to date when a change moves a risk. To report a vulnerability, see
 [SECURITY.md](../SECURITY.md).
 
-Last reviewed: 2026-10-21 (R02, #81).
+Last reviewed: 2026-10-23 (R63, #119): everything added since R02 (API keys,
+channels, A2A, MCP and OpenAPI tools, webhooks, connectors, alerts, data
+lifecycle, analytics export, releases). First reviewed 2026-10-21 (R02, #81).
 
 ## What we protect
 
@@ -26,7 +28,8 @@ Last reviewed: 2026-10-21 (R02, #81).
 - **Someone who is not signed in**: today they can only reach the sign-in page (EC2 is private behind SSM; public access is R09, #23).
 - **A malicious web page or document**: found by the research agent, picked as a source, or pasted as an ad-hoc document. It may carry hidden instructions (indirect prompt injection) or false facts (poisoning).
 - **A compromised or misbehaving tool or provider**: an external API returns hostile content, or a model provider is down.
-- **A stolen session cookie or API key** (API keys arrive with R46, #106).
+- **A stolen session cookie or API key**: keys are stored only as SHA-256 digests, scoped, expire (90 days by default, at most 365) and can be revoked.
+- **Another system calling in**: Slack, Teams, a website with the widget, or another agent over A2A.
 - **A supply-chain compromise**: a Python or npm dependency, a base image, a GitHub Action.
 
 ## Trust boundaries
@@ -41,6 +44,8 @@ flowchart LR
     W -- search --> T([Tavily])
     W -- fetch --> WEB([Public web])
     W -- calls --> API([External APIs])
+    W -- admin-configured --> OUT([Webhooks, MCP, OpenAPI tools, A2A agents, alert channels])
+    CH([Slack, Teams, widget, A2A callers]) -- signed request or API key --> W
     WK[Ingestion worker] --> DB
     WK -- fetch --> WEB
 ```
@@ -76,7 +81,11 @@ knowledge base.
 | **Cross-site requests** | **Since R05** (`app/web_security.py`): state-changing requests whose Origin (or Sec-Fetch-Site) shows another site are refused, on top of SameSite=Lax | — |
 | **Headers** | **Since R05:** CSP, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy` on every response; HSTS when served over HTTPS | — |
 | **Accountability** | Setup records each step with who and when. **Since R07** (`app/audit.py`): every state-changing admin-level request, refused attempts, sign-ins and sign-outs, in an append-only table (a trigger refuses UPDATE, DELETE and TRUNCATE); Admin → Audit log with CSV export | A database superuser can still drop the trigger: ship the log off the host for tamper evidence (with alerts, **R55 (#113)**) |
-| **Server-side request forgery** | **Since R02:** the scraper (setup, ingestion, research) fetches only public addresses and checks every redirect; `FETCH_ALLOW_PRIVATE=true` allows private networks for an intranet, never loopback, link-local (cloud metadata) or reserved addresses. On EC2 the metadata service also needs IMDSv2 tokens | DNS rebinding between the check and the connection is not prevented (low risk: the metadata service needs a token, and the database is not HTTP) |
+| **API keys** | **Since R46** (`app/api_keys.py`): `im_<id>_<secret>`, only a SHA-256 digest stored, compared in constant time; scoped to ask, ingest, evaluate or admin and never beyond the owner's permissions; expiry and revocation; programs calling the public API (`/api/v1`), A2A and MCP use keys | — |
+| **Inbound channels** | **Since R50:** Slack requests carry an HMAC signature checked in constant time with a 5-minute replay window; Teams requests a Bot Framework JWT checked against Microsoft's keys, issuer and the bot's App ID; the widget can be framed only by its allowed origins (CSP `frame-ancestors`), and asks as its own account under that account's limits | Channels need real accounts to be checked end to end: **R50 (#110)** |
+| **People's data** | **Since R59** (`app/data_lifecycle.py`): retention per kind of data; each person can export or delete their data, which reaches PostgreSQL, Langfuse and agent memory; the audit log keeps a hashed reference. **Since R57** the analytics export pseudonymises people (salted hashes) and leaves question text out unless asked | Names and addresses in free text aren't detected (LLM02) |
+| **Server-side request forgery** | **Since R02:** the scraper (setup, ingestion, research) fetches only public addresses and checks every redirect; `FETCH_ALLOW_PRIVATE=true` allows private networks for an intranet, never loopback, link-local (cloud metadata) or reserved addresses. On EC2 the metadata service also needs IMDSv2 tokens  **Since R63** (`app/outbound.py`): every request to an admin-configured address (webhooks, alert channels, MCP servers, OpenAPI tools and their token URLs, A2A agents) is checked too, each redirect again: private networks allowed for intranets, never link-local (metadata), multicast or reserved, and loopback only when the URL itself names localhost | DNS rebinding between the check and the connection is not prevented (low risk: the metadata service needs a token, and the database is not HTTP) |
+| **Scans** | **R63:** an OWASP ZAP baseline scan of the app found nothing failing (62 checks passed). Warnings accepted: the CSP allows inline `style` attributes (scripts stay strict), no `Cross-Origin-Embedder-Policy` (nothing cross-origin is embedded), comments and timestamps in the shipped JavaScript | An active, signed-in scan of the deployed site: the EC2 pentest in **R63 (#119)** |
 
 ## The deployment
 
@@ -85,8 +94,9 @@ knowledge base.
 | **Network** | EC2 has no inbound access; people reach it through SSM port forwarding; the web app binds to 127.0.0.1 | Public access with HTTPS and a WAF: **R09 (#23)** |
 | **Secrets** | On EC2 the release's `.env` comes from an SSM parameter; `DEPLOYMENT.local.md` and `.env` are git-ignored; gitleaks checks every PR and the whole history (R04; none found on 2026-10-21) | Langfuse secrets match the local development `.env`: **R03 (#21)** |
 | **Deploys** | Only merged `main`, through GitHub OIDC roles that trust only the `production` environment and may run one SSM document | — |
-| **Backups** | Data on a separate EBS volume; **since R08** daily snapshots by Data Lifecycle Manager, 14 kept (`infra/terraform/backup.tf`), and `scripts/aws/restore-test.sh` to prove one restores | Applying the policy and the first restore test wait on approval: **R08 (#22)** |
-| **Monitoring** | Langfuse traces; per-flow metrics | Alerts on errors, cost and quality; CloudWatch alarms: **R55 (#113)** |
+| **Releases** | **Since R62:** images built in CI from a tag, signed with Sigstore (keyless, the release workflow's identity), with an SBOM and provenance; the installer checks `compose.yml` against `SHA256SUMS` and, with cosign 3+, the image signature; it backs up the database before an upgrade; the app refuses a database newer than itself | The web image runs as root (it is reached only through 127.0.0.1 or SSM today): a non-root user before public access, **R09 (#23)** |
+| **Backups** | Data on a separate EBS volume; **since R08** daily snapshots by Data Lifecycle Manager, 14 kept (`infra/terraform/backup.tf`), and `scripts/aws/restore-test.sh` to prove one restores | A local restore test passed on 2026-10-23 (R63): the installer's dump restored into a new database with every table's rows, and the app migrated and served it. Applying the EBS policy and its restore test wait on approval: **R08 (#22)** |
+| **Monitoring** | Langfuse traces; per-flow metrics. **Since R55** alert rules on errors, latency, pass rate, cost, guardrail blocks, ingestion and freshness; **since R61** service levels with error budgets; [on-call notes](on-call.md) | Delivery by a real Slack webhook and SMTP, and CloudWatch alarms for the host: **R55 (#113)** |
 
 ## Reviewing a change
 
@@ -95,5 +105,5 @@ Ask of every pull request that touches these areas:
 1. Does text from a model, page, document or tool reach `innerHTML`, a shell, SQL or a URL without escaping or validation?
 2. Does a new route name its permission in `auth.RULES`?
 3. Does a new tool have side effects? Then it needs R13's approval path.
-4. Does anything new fetch a URL? Use the scraper (`common.scraping`), which checks addresses.
+4. Does anything new fetch a URL? A URL from content or a user goes through the scraper (`common.scraping`, public addresses only); an admin-configured one through `outbound.urlopen`.
 5. Does it store personal data? Then it needs a retention period and must be covered by export and delete.

@@ -33,6 +33,8 @@ nav:
   - The web app: web-app.md
   - Ingestion pipeline: pipeline.md
   - Security: security.md
+  - On call: on-call.md
+  - Launch checklist: launch-checklist.md
   - Development: development.md
   - AWS: aws.md
   - Changelog: changelog.md
