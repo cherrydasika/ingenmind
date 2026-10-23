@@ -53,6 +53,7 @@ AGENT_HARNESS_ARN, or local, which needs only the chat model (llm.py).
 """
 
 import contextvars
+import dataclasses
 import hashlib
 import json
 import logging
@@ -88,6 +89,7 @@ import evidence
 import flows
 import guardrails
 import human
+import knowledge_collections
 import injection
 import pii
 import llm
@@ -222,9 +224,11 @@ AGENT_PROMPT = (
     "search_knowledge_base first, rephrasing and searching again if the results don't cover the question; "
     "call your live-data tools when the question needs live data. Answer only from what your tools return, "
     "citing knowledge-base chunks by their [n] numbers right after the facts they support; never invent "
-    "facts, numbers or links. If the results don't answer the question, say so plainly in one or two "
-    "sentences. Write a short, direct answer with a hard limit of 120 words, with no sentence about how you "
-    "found it.")
+    "facts, numbers or links. Keep each fact with what it applies to: when sources describe different "
+    "operators, places or tickets, say which says what, and never merge them into one general rule or call "
+    "something 'all' or 'standard' the sources don't. If the results don't answer the question, say so plainly "
+    "in one or two sentences. Write a short, direct answer with a hard limit of 120 words, with no sentence "
+    "about how you found it.")
 ROLES["agent"] = {
     "name": "Agent",
     "prompt": AGENT_PROMPT,
@@ -631,8 +635,9 @@ class _Run:
     def _generic_params(self, run: dict, messages: list[dict]) -> dict:
         """A generic agent (#66): its prompt and tools come from what is connected to it."""
         role = run["role"]
-        tree = self.tree
-        agent = tree[role[6:]]
+        # Without the knowledge agents whose collection this user can't see (R35): not in its prompt or tools.
+        agent = dataclasses.replace(self.tree[role[6:]], subagents=self.visible_subagents(role[6:]))
+        tree = {**self.tree, agent.id: agent}
         settings = {**self.settings, "tree": tree}
         system = _system_prompt(role, settings)
         offered = agent_tree.tools(agent, tree, ROLES)
@@ -849,6 +854,16 @@ class _Run:
                   if k in ("topic", "organisation", "content_type") and isinstance(v, str) and v in (vocabulary.get(k) or ())}
         prefer = {k: v for k, v in chosen.items() if k == "topic"}
         filters = {k: v for k, v in chosen.items() if k != "topic"}
+        # Collections (R35): only those this user may see; a knowledge agent's Retriever names one.
+        try:
+            within = knowledge_collections.scope(self.user_id, self._collection_of(delegation))
+        except Exception as error:   # no collections table yet, or the database is busy: as before
+            log.warning("collections unavailable: %s", error)
+            within = None
+        if within is False:
+            return _result(use, "This knowledge base isn't available to this user (or doesn't exist): say that "
+                                "you can't search it, without guessing what it holds.", error=True)
+        scoped = {"collection": within} if within else {}
         with self.lock:
             n = len(self.searches) + 1
             self.searches.append(None)  # reserve the number
@@ -871,13 +886,15 @@ class _Run:
                 {"type": "stage", "agent": "knowledge_base", "n": n, "stage": stage, "state": state, **info}))
         unfiltered = False
         try:
-            search = run_search(filters)
+            search = run_search({**filters, **scoped})
             if filters and not search["rankings"]["fused"]:
-                search, unfiltered = run_search(None), True     # nothing matched the filter: search everything
+                # nothing matched the labels: search everything (it may search)
+                search, unfiltered = run_search(scoped), True
         except Exception as error:
             self.emit({"type": "search", "state": "error", "agent": "knowledge_base", "n": n, "error": str(error)})
             return _result(use, f"Search failed: {type(error).__name__}: {error}", error=True)
         view = self.retrieval_view(search)
+        _label_collections(view["chunks"])
         record = {"n": n, "turn": use["turn"], "delegation": delegation, "query": query, "first": first,
                   "seconds": round(time.monotonic() - started, 3), "retrieval": view,
                   "filters": filters or None, "prefer": prefer or None, "unfiltered_retry": unfiltered}
@@ -894,13 +911,34 @@ class _Run:
         lines = [f"Results for: {query}" + (f" ({'; '.join(notes)})" if notes else ""), ""]
         for number, chunk in enumerate(view["chunks"], first):
             meta = chunk.get("meta") or {}
-            about = ", ".join(str(x) for x in (meta.get("organisation"), meta.get("effective_date")) if x)
+            about = ", ".join(str(x) for x in (chunk.get("collection"), meta.get("organisation"),
+                                                meta.get("effective_date")) if x)
             # Fenced as data; withheld if it reads like instructions to an AI (injection.py).
             lines += [injection.quote(f"[{number}] {chunk['source_url']}" + (f" ({about})" if about else ""),
                                       chunk["text"]), ""]
             if found := injection.flags(chunk["text"]):
                 chunk["withheld"] = found   # the UI shows which passage the agents didn't get
         return _result(use, "\n".join(lines).rstrip())
+
+    def visible_subagents(self, node: str) -> list[str]:
+        """An agent's sub-agents, without the knowledge agents whose collection this user may not
+        search (R35): they aren't offered at all, so their collection's existence isn't revealed."""
+        out = []
+        for child in self.tree[node].subagents:
+            wanted = getattr(self.tree[child], "collection", "")
+            try:
+                if wanted and knowledge_collections.scope(self.user_id, wanted) is False:
+                    continue
+            except Exception as error:
+                log.warning("collections unavailable: %s", error)
+            out.append(child)
+        return out
+
+    def _collection_of(self, delegation: int) -> str:
+        """The collection a knowledge agent's Retriever is set to (R35), "" for any."""
+        run = next((r for r in getattr(self, "agent_runs", []) if r["n"] == delegation), None)
+        agent = (getattr(self, "tree", None) or {}).get((run or {}).get("node"))
+        return getattr(agent, "collection", "") or ""
 
     def _generic_tool(self, use: dict, delegation: int) -> dict:
         """A generic agent's tool: a sub-agent, the knowledge-base search, web research, or an API."""
@@ -966,7 +1004,7 @@ class _Run:
                 usage["turns"] += 1
         team = [{"id": c, "name": self.tree[c].name,
                  "what": (self.tree[c].config.get("instructions") or "answers tasks in its area")[:300]}
-                for c in agent.subagents]
+                for c in self.visible_subagents(node)]
         out = {"answer": "", "passed": True, "failed_check": None, "feedback": "", "checks": [], "n": n}
         try:
             with observation(as_type="span", name=f"plan:{node}", input={"question": question}) as span:
@@ -1068,7 +1106,7 @@ class _Run:
                 usage["turns"] += 1
         team = [{"id": c, "name": self.tree[c].name,
                  "what": (self.tree[c].config.get("instructions") or "answers tasks in its area")[:300]}
-                for c in self.tree[node].subagents]
+                for c in self.visible_subagents(node)]
         self.board = board = blackboard.Board()
         board.add("question", question, "user")
         self.emit_board()
@@ -1464,7 +1502,8 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
         # Left empty, the scope is the brief and the messages name the domain.
         generic = guardrails.generic_messages(settings.get("domain") or flows.registry.DEFAULT_DOMAIN)
         guardrail = {k: v if v.strip() else generic.get(k, "") for k, v in guardrail.items()}
-        guardrail["scope"] = guardrail["scope"] or settings.get("brief") or flows.registry.UK_RAIL_BRIEF
+        guardrail["scope"] = guardrail["scope"] or knowledge_collections.expand(
+            settings.get("brief") or flows.registry.UK_RAIL_BRIEF, everyone=True)   # R35: every collection
         settings["guardrail"] = guardrail
     retriever = _plugged(spec, "retrieval_agent", "retriever") or _plugged(spec, "agent", "retriever")
     if retriever:
@@ -2803,6 +2842,12 @@ def _prepare_run(spec: flows.FlowSpec, settings: dict, session_id: str, user_id:
         settings = {**settings, "filters": labels.vocabulary()}
     except Exception as error:
         log.warning("no filter vocabulary: %s", error)
+    if knowledge_collections.TOKEN in (settings.get("brief") or ""):   # R35: only collections this user may see
+        guardrail = settings.get("guardrail") or {}
+        everyone = knowledge_collections.expand(settings["brief"], everyone=True)
+        brief = knowledge_collections.expand(settings["brief"], user_id)
+        settings = {**settings, "brief": brief,
+                    **({"guardrail": {**guardrail, "scope": brief}} if guardrail.get("scope") == everyone else {})}
     run.settings = settings
     run.tree, run.agent_runs = agent_tree.tree(spec), []
     run.trace_id = trace_id
@@ -3038,9 +3083,23 @@ def _public_result(question: str, answer: str, policies: dict, total: float = 0)
             "api_seconds": 0, "tool_status": {}, "total": total, "sources": [], "answer_check": None}
 
 
+def _label_collections(chunks: list[dict]) -> None:
+    """Each chunk's collection name (R35), when there are several collections: what answers cite."""
+    try:
+        names = knowledge_collections.names()
+        if len(names) < 2:
+            return
+        of = knowledge_collections.of_sources(c["source_url"] for c in chunks)
+    except Exception as error:
+        log.warning("collections unavailable: %s", error)
+        return
+    for chunk in chunks:
+        chunk["collection"] = names.get(of.get(chunk["source_url"], knowledge_collections.MAIN))
+
+
 def _cited_sources(answer: str, searches: list[dict]) -> list[dict]:
     """The pages the answer's [n] citations point to: URLs, citation numbers
-    and, when labelled (#15), the publisher and the page's date; never chunk
+    and, when labelled (#15), the publisher and the page's date, and its collection (R35); never chunk
     text (safe for the browser)."""
     cited = {int(n) for n in re.findall(r"\[(\d+)\]", answer)}
     pages: dict[str, list[int]] = {}
@@ -3050,7 +3109,8 @@ def _cited_sources(answer: str, searches: list[dict]) -> list[dict]:
             if search["first"] + i in cited:
                 pages.setdefault(chunk["source_url"], []).append(search["first"] + i)
                 meta = chunk.get("meta") or {}
-                about.setdefault(chunk["source_url"], {k: meta[k] for k in ("organisation", "effective_date") if meta.get(k)})
+                about.setdefault(chunk["source_url"], {k: meta[k] for k in ("organisation", "effective_date") if meta.get(k)}
+                                 | ({"collection": chunk["collection"]} if chunk.get("collection") else {}))
     return [{"url": url, "cited": sorted(numbers), **about[url]} for url, numbers in pages.items()]
 
 

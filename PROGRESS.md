@@ -395,6 +395,24 @@ on #120 that isn't waiting on the user.
   vs 10/15 before, within run-to-run noise (the two new failures passed 3
   of 4 reruns).
 
+- **R35 (#102) done:** collections (`app/knowledge_collections.py`): named
+  knowledge bases with description and roles; sources assigned per source
+  (`knowledge_collection_sources`, survives re-ingestion; unassigned = the
+  main collection); searches limited to the user's visible collections
+  (`storage.meta_filter` "collection"); Retriever `collection` setting →
+  knowledge agents; gallery "Knowledge agents (collections + router)" built
+  from the deployment's collections (brief with `{collections}`, expanded per
+  user; guardrails follow it); cited sources carry their collection; hidden
+  collections' agents aren't offered and aren't named. Data → Knowledge base
+  → Collections tab. Generic agents now keep each fact with what it applies
+  to (no "all"/"standard" merges). **Done-when checked locally:** HR handbook
+  (an ad-hoc policy) + UK rail travel: HR question cites the HR handbook,
+  rail question cites rail, "Will Northwind reimburse my 16-25 Railcard, and
+  how much does a Railcard save?" cites both; with HR limited to admins, a
+  user's run neither searched nor named it. Local data added: the
+  "hr_handbook" collection, its ad-hoc page, a user "Robin"
+  (robin-r35@example.com), and the main collection renamed "UK rail travel".
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

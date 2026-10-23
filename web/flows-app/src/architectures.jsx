@@ -156,9 +156,11 @@ export function adapt(arch, current) {
   const brain = old.agent || old.supervisor;
   const plugged = new Set(flow.edges.filter((e) => e.port === "agents").map((e) => e.source));
   for (const n of flow.nodes) {
-    if (n.type === "input_guardrail" && guard) n.config = { ...guard.config, stage: "input" };
+    // The flow's guardrail settings, unless the architecture sets its own (the knowledge agents one, R35).
+    if (n.type === "input_guardrail" && guard) n.config = { ...guard.config, ...n.config, stage: "input" };
     if (n.type === "agent" && !plugged.has(n.id) && brain) {
-      for (const key of ["brief", "domain"]) if (brain.config?.[key]) n.config = { ...n.config, [key]: brain.config[key] };
+      // An architecture that sets its own scope (the knowledge agents one, R35) keeps it.
+      for (const key of ["brief", "domain"]) if (brain.config?.[key] && !n.config?.[key]) n.config = { ...n.config, [key]: brain.config[key] };
     }
   }
   return { ...flow, id: current.id, name: current.name, version: current.version,

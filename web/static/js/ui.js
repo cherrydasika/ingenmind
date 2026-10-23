@@ -202,9 +202,9 @@ export function md(text, cls = "prose") {
 // One source an answer cites: a link (ad-hoc documents have no web address),
 // who published it and its date when the page is labelled (#15), and the
 // citation numbers that point to it.
-export function sourceItem({ url, cited, organisation, effective_date }) {
+export function sourceItem({ url, cited, organisation, effective_date, collection }) {
   const page = /^https?:\/\//.test(url) ? h("a", { href: url, target: "_blank", rel: "noopener", title: url }, shortUrl(url)) : h("span", {}, url);
-  const about = [organisation, effective_date].filter(Boolean).join(", ");
+  const about = [collection, organisation, effective_date].filter(Boolean).join(", ");   // collection: R35
   return h("li", {}, page, h("span", { class: "faint" }, `${about ? ` · ${about}` : ""} · ${cited.map((n) => `[${n}]`).join(" ")}`));
 }
 

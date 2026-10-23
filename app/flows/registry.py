@@ -294,6 +294,9 @@ class RetrieverConfig(BaseModel):
     rerank: bool = Field(False, description="Re-sort the fused results with a cross-encoder (RERANK_MODEL) "
                                             "before keeping top_k: slower, often more precise")
     rerank_candidates: int = Field(20, ge=5, le=50, description="Fused results the reranker re-sorts")
+    collection: str = Field("", max_length=40, description="The collection it searches (R35; Data → Knowledge base → "
+                                                           "Collections): a knowledge agent. Empty: every "
+                                                           "collection the user may see")
 
     @model_validator(mode="after")
     def _one_search(self):
@@ -492,7 +495,7 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
     Component("retriever", "Retriever", "resource", "data",
               "Hybrid search: dense + full-text, fused by RRF, optionally re-sorted by a reranker.",
               RetrieverConfig, provides="retriever", inputs=("vector_db",),
-              applied=("top_k", "prefetch", "rrf_k", "dense", "full_text", "rerank", "rerank_candidates")),
+              applied=("top_k", "prefetch", "rrf_k", "dense", "full_text", "rerank", "rerank_candidates", "collection")),
     Component("vector_db", "Vector DB", "resource", "data", "pgvector tables of embedded chunks.", VectorDbConfig,
               provides="vector_db"),
     Component("web_search", "Web search", "resource", "tool", "Web search for the research agent.", WebSearchConfig,

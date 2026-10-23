@@ -38,6 +38,7 @@ import answer_cache
 import conversation
 import durable
 import human
+import knowledge_collections
 import user_memory
 import audit
 import auth
@@ -706,8 +707,14 @@ def flow_templates(request: Request) -> Response:
 
 
 def flow_architectures(request: Request) -> Response:
-    """The Agent Builder's gallery of ready-made architectures (#69)."""
-    return _json(flows.architectures.architectures())
+    """The Agent Builder's gallery of ready-made architectures (#69); the knowledge agents one (R35)
+    from this deployment's collections."""
+    try:
+        collections = knowledge_collections.all_collections()
+    except Exception as error:
+        print(f"collections unavailable: {error}", file=sys.stderr)
+        collections = None
+    return _json(flows.architectures.architectures(collections))
 
 
 async def flow_diff(request: Request) -> Response:
@@ -1120,6 +1127,68 @@ async def runs_cancel(request: Request) -> Response:
     if done:
         await run_in_threadpool(human.cancel_for, request.path_params["run_id"])
     return _json({"ok": True}) if done else _json({"error": "nothing to cancel"}, 409)
+
+
+# ---------- Collections (several knowledge bases, knowledge_collections.py, R35) ----------
+
+def _collections_view(request: Request) -> dict:
+    collections = knowledge_collections.all_collections()
+    sources = []
+    for dataset in ("curated", "research"):
+        try:
+            for row in storage.source_summary(storage.get_client(dataset)):
+                payload = row["payload"] or {}
+                sources.append({"url": payload.get("source_url"), "title": payload.get("title") or "",
+                                "chunks": row["chunks"], "research": dataset == "research"})
+        except Exception as error:   # no table yet: nothing ingested there
+            print(f"sources unavailable ({dataset}): {error}", file=sys.stderr)
+    of = knowledge_collections.of_sources(s["url"] for s in sources)
+    for source in sources:
+        source["collection"] = of.get(source["url"], knowledge_collections.MAIN)
+    count = {}
+    for source in sources:
+        count[source["collection"]] = count.get(source["collection"], 0) + 1
+    return {"collections": [{**{k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in c.items()},
+                             "sources": count.get(c["collection_id"], 0)} for c in collections],
+            "sources": sources, "roles": list(identity.ROLES),
+            "can_manage": auth.allowed(auth.current_user(request), "manage_knowledge")}
+
+
+async def collections_list(request: Request) -> Response:
+    return _json(await run_in_threadpool(_collections_view, request))
+
+
+async def _collection_change(request: Request, change) -> Response:
+    try:
+        body = await request.json() if request.method != "DELETE" else {}
+        await run_in_threadpool(change, body)
+    except knowledge_collections.CollectionError as error:
+        return _json({"error": str(error)}, 400)
+    return _json(await run_in_threadpool(_collections_view, request))
+
+
+async def collections_create(request: Request) -> Response:
+    return await _collection_change(request, lambda b: knowledge_collections.create(
+        str(b.get("collection_id") or ""), b.get("name"), b.get("description"), b.get("roles") or []))
+
+
+async def collections_update(request: Request) -> Response:
+    return await _collection_change(request, lambda b: knowledge_collections.update(
+        request.path_params["collection_id"], b.get("name"), b.get("description"), b.get("roles") or []))
+
+
+async def collections_delete(request: Request) -> Response:
+    return await _collection_change(request, lambda b: knowledge_collections.delete(request.path_params["collection_id"]))
+
+
+async def collections_assign(request: Request) -> Response:
+    """Move sources into this collection ("main": back to the main one)."""
+    def change(body):
+        urls = body.get("urls")
+        if not isinstance(urls, list) or not all(isinstance(u, str) for u in urls):
+            raise knowledge_collections.CollectionError("urls must be a list of source URLs")
+        knowledge_collections.assign(urls, request.path_params["collection_id"])
+    return await _collection_change(request, change)
 
 
 # ---------- Approvals (Ask a human, human.py, R32) ----------
@@ -1961,6 +2030,11 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/runs", runs_list),
     Route("/api/runs/{run_id}/resume", runs_resume, methods=["POST"]),
     Route("/api/runs/{run_id}/cancel", runs_cancel, methods=["POST"]),
+    Route("/api/collections", collections_list),
+    Route("/api/collections", collections_create, methods=["POST"]),
+    Route("/api/collections/{collection_id}", collections_update, methods=["PUT"]),
+    Route("/api/collections/{collection_id}", collections_delete, methods=["DELETE"]),
+    Route("/api/collections/{collection_id}/sources", collections_assign, methods=["POST"]),
     Route("/api/approvals", approvals_list),
     Route("/api/approvals/{request_id}", approvals_decide, methods=["POST"]),
     Route("/api/me/memory", my_memory),

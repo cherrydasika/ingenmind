@@ -37,6 +37,7 @@ class Agent:
     checks: list = field(default_factory=list)         # [{"name", "config"}]
     parent: str | None = None
     llm: dict | None = None                            # the plugged LLM's settings, if any
+    collection: str = ""                               # its Retriever's collection (R35); "": every one it may see
 
 
 def tree(spec: flows.FlowSpec) -> dict[str, Agent]:
@@ -65,6 +66,8 @@ def tree(spec: flows.FlowSpec) -> dict[str, Agent]:
                 target.api_tools |= set(flows.COMPONENTS["api_tools"].config.model_validate(source.config).tools)
             if source.type == "llm":
                 target.llm = flows.COMPONENTS["llm"].config.model_validate(source.config).model_dump()
+            if source.type == "retriever":
+                target.collection = flows.COMPONENTS["retriever"].config.model_validate(source.config).collection
     return agents
 
 
