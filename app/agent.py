@@ -2945,6 +2945,11 @@ def _run_to_end(run: "_Run", graph, spec: flows.FlowSpec, version, source: str, 
         result["read_as"] = read_as
     result["guardrails"]["input"] = {"decision": "ALLOW", "stage": "input"}   # a run only starts once it passed
     result["activities"] = {node: "error" if state == "start" else state for node, state in activities.items()}
+    # The evidence evaluator's decisions, in order (R37): so a reloaded answer's workflow chart lights the
+    # branch taken. Fixed labels and numbers only.
+    evaluations = run.evaluations if isinstance(getattr(run, "evaluations", None), list) else []
+    result["evidence"] = [{"decision": e["decision"], "attempt": e.get("attempt", 1),
+                           "confidence": e.get("overall_confidence")} for e in evaluations]
     if limits := settings.get("budget"):   # what the run used of its budget (R15)
         used = {k: v for k, v in run.budget_used().items() if k in limits}
         over = next((k for k in limits if used[k] > limits[k]), None)

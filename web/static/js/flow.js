@@ -509,7 +509,7 @@ export class AgenticFlow {
   }
 
   // Redraw a finished run from a saved result (after a reload): which steps
-  // ran, from its activities; the branch taken is not kept.
+  // ran, from its activities, and the branch the evidence check took (R37).
   show(result) {
     this.start(result.question);
     this.restored = true;
@@ -524,6 +524,8 @@ export class AgenticFlow {
       this.activity({ node, state: "start" }, true);
       this.activity({ node, state }, true);
     }
+    // In order, as they happened: the last one is the branch the answer came from.
+    if (this.state.evaluator) for (const e of result.evidence || []) this.evaluated(e);
     if (result.rounds > 0) this.setNode("writer", "done");
     for (const [stage, verdict] of Object.entries(result.guardrails || {})) {
       if (stage === "output") this.guardrail({ stage, state: "done", decision: verdict.decision });

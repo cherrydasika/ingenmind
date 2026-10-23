@@ -442,6 +442,13 @@ on #120 that isn't waiting on the user.
   first run failed on citations). Not done: exposing knowledge agents
   separately ("optionally" in the issue).
 
+- **R37 (#28) done:** a run's evidence decisions are saved with its result
+  (`evidence`: decision, attempt, confidence, in order; labels and numbers
+  only) and kept in the session, so a reloaded answer's workflow chart
+  replays them and lights the branch taken (checked in the browser with a
+  saved retry → good run: the retry and good paths lit, research and "not
+  handled" skipped).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by
