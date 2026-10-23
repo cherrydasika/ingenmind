@@ -16,6 +16,7 @@ the code's defaults; "applied" lists the ones the runtime reads from the
 node (the rest document what the component uses and are not yet settable).
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -101,6 +102,28 @@ class PlannerConfig(AgentConfig):
     max_tasks: int = Field(6, ge=2, le=8, description="Tasks in a plan at most")
     parallel: int = Field(3, ge=1, le=4, description="Tasks that may run at the same time")
     replan: bool = Field(True, description="When a task fails, plan the rest again once")
+
+
+class RemoteAgentConfig(BaseModel):
+    """An agent elsewhere, called over A2A (R36), as a sub-agent of the agent it plugs into."""
+    url: str = Field("", max_length=500, description="Its A2A JSON-RPC endpoint (https://…; http only for "
+                                                     "localhost), from its agent card's url")
+    instructions: str = Field("An agent elsewhere: describe what it answers, so the agent above knows when to ask it.",
+                              min_length=10, max_length=600, json_schema_extra=MULTILINE,
+                              description="What it does (the agent above reads this to decide when to ask it)")
+    token_env: str = Field("", max_length=64, pattern=r"^[A-Z0-9_]*$",
+                           description="The environment variable holding its bearer token (never the token "
+                                       "itself: flows are stored and shared)")
+    timeout_seconds: int = Field(60, ge=5, le=300, description="How long to wait for its reply")
+    max_calls: int = Field(3, ge=1, le=10, description="Calls in one run at most")
+
+    @field_validator("url")
+    @classmethod
+    def _http(cls, url: str) -> str:
+        url = url.strip()
+        if url and not (url.startswith("https://") or re.match(r"^http://(localhost|127\.0\.0\.1)(:\d+)?/", url)):
+            raise ValueError("the URL must be https:// (or http:// to localhost)")
+        return url
 
 
 class BlackboardConfig(AgentConfig):
@@ -404,6 +427,14 @@ COMPONENTS: dict[str, Component] = {c.type: c for c in (
               "need them, plans again once if a task fails, then writes the answer from the results.",
               PlannerConfig, impl="planner", inputs=("llm", "memory", "agents", "checks"),
               applied=("brief", "domain", "instructions", "answer_word_limit", "max_tasks", "parallel", "replan"),
+              extra={"contract": contracts.describe()}),
+    Component("remote_agent", "Remote agent (A2A)", "flow", "agent",
+              "An agent elsewhere, called over the A2A protocol (R36): plug it into an agent's agents port and it "
+              "is a sub-agent there. It gets the task as a message and its reply comes back under the typed "
+              "contract, fenced as untrusted data; personal data is masked before it leaves. Each call counts "
+              "against the run's tool-call budget, with its own timeout and limit per run.",
+              RemoteAgentConfig, plugs="agents",
+              applied=("url", "instructions", "token_env", "timeout_seconds", "max_calls"),
               extra={"contract": contracts.describe()}),
     Component("blackboard", "Blackboard", "flow", "agent",
               "An agent that runs a shared board (R33): the question goes on the board; each step a controller "

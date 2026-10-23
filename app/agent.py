@@ -72,6 +72,7 @@ from botocore.exceptions import BotoCoreError, ClientError, EventStreamError
 from langgraph.types import Command, RetryPolicy, Send, interrupt
 from pydantic import ValidationError
 
+import a2a
 import agent_memory
 import agent_runtime
 import agent_tree
@@ -964,6 +965,8 @@ class _Run:
 
     def delegate(self, child: str, task: "contracts.Task", parent: int) -> "contracts.Result":
         """A sub-agent's run under the typed contract (R29): the Task in, a Result out, both recorded and traced."""
+        if getattr(self.tree[child], "remote", False):
+            return self._delegate_remote(child, task, parent)
         deadline = time.monotonic() + task.deadline_seconds if task.deadline_seconds else None
         done = self.run_agent(child, task.prompt()[:MAX_TEXT_CHARS], parent=parent,
                               max_turns=task.max_turns, deadline=deadline)
@@ -983,6 +986,66 @@ class _Run:
         with observation(as_type="span", name=f"contract:{child}", input=task.model_dump()) as span:
             span.update(output=result.model_dump())
         return result
+
+    def _delegate_remote(self, child: str, task: "contracts.Task", parent: int) -> "contracts.Result":
+        """A remote A2A agent as a sub-agent (R36): the task as a message (personal data masked), its
+        reply fenced as untrusted data under the typed contract, counted against the run's tool-call
+        budget and its own calls limit, recorded as a call (so the answer check sees what it said),
+        and traced with both sides' trace ids."""
+        config = self.tree[child].config
+        with self.lock:
+            n = len(self.agent_runs) + 1
+            self.agent_runs.append({"n": n, "node": child, "parent": parent})
+            used = sum(1 for c in self.calls if c.get("tool") == f"a2a:{child}")
+        self.emit({"type": "delegate", "state": "start", "agent": "subagent", "n": n, "task": task.goal, "round": 1})
+        started = time.monotonic()
+
+        def done(result: "contracts.Result") -> "contracts.Result":
+            seconds = round(time.monotonic() - started, 3)
+            result.cost.seconds = seconds
+            with self.lock:
+                self.contracts.append({"n": n, "parent": parent, "agent": child, "task": task.model_dump(),
+                                       "result": result.model_dump()})
+            self.emit({"type": "delegate", "state": "done", "agent": "subagent", "n": n, "seconds": seconds,
+                       "error": result.error})
+            return result
+        why = (self.over_budget() or (f"{self.tree[child].name} may be called {config['max_calls']} times in a run"
+                                      if used >= config["max_calls"] else None) or
+               (None if config.get("url") else f"{self.tree[child].name} has no A2A URL set"))
+        if why:
+            return done(contracts.Result(status="failed", error=why))
+        timeout = min(config["timeout_seconds"], task.deadline_seconds or config["timeout_seconds"])
+        text = pii.mask(task.prompt())
+        record = {"n": len(self.calls) + 1, "turn": 0, "delegation": n, "tool": f"a2a:{child}",
+                  "input": {"url": config["url"]}, "ok": None}
+        with self.lock:
+            self.calls.append(record)
+            self.tool_calls = getattr(self, "tool_calls", 0) + 1
+        with observation(as_type="agent", name=f"a2a:{child}", input={"task": text},
+                         metadata={"url": config["url"]}) as span:
+            try:
+                reply = a2a.send(config["url"], text, token=os.environ.get(config.get("token_env") or "", ""),
+                                 timeout=timeout, trace_id=getattr(self, "trace_id", None))
+            except Exception as error:   # unreachable, refused, timed out: a failed task, never a crash
+                record.update(ok=False, error=f"{type(error).__name__}: {error}"[:300])
+                span.update(level="ERROR", status_message=record["error"])
+                return done(contracts.Result(status="failed", error=f"{self.tree[child].name} could not be reached: "
+                                                                    f"{record['error']}"))
+            span.update(output=reply, metadata={"url": config["url"], "remote_trace_id": reply.get("trace_id")})
+        sources = [s.get("url") for d in reply["data"] for s in d.get("sources") or [] if isinstance(s, dict)]
+        # Its [n] numbers are the remote agent's own, not this run's: name its sources instead.
+        said = re.sub(r"\s*\[\d+(?:\s*,\s*\d+)*\]", "", reply["text"]).strip()
+        if found := injection.flags(said):
+            said = f"[withheld: the reply {injection.describe(found)}]"
+        summary = said + (f"\nIts sources: {', '.join(u for u in sources if u)}" if sources else "")
+        record.update(ok=bool(said), summary=summary[:2000], remote_trace_id=reply.get("trace_id"),
+                      state=reply["state"])
+        status = {"completed": "done", "input-required": "needs_input", "failed": "failed"}.get(reply["state"], "partial")
+        name = self.tree[child].name
+        findings = injection.quote(f"{name} (an agent elsewhere) replied; name {name} (and its sources) as the source "
+                                   "of these facts, with no [n] numbers for them", summary) if said else ""
+        return done(contracts.Result(status=status if said else "failed", findings=findings,
+                                     error=None if said else f"{self.tree[child].name} sent no answer"))
 
     def run_plan(self, node: str, question: str) -> dict:
         """A Planner (R31): plan a task graph for the sub-agents, run the ready tasks in
@@ -2737,7 +2800,7 @@ def _record_run(spec: flows.FlowSpec, version, source: str, metrics: dict) -> No
 
 def answer(question: str, session_id: str, user_id: str | None, max_iterations: int | None,
            on_event, retrieval_view, flow: tuple[flows.FlowSpec, int] | None = None,
-           source: str = "users", on_metrics=None) -> dict:
+           source: str = "users", on_metrics=None, trace_metadata: dict | None = None) -> dict:
     """Run the graph for one question. retrieval_view(search) shapes one
     hybrid_search result for the UI; on_event hears graph nodes, every
     agent's turns, delegations, searches (with their stages), API calls,
@@ -2768,7 +2831,9 @@ def answer(question: str, session_id: str, user_id: str | None, max_iterations: 
     with observation(as_type="agent", name="question", input={"question": question}) as root:
         tag_current_trace(name="question", session_id=session_id, user_id=user_id,
                           tags=[f"source:{source}", f"flow:{spec.id}", f"version:{version}"],
-                          metadata={"flow": spec.id, "version": str(version), "source": source})
+                          # trace_metadata: e.g. the calling agent's trace id (A2A, R36)
+                          metadata={"flow": spec.id, "version": str(version), "source": source,
+                                    **(trace_metadata or {})})
         trace_id = current_trace_id()
         try:
             result = _answer(question, session_id, user_id, max_iterations, on_event, retrieval_view, spec, version,

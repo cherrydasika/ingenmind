@@ -38,15 +38,17 @@ class Agent:
     parent: str | None = None
     llm: dict | None = None                            # the plugged LLM's settings, if any
     collection: str = ""                               # its Retriever's collection (R35); "": every one it may see
+    remote: bool = False                               # an A2A agent elsewhere (R36): config has its url
 
 
 def tree(spec: flows.FlowSpec) -> dict[str, Agent]:
     """Every agent node of the flow's main graph, with what is connected to it."""
     agents: dict[str, Agent] = {}
     for node in spec.nodes:
-        if node.type in AGENT_TYPES:      # a planner (R31) or a blackboard (R33) is an agent that runs its sub-agents
+        if node.type in AGENT_TYPES or node.type == "remote_agent":   # a planner (R31), a blackboard (R33)
             config = flows.COMPONENTS[node.type].config.model_validate(node.config).model_dump()
-            agents[node.id] = Agent(node.id, flows.compiler.node_name(node), config)
+            agents[node.id] = Agent(node.id, flows.compiler.node_name(node), config,
+                                    remote=node.type == "remote_agent")   # and an A2A agent elsewhere (R36)
     for edge in spec.edges:
         if edge.kind != "resource" or edge.target not in agents:
             continue
@@ -54,7 +56,7 @@ def tree(spec: flows.FlowSpec) -> dict[str, Agent]:
         target = agents[edge.target]
         if source is None:
             continue
-        if source.type in AGENT_TYPES:
+        if source.type in AGENT_TYPES or source.type == "remote_agent":
             target.subagents.append(source.id)
             agents[source.id].parent = target.id
         elif source.type == "check":

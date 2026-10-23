@@ -426,6 +426,22 @@ on #120 that isn't waiting on the user.
   a key got a cited answer that passed the answer check; after revoking, the
   same call got 401 at once; a missing scope got 403, a non-v1 route 401.
 
+- **R36 (#103) done:** A2A both ways (`app/a2a.py`): agent card at
+  `/.well-known/agent-card.json`, JSON-RPC `POST /api/v1/a2a`
+  (message/send → completed task with the cited answer + sources/answer check
+  as data; tasks/get; input-required for Ask a human), API key with `ask`;
+  the **Remote agent (A2A)** component as a sub-agent under the R29 contract
+  (masked out, fenced in, its [n] stripped and sources named, recorded as a
+  call for the answer check, tool-call budget + per-run limit + timeout,
+  token from an env var, https only); traces linked via
+  `ingenmind_trace_id`. **Done-when checked locally** (temporary server in
+  the container, setup-ready check patched): the official A2A SDK client
+  (python:3.11-slim container, a2a-sdk 0.3.10) got a cited answer that passed
+  the answer check; a flow delegated to the remote agent and its answer
+  passed 2 of 2 after telling the parent to name the remote source (the
+  first run failed on citations). Not done: exposing knowledge agents
+  separately ("optionally" in the issue).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

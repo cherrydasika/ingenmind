@@ -144,6 +144,7 @@ RULES = [
     # The versioned API (R46): a browser session or an API key whose scopes cover the route.
     ({"GET"}, r"/api/v1/(openapi\.json|docs)", ANY),    # public: AuthMiddleware lets PUBLIC_PATHS through
     ({"POST"}, r"/api/v1/ask", "query_rag"),
+    ({"POST"}, r"/api/v1/a2a", "query_rag"),                     # A2A JSON-RPC (R36)
     ({"GET"}, r"/api/v1/sessions(/[^/]+)?", "query_rag"),
     ({"GET", "POST"}, r"/api/v1/documents", "upload_documents"),
     ({"GET", "POST"}, r"/api/v1/evaluations(/[^/]+)?", "run_evaluations"),
