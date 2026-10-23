@@ -89,21 +89,40 @@ answers queue rather than fail.
 
 ## Capacity of a t4g.xlarge
 
-**Not measured yet.** The capacity number needs the same runs on the EC2
-instance, which costs money while it runs, so it waits for an approved EC2
-session. Run steps 1–3 there against a copy of the database: through SSM,
-with Locust on the instance or a second small instance, never against the
-live database.
+**Measured on 2026-10-23** on the EC2 instance (4 Graviton2 vCPUs, 16 GB),
+release 440185a, through SSM. The app under test was a second container
+from the deployed image, on a copy of the production database
+(`rag_loadtest`: the 19 Trainline pages, Bedrock embeddings), with the stub
+model at 1 s a call and Langfuse and the AgentCore harness off. Locust ran
+on the same instance, so it took some CPU from the app. Only Askers and
+Ingesters ran: the EC2 install has no question set for the Evaluators. One
+question takes **7.2 s unloaded**: the stub's calls plus Bedrock embedding
+calls.
 
-Until then, an estimate. A t4g.xlarge has 4 Graviton2 vCPUs, slower per
-core than this machine's 6 Apple-silicon cores. The local limit was threads
-and connections, not CPU: two workers used about 3 cores at the peak. So
-expect about two thirds of the local figure, **~8 questions a second, about
-80–100 people asking at once with the stub's 1 s calls**. With a real model
-at about 3 s a call (~18 s a question), the same 90 threads serve
-90 ÷ 18 ≈ **5 questions a second, about 50–60 people at once**, unless
-`WEB_THREADS` and `max_connections` are raised. The provider's rate limits
-come first on most accounts.
+| Setup | Users | Questions/s | p50 | p95 | Errors | What limited it |
+|---|---|---|---|---|---|---|
+| 1 worker, 40 threads | 100 | 4.3 | 11 s | 14 s | 0 | the threads: 40 ÷ ~9 s |
+| 2 workers, 45 threads | 200 | 5.3 | 22 s | 30 s | 0 | **CPU**: the app ~1.8 cores, PostgreSQL ~1.6 |
+| 2 workers, 45 threads | 300 | 5.3 | 36 s | 46 s | 0 | as above: answers queue, none fail |
+
+The one or two failures Locust counted in a run were requests it cut off
+when the run stopped (`ClientDisconnect` in the app's log), not errors. At
+the peak only about 30 database connections were open.
+
+**One t4g.xlarge serves about 5 questions a second.** Latency stays near the
+unloaded 7 s up to about 3–4 questions a second: **about 40–50 people asking
+at once**, at one question every 10–15 s each. Beyond that, answers queue
+rather than fail. That is less than the local machine's 12 a second because
+the limit here is CPU, not threads. Much of PostgreSQL's share is a new
+connection for every database call, so a connection pool (psycopg_pool or
+PgBouncer) is the first thing to try for more. After that, a larger
+instance (t4g.2xlarge, 8 vCPUs).
+
+With a real model at about 3 s a call, a question holds its thread about
+three times longer but costs the instance about the same CPU. The CPU limit
+stays near 5 a second, and the 90 threads cap it at 90 ÷ ~20 s ≈ 4.5 a
+second: **about 40 people at once**. The provider's rate limits come first on
+most accounts.
 
 ## Service levels
 

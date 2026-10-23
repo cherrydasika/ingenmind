@@ -21,9 +21,16 @@ id=$(aws ec2 describe-instances \
 [[ $id != None && -n $id ]] || { echo "✗ the instance isn't running (scripts/aws/session.sh start)" >&2; exit 1; }
 
 raw=$(mktemp)
-trap 'rm -f "$raw"' EXIT
+# The plugin ends the session when its stdin closes. Without a terminal (a
+# script, CI) that is before the data arrives, so hold stdin open with a pipe
+# nothing writes to; the session still ends when the export does.
+hold=$(mktemp -u)
+mkfifo "$hold"
+sleep 3600 > "$hold" &
+keep=$!
+trap 'rm -f "$raw" "$hold"; kill $keep 2>/dev/null || true' EXIT
 aws ssm start-session --target "$id" --document-name AWS-StartInteractiveCommand \
-  --parameters "command=[\"sudo bash /opt/rag-systems/current/scripts/aws/stack.sh export $flag\"]" > "$raw"
+  --parameters "command=[\"sudo bash /opt/rag-systems/current/scripts/aws/stack.sh export $flag\"]" > "$raw" < "$hold"
 mkdir -p "$out"
 tr -d '\r' < "$raw" | sed -n '/^-----BEGIN INGENMIND EXPORT-----$/,/^-----END INGENMIND EXPORT-----$/p' \
   | sed '1d;$d' | base64 -d | tar xzf - -C "$out"

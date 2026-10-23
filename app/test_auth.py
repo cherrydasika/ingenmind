@@ -134,6 +134,15 @@ class StartupRefusals(unittest.TestCase):
             self.assertIn("not one of", auth.config_error())
 
 
+class ReturnAddress(unittest.TestCase):
+    def test_only_paths_on_this_site(self):   # R63 pentest: browsers read \ as / and drop tabs and newlines
+        for value in ("/", "/#/setup", "/?a=b", "/%5Cfine"):
+            self.assertEqual(auth._safe_next(value), value)
+        for value in ("//evil.example/", "/\\evil.example/", "/\t/evil.example", "/\n/evil.example",
+                      "https://evil.example/", "evil.example", "", None):
+            self.assertEqual(auth._safe_next(value), "/", repr(value))
+
+
 class ProviderLogout(unittest.TestCase):
     def test_a_logout_url_ends_the_providers_sign_in_too(self):
         class Client:

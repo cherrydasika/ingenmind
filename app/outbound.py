@@ -42,8 +42,11 @@ def check(url: str, redirected: bool = False) -> None:
         ip = ipaddress.ip_address(info[4][0].split("%")[0])
         if getattr(ip, "ipv4_mapped", None):
             ip = ip.ipv4_mapped
-        if (ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
-                or (ip.is_loopback and not named_local)):
+        if ip.is_loopback:   # first: ::1 also counts as reserved
+            if named_local:
+                continue
+            raise Blocked(f"{parts.hostname} resolves to {ip}, which IngenMind doesn't send requests to")
+        if ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
             raise Blocked(f"{parts.hostname} resolves to {ip}, which IngenMind doesn't send requests to")
 
 
