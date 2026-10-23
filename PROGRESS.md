@@ -589,9 +589,9 @@ on #120 that isn't waiting on the user.
   data through every module, deletes them and finds no row in any table
   mentioning their id, email, session or memory actor, while another
   person's data stays. On the local install a throwaway account's export
-  and deletion left no row mentioning it. The Langfuse half couldn't be
-  proven locally: Langfuse's storage is full (the Docker disk is 99% used),
-  so the throwaway trace was never stored.
+  and deletion left no row mentioning it; once the full Docker disk was
+  cleared, a throwaway account's real Langfuse trace was found by its user
+  id, deleted with the account, and no longer listed.
 
 - **R58 (#18) done:** learning from live use (`app/use_learnings.py`, on
   Analytics): every real question's outcome, sources by answer quality, and
