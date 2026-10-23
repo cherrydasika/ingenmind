@@ -514,6 +514,16 @@ on #120 that isn't waiting on the user.
   listed as not recommended), which vary with what the search finds. An
   earlier run recommended nothing (cause not found).
 
+- **R43 (#34) done:** a live-data gap's answer names the recommended source's
+  provider and a link users can follow (`agent.official_source`: the same
+  provider's profiled public page, else its site root, never the API docs),
+  and that fact is recorded as evidence (a `source_recommendation` call on
+  the knowledge-base task) so the answer check accepts it. **Checked** with
+  the live default flow: "When is the next train from Leeds to York right
+  now?" and "Is my 17:05 train from Sheffield to Manchester delayed today?"
+  both answered "not available here … use National Rail Enquiries at
+  https://www.nationalrail.co.uk/" and passed the answer check (1.0).
+
 **Done 2026-10-12 to 2026-10-20** (all merged and deployed; EC2 release
 `6160793`):
 - **#75, #78 Start over with a new domain:** in Setup, confirmed by

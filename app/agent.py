@@ -66,6 +66,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Annotated, TypedDict
+from urllib.parse import urlsplit
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError, EventStreamError
@@ -2285,7 +2286,27 @@ def _answer_handoff(state: KbState) -> dict:
     return {"result": {"answer": state["draft"], "status": f"GOOD_EVIDENCE: passed to the supervisor{note}"}}
 
 
-def _research_report(state: KbState) -> dict:
+def official_source(data_sources: dict | None) -> dict | None:
+    """The recommended data source's provider and a link a user can follow (R43): the same provider's public
+    web page when research profiled one, else the provider's site; None when nothing was recommended."""
+    data_sources = data_sources or {}
+    profiles = data_sources.get("profiles") or []
+    name = ((data_sources.get("recommendation") or {}).get("recommended") or "").strip().lower()
+    chosen = next((p for p in profiles if (p.get("name") or "").strip().lower() == name), None) if name else None
+    if chosen is None:
+        return None
+    provider = (chosen.get("provider") or chosen.get("name") or "").strip()
+    page = next((p for p in profiles if p.get("access_method") == "web_page"
+                 and (p.get("provider") or "").strip().lower() == provider.lower()), None)
+    link = ((page.get("evidence_urls") or [None])[0] or page.get("docs_url")) if page else None
+    if not link:
+        url = chosen.get("docs_url") or (chosen.get("evidence_urls") or [None])[0] or chosen.get("signup_url")
+        parts = urlsplit(url) if url else None
+        link = f"{parts.scheme}://{parts.netloc}/" if parts and parts.scheme in ("http", "https") and parts.netloc else None
+    return {"provider": provider, "link": link} if provider and link else None
+
+
+def _research_report(state: KbState, config) -> dict:
     """The gap stays: say what research found and why nothing was added."""
     e = state["evaluation"]
     draft = (state.get("draft") or "").strip()
@@ -2294,16 +2315,27 @@ def _research_report(state: KbState) -> dict:
         lines.append("Missing: " + "; ".join(e["missing_information"]))
     validation = state.get("validation")
     if state.get("gap_type") == "data_source":
-        # The report on the sources found is for an admin; the user is told
-        # that live data is not available here yet.
+        # The full report is for an administrator; the user is told that live data isn't available here
+        # and, when research found one, its official source and a link (R43), which is evidence for the
+        # answer check.
         profiles = (state.get("data_sources") or {}).get("profiles") or []
         status = "Knowledge gap needs a live data source"
+        source = official_source(state.get("data_sources"))
         lines.append("This needs live or frequently changing data, which the knowledge base cannot hold, and no "
                      "live source for it is connected here yet. Say plainly that this live information is not "
-                     "available here; do not name or suggest sources."
+                     "available here"
+                     + (f"; its official source is {source['provider']} ({source['link']}): name it and give that "
+                        "link exactly, and suggest nothing else." if source else "; do not name or suggest sources.")
                      + (" The gap was recorded for an administrator with "
                         f"{len(profiles)} candidate data source{'s' if len(profiles) != 1 else ''}."
                         if (state.get("data_sources") or {}).get("report_id") else ""))
+        run = (config or {}).get("configurable", {}).get("run")
+        if source and run is not None and hasattr(run, "calls"):
+            with run.lock:
+                run.calls.append({"n": len(run.calls) + 1, "turn": 0, "delegation": state["task"]["n"],
+                                  "tool": "source_recommendation", "ok": True, "input": {"missing": e["missing_information"]},
+                                  "summary": f"Official source for this live data, found by research: "
+                                             f"{source['provider']} ({source['link']})"})
     elif any(item["status"] in ("updated", "skipped_fresh", "unchanged_ttl_refreshed")
            for item in state.get("ingested") or []):
         status = "Knowledge gap remains after ingesting researched sources"
@@ -2530,8 +2562,10 @@ def _answer_evaluator(state: State, config) -> dict:
               for s in run.searches if s and s["n"] in search_ns for i, c in enumerate(s["retrieval"]["chunks"])
               if not injection.flags(c["text"])]
     api_tasks = {n for f in findings if f["agent"] in ("external_apis", "agent") for n in f.get("delegations") or [f["n"]]}
+    kb_tasks = {f["n"] for f in findings if f["agent"] == "knowledge_base"}
     api_results = [{"tool": c["tool"], "input": c["input"], "summary": c["summary"]}
-                   for c in run.calls if c.get("ok") and c["delegation"] in api_tasks]
+                   for c in run.calls if c.get("ok") and (c["delegation"] in api_tasks or (
+                       c.get("tool") == "source_recommendation" and c["delegation"] in kb_tasks))]   # R43
     draft = state.get("answer") or ""
     run.emit({"type": "answer_eval", "state": "start"})
     started = time.monotonic()

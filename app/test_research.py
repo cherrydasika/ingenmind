@@ -436,6 +436,18 @@ class SourceJudging(unittest.TestCase):
         self.assertEqual((out["recommendation"]["method"], out["usage"]["input_tokens"]), ("feed_consumer", 7))
         self.assertEqual(out["recommendation"]["integration"]["tool_name"], "uk_departures")
 
+    def test_the_official_source_a_user_is_told(self):
+        """R43: the provider, and its public page when research profiled one, else its site."""
+        api = profile(name="Darwin SOAP APIs", provider="National Rail Enquiries",
+                      docs_url="https://www.nationalrail.co.uk/developers/darwin/")
+        page = profile(name="Live departures", provider="National Rail Enquiries", access_method="web_page",
+                       evidence_urls=["https://www.nationalrail.co.uk/live-trains/"])
+        source = agent.official_source({"profiles": [api, page], "recommendation": {"recommended": "Darwin SOAP APIs"}})
+        self.assertEqual(source, {"provider": "National Rail Enquiries", "link": "https://www.nationalrail.co.uk/live-trains/"})
+        source = agent.official_source({"profiles": [api], "recommendation": {"recommended": "darwin soap apis"}})
+        self.assertEqual(source["link"], "https://www.nationalrail.co.uk/")                 # its site, not the API docs
+        self.assertIsNone(agent.official_source({"profiles": [api], "recommendation": {"recommended": None}}))
+
     def test_a_lookup_prefers_a_request_response_api_over_a_push_feed(self):
         """R42: the judge recommended Darwin's push feed for "live departures": the same provider's API goes first."""
         sources = [profile(name="Darwin Push Port", provider="National Rail", access_method="push_feed"),
@@ -538,7 +550,11 @@ class DataSourceFlow(unittest.TestCase):
         self.assertEqual(finding["status"], "Knowledge gap needs a live data source")
         self.assertIn("not available here", finding["answer"])
         self.assertIn("recorded for an administrator with 1 candidate data source.", finding["answer"])
-        self.assertNotIn("LDB", finding["answer"])     # sources are for an admin, not the user
+        # The user is told its official source and a link (R43); the full report stays an admin's.
+        self.assertIn("its official source is Rail body (https://", finding["answer"])
+        self.assertNotIn("LDB web service", finding["answer"])
+        [evidence] = [c for c in getattr(fake, "calls", []) if c["tool"] == "source_recommendation"]
+        self.assertEqual((evidence["delegation"], evidence["ok"]), (TASK["n"], True))   # the answer check sees it
         steps = [e["step"] for e in fake.events if e.get("type") == "research"]
         for step in ("classify", "known", "agent", "profile", "judge"):
             self.assertIn(step, steps)

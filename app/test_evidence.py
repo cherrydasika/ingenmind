@@ -48,6 +48,7 @@ class FakeRun:
     def __init__(self, chunks: list[list[dict]], results: list[LlmAssessment]):
         self.lock = threading.Lock()
         self.events, self.evaluations, self.searches, self.rewrites, self.followups = [], [], [], [], []
+        self.calls = []
         self.path, self.research, self.web_searches = [], [], []
         self.candidates, self.fetched = {}, {}
         self.validator = None  # set by research tests
