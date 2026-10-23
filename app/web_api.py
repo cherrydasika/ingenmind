@@ -62,6 +62,7 @@ import alerts
 import analytics
 import analytics_export
 import use_learnings
+import data_lifecycle
 import knowledge_gaps
 import operations
 import answer_feedback
@@ -1875,6 +1876,79 @@ def analytics_report(request: Request) -> Response:
         return _json({"error": str(error)}, 400)
 
 
+# ---------- Data lifecycle (data_lifecycle.py, R59) ----------
+
+def _data_download(user_id: str) -> Response:
+    data = data_lifecycle.export(user_id)
+    name = f"ingenmind-my-data-{datetime.now(timezone.utc):%Y%m%d}.json"
+    return Response(json.dumps(data, indent=2, ensure_ascii=False), media_type="application/json",
+                    headers={**NO_CACHE, "Content-Disposition": f'attachment; filename="{name}"'})
+
+
+async def _data_delete(request: Request, user_id: str) -> Response:
+    body = await request.json() if request.headers.get("content-length") not in (None, "0") else {}
+    if (body or {}).get("confirm") != "DELETE":
+        return _json({"error": "type DELETE to confirm: this can't be undone"}, 400)
+    # The audit entry the middleware writes must not name the person either.
+    request.scope.setdefault("state", {})["audit_redact"] = {"from": user_id, "to": data_lifecycle.DELETED}
+    try:
+        result = await run_in_threadpool(data_lifecycle.delete_user, user_id, auth.current_user(request))
+    except LookupError:
+        return _json({"error": "no such user"}, 404)
+    except data_lifecycle.Refused as refused:
+        return _json({"error": str(refused)}, 409)
+    except Exception as error:      # Langfuse or AgentCore unreachable: nothing deleted, try again
+        return _json({"error": f"couldn't delete everywhere, nothing was deleted: {error}"}, 502)
+    return _json(result)
+
+
+async def my_data(request: Request) -> Response:
+    """Everything kept about the signed-in person, as a JSON download."""
+    return await run_in_threadpool(_data_download, auth.current_user(request)["user_id"])
+
+
+async def my_data_delete(request: Request) -> Response:
+    """Delete the signed-in person's account and data everywhere ({"confirm": "DELETE"}); signs them out."""
+    response = await _data_delete(request, auth.current_user(request)["user_id"])
+    if response.status_code == 200:
+        request.session.clear()
+    return response
+
+
+async def user_data(request: Request) -> Response:
+    try:
+        return await run_in_threadpool(_data_download, request.path_params["user_id"])
+    except LookupError:
+        return _json({"error": "no such user"}, 404)
+
+
+async def user_data_delete(request: Request) -> Response:
+    if request.path_params["user_id"] == (auth.current_user(request) or {}).get("user_id"):
+        return _json({"error": "to delete your own account, use Privacy → Delete my data"}, 400)
+    return await _data_delete(request, request.path_params["user_id"])
+
+
+def privacy_view(request: Request) -> Response:
+    return _json(data_lifecycle.privacy())
+
+
+def retention_view(request: Request) -> Response:
+    return _json(data_lifecycle.settings())
+
+
+async def retention_save(request: Request) -> Response:
+    body = await request.json()
+    try:
+        return _json(await run_in_threadpool(data_lifecycle.save_settings, (body or {}).get("days") or {},
+                                             (auth.current_user(request) or {}).get("user_id")))
+    except ValueError as invalid:
+        return _json({"error": str(invalid)}, 400)
+
+
+async def retention_apply(request: Request) -> Response:
+    return _json(await run_in_threadpool(data_lifecycle.apply))
+
+
 # ---------- Learning from live use (use_learnings.py, R58) ----------
 
 def _recommend() -> list[dict]:
@@ -2776,6 +2850,7 @@ async def _lifespan(app):
     threading.Thread(target=_expire_human_requests, name="human-expiry", daemon=True).start()
     threading.Thread(target=webhooks.sweep_forever, name="webhook-retries", daemon=True).start()   # R47
     threading.Thread(target=alerts.loop, name="alerts", daemon=True).start()                        # R55
+    threading.Thread(target=data_lifecycle.loop, name="data-retention", daemon=True).start()        # R59
     threading.Thread(target=flows.eval_gate.loop, args=(_live_target, _eval_execute), name="nightly-evals",
                      daemon=True).start()                                                             # R56
     yield
@@ -2918,6 +2993,14 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/collections/{collection_id}/sources", collections_assign, methods=["POST"]),
     Route("/api/approvals", approvals_list),
     Route("/api/approvals/{request_id}", approvals_decide, methods=["POST"]),
+    Route("/api/me/data", my_data),
+    Route("/api/me/data/delete", my_data_delete, methods=["POST"]),
+    Route("/api/privacy", privacy_view),
+    Route("/api/data-retention", retention_view),
+    Route("/api/data-retention", retention_save, methods=["PUT"]),
+    Route("/api/data-retention/apply", retention_apply, methods=["POST"]),
+    Route("/api/users/{user_id}/data", user_data),
+    Route("/api/users/{user_id}/data/delete", user_data_delete, methods=["POST"]),
     Route("/api/me/memory", my_memory),
     Route("/api/me/memory", my_memory_consent, methods=["PUT"]),
     Route("/api/me/memory", my_memory_clear, methods=["DELETE"]),

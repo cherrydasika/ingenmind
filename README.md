@@ -573,6 +573,35 @@ The queries read two PostgreSQL views, `analytics_questions` (over
 `app_session_turns`) and `analytics_runs` (over `agent_flow_runs`); the data
 is small enough that no separate analytics store is needed.
 
+### Privacy, retention and a person's data
+
+**Profile → Privacy and your data** (`app/data_lifecycle.py`,
+`web/static/js/privacy.js`, R59) lists what is kept about a person, where
+(PostgreSQL, AgentCore Memory, Langfuse) and for how long. Everyone can
+**download their data** (`GET /api/me/data`, JSON: their account, sessions
+and questions, feedback, remembered facts, usage, API keys without their
+hashes, agent conversations, and their trace ids) and **delete their account
+and data** (`POST /api/me/data/delete` with `{"confirm": "DELETE"}`; signs
+them out). Admins do the same for anyone from **Users** (`/api/users/{id}/data`
+and `/data/delete`).
+
+Deleting removes the person everywhere: their PostgreSQL rows (the list is
+`USER_DATA`), each session's agent conversations (`agent_sessions` locally,
+AgentCore Memory events and long-term records on AWS), and their Langfuse
+traces (by the trace ids kept with each turn plus every observation tagged
+with their user id). Rows that only mention them as the person who did
+something keep the row without the name. The audit log keeps each action as
+"deleted user": the append-only trigger lets only this code anonymise them,
+and the deletion is itself audited without naming them. Langfuse or
+AgentCore unreachable: nothing is deleted and it can be retried. A channel's
+own account and the last active admin can't be deleted.
+
+**Retention** (admins, same card; `GET/PUT /api/data-retention`,
+`POST /api/data-retention/apply`): days to keep sessions (with their durable
+runs and agent conversations), traces, feedback, memory and the audit log;
+empty keeps them. It is applied once a day by the web app, or with Apply
+now. AgentCore Memory also expires events itself (its event expiry).
+
 ### Export for offline analysis (DuckDB)
 
 For one-off analysis away from the live database, or to combine the app's

@@ -1035,3 +1035,6 @@ button.cite:focus-visible { outline: 2px solid var(--primary); outline-offset: 1
 .form-grid label.sched-check, label.sched-check { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; font-size: 13px; }
 .form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
 .ops-metrics .metric-value { font-size: 17px; overflow-wrap: anywhere; }
+/* R59: data retention */
+.retention-grid { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.retention-grid label { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
