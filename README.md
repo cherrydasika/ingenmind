@@ -549,10 +549,11 @@ Overview's "By channel" figure).
   (`frame-ancestors`); each visitor keeps a conversation and can rate
   answers.
 - **Slack.** Create an app at api.slack.com/apps → *From a manifest* with
-  the one below (replace the host), install it to the workspace, then add a
-  Slack channel here with its *Bot User OAuth Token* (`xoxb-…`) and *Signing
-  secret*; put the two URLs it shows into the manifest's `request_url`s (or
-  Event Subscriptions and Interactivity). Mention the app in a channel, or
+  the one below, leaving out the two `request_url` lines, and install it to
+  the workspace; add a Slack channel here with its *Bot User OAuth Token*
+  (`xoxb-…`) and *Signing secret*, then put the two URLs it shows into the
+  app's Event Subscriptions and Interactivity (Slack checks the first at
+  once). Mention the app in a channel, or
   message it directly: the answer comes in the thread, with its sources and
   👍 / 👎 (then a reason), and follow-ups in the thread keep the conversation.
   People ask as their IngenMind account, matched by their Slack email;
