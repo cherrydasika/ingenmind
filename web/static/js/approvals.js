@@ -1,13 +1,17 @@
 // Monitoring → Approvals (R32, app/human.py): answers and actions an Ask a
 // human step is holding for a person. Approve and the user gets the answer and
 // the chosen actions run; reject (or let it time out) and nothing runs and
-// the user gets the flow's rejection message.
+// the user gets the flow's rejection message. Researched pages (#157) wait
+// here too when the flow's ingest step asks for approval: approve and the
+// page is added to the knowledge base; reject (or let it time out) and it
+// never is.
 
 import { api } from "./api.js";
 import { badge, card, errorBox, h, loading, markdown, note } from "./ui.js";
 
 const POLL_MS = 10000;
 const KIND = { open: "warn", answered: "ok", expired: "neutral", cancelled: "neutral" };
+const ADDED = ["updated", "skipped_fresh", "unchanged_ttl_refreshed"];   // agent.INGESTED
 const when = (iso) => (iso ? String(iso).slice(0, 19).replace("T", " ") : "—");
 
 export class ApprovalsPage {
@@ -63,6 +67,22 @@ export class ApprovalsPage {
         h("strong", {}, a.title || a.tool), " ", h("code", {}, JSON.stringify(a.input)))));
   }
 
+  renderPage(r) {
+    const page = r.actions[0] || {};
+    const meta = page.metadata || {};
+    const safe = /^https?:\/\//i.test(page.url || "");
+    const scores = Object.entries(meta.research_scores || {}).map(([k, v]) => `${k} ${v}`).join(" · ");
+    const outcome = r.response?.outcome;
+    return h("div", { class: "reply" }, h("div", { class: "reply-role" }, "◆ Page to add to the knowledge base"),
+      h("div", {}, safe ? h("a", { href: page.url, target: "_blank", rel: "noopener noreferrer" }, page.title || page.url)
+        : h("code", {}, page.url || "")),
+      h("div", { class: "faint" }, [meta.research_publisher, meta.research_date, page.kind].filter(Boolean).join(" · ")),
+      scores ? h("div", { class: "faint" }, `Validator: ${scores}`) : null,
+      r.draft ? h("div", { class: "faint" }, `Found for: ${r.draft}`) : null,
+      outcome ? h("div", {}, badge(ADDED.includes(outcome.status) ? "added" : "not added",
+        ADDED.includes(outcome.status) ? "ok" : "err"), " ", h("span", { class: "faint" }, outcome.error || outcome.status)) : null);
+  }
+
   renderRequest(r) {
     const decided = r.response?.approved === true ? "approved" : r.response?.approved === false ? "rejected" : null;
     return card({ children: [
@@ -75,9 +95,10 @@ export class ApprovalsPage {
           " ",
           h("button", { class: "btn btn-ghost btn-sm", type: "button", onclick: () => this.decide(r, false) }, "Reject")) : null),
       h("div", { class: "q" }, r.asked),
-      r.draft ? h("div", { class: "reply" }, h("div", { class: "reply-role" }, "◆ Answer to approve"),
+      r.kind === "source" ? this.renderPage(r) : null,
+      r.kind !== "source" && r.draft ? h("div", { class: "reply" }, h("div", { class: "reply-role" }, "◆ Answer to approve"),
         h("div", { class: "reply-body", html: markdown(r.draft) })) : null,
-      this.renderActions(r),
+      r.kind === "source" ? null : this.renderActions(r),
     ] });
   }
 
@@ -88,7 +109,8 @@ export class ApprovalsPage {
       note("Answers and actions waiting for a person, from flows with an Ask a human (approve) step. The run is "
         + "paused, and stays paused across restarts, until you decide. Approve: the user gets the answer and the "
         + "ticked actions run. Reject, or no decision before it times out: nothing runs and the user gets the "
-        + "flow's rejection message."),
+        + "flow's rejection message. Pages research found wait here when the flow's ingest step asks for "
+        + "approval: the user's run has gone on without them; approve to add one to the knowledge base."),
       this.flash ? errorBox(this.flash) : null,
       open.length ? null : card({ children: h("div", { class: "empty-state" }, "Nothing is waiting for approval.") }),
       ...requests.map((r) => this.renderRequest(r))));

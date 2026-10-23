@@ -257,6 +257,10 @@ class SourceValidatorConfig(BaseModel):
 class IngestConfig(BaseModel):
     table: str = "research_chunks"
     ttl_days: int = Field(90, ge=1, le=3650)
+    approval: bool = Field(False, description="Hold each validated page for an approver (Monitoring → Approvals) "
+                                              "before it is added; the run carries on without it")
+    approval_days: int = Field(7, ge=1, le=30, description="approval: a page nobody approves in this time "
+                                                           "is not added")
 
 
 class PlaceholderConfig(BaseModel):

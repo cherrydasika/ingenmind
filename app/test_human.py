@@ -1,6 +1,7 @@
 """Ask a human (R32, human.py): a run pauses for a person and resumes with their answer, after a restart too."""
 
 import json
+import threading
 import unittest
 import uuid
 from pathlib import Path
@@ -148,6 +149,81 @@ class AskAHuman(unittest.TestCase):
         result = self.ask(flow("clarify", "approve"), chat, source="playground")
         self.assertEqual((result["status"], result["answer"]), ("done", DRAFT))
         self.assertEqual(human.inbox(), [])
+
+
+class ResearchedPages(unittest.TestCase):
+    """#157: with approval on, a validated page waits for an approver; the run goes on without it."""
+    drop = td.DurableRuns.drop
+
+    def setUp(self):
+        td.DurableRuns.setUp(self)
+        human._schema_ready = False
+        self.addCleanup(setattr, human, "_schema_ready", False)
+
+    def ingest_step(self, settings, source="users"):
+        class Run:
+            run_id, session_id, user_id, question = "run-1", "s-1", "u-1", "Is Kestrel Bay step-free?"
+            fetched = {"https://rail.example/kestrel": {"title": "Kestrel Bay station", "text": "Lifts to every platform."}}
+            research, lock, settings = [{"delegation": 1}], threading.Lock(), {}
+            emit = staticmethod(lambda event: None)
+        Run.source = source
+        state = {"task": {"n": 1, "task": "Step-free access at Kestrel Bay"}, "validation": {"sources": [
+            {"url": "https://rail.example/kestrel", "accepted": True, "ttl_days": 30, "kind": "html",
+             "publisher": "Rail Example", "date": "2026-10-01", "scores": {"authority": 0.9}},
+            {"url": "https://rail.example/other", "accepted": False}]}}
+        allowed = type("Policy", (), {"allowed": True})()
+        with patch.object(agent.injection, "flags", return_value=False), \
+                patch.object(agent.guardrails, "check", return_value=allowed), \
+                patch.object(agent.storage, "get_client", return_value=object()), \
+                patch.object(agent.labels, "blueprint_or_none", return_value=None), \
+                patch.object(agent.ingest, "ingest_url", return_value={"status": "updated", "chunks": 3}) as ingest_url:
+            result = agent._ingest_sources(state, {"configurable": {"run": Run(), "settings": settings}})
+        return result, ingest_url
+
+    def test_with_approval_on_the_page_waits_and_nothing_is_added(self):
+        result, ingest_url = self.ingest_step({"approval": True, "approval_days": 3})
+        self.assertNotIn("error", result)
+        [held] = result["ingested"]
+        self.assertEqual(held["status"], "awaiting_approval")
+        ingest_url.assert_not_called()
+        [request] = human.inbox()
+        self.assertEqual((request["kind"], request["status"], request["question"]),
+                         ("source", "open", "https://rail.example/kestrel"))
+        self.assertEqual(request["actions"][0]["metadata"]["research_publisher"], "Rail Example")
+        self.assertEqual(human.cancel_for("run-1"), 0)          # cancelling the run leaves the page waiting
+        self.ingest_step({"approval": True})                     # the same run again: still one request
+        self.assertEqual(len(human.inbox()), 1)
+
+    def test_without_approval_the_page_is_added_as_before(self):
+        result, ingest_url = self.ingest_step({})
+        self.assertEqual([i["status"] for i in result["ingested"]], ["updated"])
+        ingest_url.assert_called_once()
+        self.assertEqual(human.inbox(), [])
+
+    def test_evaluations_never_queue_pages(self):
+        result, _ = self.ingest_step({"approval": True}, source="eval")
+        self.assertEqual([i["status"] for i in result["ingested"]], ["not_ingested_evaluation"])
+        self.assertEqual(human.inbox(), [])
+
+    def test_an_approved_page_is_added_and_the_outcome_kept(self):
+        import web_api
+        self.ingest_step({"approval": True})
+        [request] = human.inbox()
+        decided = human.respond(request["request_id"], {"approved": True}, "u-admin")
+        with patch.object(agent, "add_researched_page", return_value={"url": "x", "status": "updated", "chunks": 3}) as add:
+            web_api._add_approved_page(decided)
+        page = add.call_args.args[0]
+        self.assertEqual((page["url"], page["ttl_days"], page["metadata"]["approved_by"]),
+                         ("https://rail.example/kestrel", 30, "u-admin"))
+        self.assertEqual(human.get(request["request_id"])["response"]["outcome"], {"status": "updated", "chunks": 3})
+
+    def test_a_page_nobody_approves_expires_and_is_never_added(self):
+        self.ingest_step({"approval": True})
+        with psycopg.connect(host=config.PGHOST, port=config.PGPORT, user=config.PGUSER, password=config.PGPASSWORD,
+                             dbname=config.PGDATABASE) as connection:
+            connection.execute("UPDATE human_requests SET expires_at = now() - interval '1 minute'")
+        [expired] = human.expire_due()
+        self.assertEqual((expired["kind"], expired["status"]), ("source", "expired"))
 
 
 if __name__ == "__main__":

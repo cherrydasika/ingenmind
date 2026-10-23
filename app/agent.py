@@ -2236,12 +2236,37 @@ def _source_validator(state: KbState, config) -> dict:
 READ_ONLY_SOURCES = ("eval",)
 
 
+def add_researched_page(page: dict, client=None) -> dict:
+    """Ingest one validated page into the research store, and label it (#15).
+    page: url, ttl_days, kind, metadata. Used by the ingest step, and on approval (#157)."""
+    client = client or storage.get_client("research")
+    outcome = ingest.ingest_url(client, {k: page[k] for k in ("url", "ttl_days", "kind", "metadata")})
+    if outcome.get("status") in INGESTED and (bp := labels.blueprint_or_none()):
+        try:                # what the page is about; never stops the research
+            labels.label_url(client, page["url"], bp)
+        except Exception as error:
+            log.warning("could not label %s: %s", page["url"], error)
+    return outcome
+
+
+def _hold_for_approval(run: "_Run", page: dict, task: dict, days: int) -> dict:
+    """#157: the page waits in Monitoring → Approvals; the run goes on without it."""
+    node = f"ingest_sources:{hashlib.sha256(page['url'].encode()).hexdigest()[:12]}"
+    request = human.open_request(getattr(run, "run_id", None) or f"r-{uuid.uuid4().hex}", node, "source",
+                                 session_id=getattr(run, "session_id", "") or "", user_id=getattr(run, "user_id", None),
+                                 asked=getattr(run, "question", None) or task["task"], question=page["url"],
+                                 draft=task["task"][:300], actions=[page], timeout_minutes=days * 24 * 60)
+    return {"url": page["url"], "status": "awaiting_approval", "request_id": request["request_id"], "seconds": 0}
+
+
 @_guarded
 def _ingest_sources(state: KbState, config) -> dict:
-    """Automatically ingest validated sources into the isolated research store,
-    then run retrieval again. An evaluation run ingests nothing: the gap stays."""
+    """Ingest validated sources into the isolated research store, then run
+    retrieval again. An evaluation run ingests nothing: the gap stays. With
+    approval on (#157), each page waits for an approver instead."""
     run: _Run = config["configurable"]["run"]
     task = state["task"]
+    settings = _settings(config)
     client = storage.get_client("research")
     ingested = []
     for source in state["validation"]["sources"]:
@@ -2259,19 +2284,20 @@ def _ingest_sources(state: KbState, config) -> dict:
         if not policy.allowed:
             ingested.append({"url": url, "status": "blocked_by_guardrail", "seconds": 0})
             continue
+        page = {"url": url, "ttl_days": settings.get("ttl_days") or source["ttl_days"], "kind": source["kind"],
+                "title": fetched.get("title"),
+                "metadata": {"origin": "research_agent", "research_task": task["task"][:300],
+                             "research_publisher": source.get("publisher"), "research_date": source.get("date"),
+                             "research_scores": source["scores"],
+                             "validated_at": datetime.now(timezone.utc).isoformat()}}
+        if settings.get("approval"):
+            record = _hold_for_approval(run, page, task, int(settings.get("approval_days") or 7))
+            ingested.append(record)
+            run.emit({"type": "ingest", "state": "done", "delegation": task["n"], **record})
+            continue
         run.emit({"type": "ingest", "state": "start", "delegation": task["n"], "url": url})
         started = time.monotonic()
-        outcome = ingest.ingest_url(client, {
-            "url": url, "ttl_days": _settings(config).get("ttl_days") or source["ttl_days"], "kind": source["kind"],
-            "metadata": {"origin": "research_agent", "research_task": task["task"][:300],
-                         "research_publisher": source.get("publisher"), "research_date": source.get("date"),
-                         "research_scores": source["scores"], "validated_at": datetime.now(timezone.utc).isoformat()},
-        })
-        if outcome.get("status") in INGESTED and (bp := labels.blueprint_or_none()):
-            try:                # what the page is about (#15); never stops the research
-                labels.label_url(client, url, bp)
-            except Exception as error:
-                log.warning("could not label %s: %s", url, error)
+        outcome = add_researched_page(page, client)
         record = {"url": url, **{k: v for k, v in outcome.items() if k != "url"},
                   "seconds": round(time.monotonic() - started, 3)}
         ingested.append(record)
@@ -2343,6 +2369,10 @@ def _research_report(state: KbState, config) -> dict:
            for item in state.get("ingested") or []):
         status = "Knowledge gap remains after ingesting researched sources"
         lines.append("Researched sources were ingested, but the knowledge base still does not cover it.")
+    elif any(item["status"] == "awaiting_approval" for item in state.get("ingested") or []):
+        status = "Researched sources wait for approval"
+        lines.append("Research found pages that answer this; they are added to the knowledge base once an "
+                     "approver accepts them.")
     elif state.get("ingested"):
         status = "Research sources could not be ingested"
         lines.append("Research sources were rejected by the scope policy or could not be stored.")

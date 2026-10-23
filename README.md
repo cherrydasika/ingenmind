@@ -201,10 +201,8 @@ Details: [Knowledge system: setup and reset](#knowledge-system-setup-and-reset).
 ## Roadmap
 
 Next on the list (see the [issues](https://github.com/cherrydasika/ingenmind/issues)):
-a reranker, approving
-researched pages in the app before they are added (with Ask a human), an analytics page (where
-questions fail and which sources help), and suggestions learnt from live
-use, approved by an admin.
+public access with HTTPS, Google Drive, SharePoint and other connectors
+that sign in with OAuth, and several organisations on one deployment.
 
 ## Under the hood
 
@@ -376,6 +374,18 @@ actions never run there), and a flow with this step never answers from the
 answer cache. The gallery's **Human-in-the-loop** architecture uses both.
 Checked on the local stack: a run paused for approval, the web app was
 restarted, the approval (in the browser) resumed it and it finished.
+
+**Researched pages can wait for approval too.** Turn on **approval** on the
+knowledge base's ingest step (Agent Builder → the knowledge base subflow →
+Ingest sources), and each page research finds and validates waits in
+**Monitoring → Approvals** instead of joining the knowledge base: its
+title and link, publisher, date, the validator's scores and the task it
+was found for. The question that found it doesn't wait: it is answered
+without the page, and the research report says the page waits for
+approval. Approve and the page is ingested and labelled, and the result
+shows on the card. Reject, or no decision within `approval_days` (7), and
+it is never added. Pages that fail the injection check or the scope
+guardrail never reach the inbox. Off by default.
 
 ### Collections: several knowledge bases
 
