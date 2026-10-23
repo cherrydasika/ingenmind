@@ -142,7 +142,7 @@ RULES = [
     ({"GET"}, r"/api/sessions(/[^/]+)?", ANY),
     # Channels (R50): Slack, Teams and widgets; the endpoints they call are outside /api, checked by their own signatures.
     ({"GET", "POST"}, r"/api/channels", "manage_settings"),
-    ({"GET"}, r"/api/analytics", "manage_settings"),                 # R52: admins
+    ({"GET"}, r"/api/analytics(/export)?", "manage_settings"),       # R52, R57: admins
     ({"GET"}, r"/api/operations", "manage_settings"),                # R53: admins
     ({"GET", "POST", "PATCH", "PUT"}, r"/api/alerts(/.*)?", "manage_settings"),   # R55: admins
     ({"GET"}, r"/api/channels/usage", ("view_sessions", "manage_agents", "manage_settings")),

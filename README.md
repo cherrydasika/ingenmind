@@ -558,8 +558,42 @@ into charts for a date range (the last 30 days by default):
 
 The queries read two PostgreSQL views, `analytics_questions` (over
 `app_session_turns`) and `analytics_runs` (over `agent_flow_runs`); the data
-is small enough that no separate analytics store is needed (#7 is about
-when one helps).
+is small enough that no separate analytics store is needed.
+
+### Export for offline analysis (DuckDB)
+
+For one-off analysis away from the live database, or to combine the app's
+data with something else, export it as Parquet files and open them with
+[DuckDB](https://duckdb.org) (`app/analytics_export.py`, R57). Use the
+Analytics page for the everyday view: it reads PostgreSQL directly and is
+always current; the export is a snapshot.
+
+The files: `questions` (one row per question: channel, flow, guardrail
+decisions, evidence, pass, time), `citations`, `runs` and `run_agents`,
+`eval_runs` and `eval_results`, `ingestion_jobs`, `pages` (per page: chunks,
+characters, expiry; no text or vectors), `knowledge_gaps`, `feedback`, plus
+`explore.sql` (views and example queries: pass rate per week, most cited
+sources, slowest questions, tokens per model, evaluation pass rates) and
+`manifest.json`.
+
+**Personal data is left out by default.** No email addresses or names, ever;
+people and sessions appear as `user_ref`/`session_ref`, a salted hash that is
+the same across exports of one install. What people wrote (questions,
+answers, feedback comments, knowledge-gap items) is included only with
+`--include-text` (or the page's checkbox).
+
+```bash
+# locally
+docker compose exec webapp python export_analytics.py --out /tmp/export
+docker compose cp webapp:/tmp/export ./analytics-export
+cd analytics-export && duckdb -init explore.sql
+
+# from the EC2 server, through Systems Manager (no SSH, no open port)
+scripts/aws/export-analytics.sh ./analytics-export [--include-text]
+```
+
+Admins can also use **Analytics → Download export** (a zip of the same
+files), which works on EC2 through the usual tunnel.
 
 ### Operations
 

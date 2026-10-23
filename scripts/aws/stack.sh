@@ -6,6 +6,7 @@
 #   sudo bash scripts/aws/stack.sh start   # refuses unless the EBS data volume is mounted
 #   sudo bash scripts/aws/stack.sh stop    # refuses while an ingestion job is queued/running
 #   sudo bash scripts/aws/stack.sh stop --force
+#   sudo bash scripts/aws/stack.sh export [--include-text]   # the analytics export (R57), base64 tar.gz on stdout
 set -euo pipefail
 
 [[ $(id -u) -eq 0 ]] || { echo "Run as root on the EC2 instance" >&2; exit 1; }
@@ -77,6 +78,14 @@ status() {
 }
 
 case "${1:-}" in
+  export)
+    # Between markers, so scripts/aws/export-analytics.sh can find it in an SSM session's output.
+    flag=$([[ ${2:-} == --include-text ]] && echo --include-text || true)
+    "${compose[@]}" exec -T webapp sh -c "rm -rf /tmp/export && python export_analytics.py --out /tmp/export $flag >&2"
+    echo "-----BEGIN INGENMIND EXPORT-----"
+    "${compose[@]}" exec -T webapp tar czf - -C /tmp/export . | base64 -w 76
+    echo "-----END INGENMIND EXPORT-----"
+    ;;
   start)
     check_mount
     check_tools
@@ -100,7 +109,7 @@ case "${1:-}" in
     status
     ;;
   *)
-    echo "Usage: sudo bash scripts/aws/stack.sh start|stop [--force]|status" >&2
+    echo "Usage: sudo bash scripts/aws/stack.sh start|stop [--force]|status|export [--include-text]" >&2
     exit 2
     ;;
 esac
