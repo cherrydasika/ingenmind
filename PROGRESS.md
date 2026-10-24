@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-23
+Last updated: 2026-10-24
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -37,6 +37,17 @@ fails on a merge for a reason outside the code (Docker Hub was slow), re-run
 the failed job and publish and deploy follow. CI pulls its pgvector image
 from Docker Hub signed in (`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`
 secrets). Tunnels close after 60 minutes idle (was 20).
+
+**Fixed 2026-10-24: going back to a domain set aside** (Profile →
+Knowledge system → "Go back to …"). It failed with a bare 502 locally:
+rows in the copy aside pointed at parents deleted after it was set aside
+(learnings of session turns 35–37, cleaned up on 2026-10-23; eval results
+of the `gate_check` runs, removed from the copy too). Going back now
+leaves such rows out, as ON DELETE CASCADE would have, and records what it
+left out in the `restored` event; the 502 is logged. Locally the 3
+orphaned learnings were also deleted from `ks_aside` by hand (the user's
+OK); a dry run of the fix restores Cheshunt with 32 learnings and leaves
+out 34 eval results.
 
 **Epic #19 (RAG Initialization Agent) is done (closed 2026-10-10):** the
 MVP #9–#17 is merged and deployed, the last being **#15** knowledge
