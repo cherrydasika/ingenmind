@@ -444,20 +444,48 @@ def restore(user_id: str | None) -> dict:
         tables = _tables(info["everything"])
         discarded = {table: connection.execute(f"DELETE FROM {table}").rowcount
                      for table in tables if _exists(connection, table)}
+        skipped = {}
         for table in reversed(tables):   # parents before children
             if table in info["rows"] and _exists(connection, table):
                 kept = set(_columns(connection, ASIDE, table))
                 columns = ", ".join(c for c in _columns(connection, "public", table) if c in kept)
-                connection.execute(f"INSERT INTO public.{table} ({columns}) OVERRIDING SYSTEM VALUE "
-                                   f"SELECT {columns} FROM {ASIDE}.{table}")
+                parents = " AND ".join(_parent_checks(connection, table, kept)) or "true"
+                restored = connection.execute(f"INSERT INTO public.{table} ({columns}) OVERRIDING SYSTEM VALUE "
+                                              f"SELECT {columns} FROM {ASIDE}.{table} AS s WHERE {parents}").rowcount
+                total = connection.execute(f"SELECT count(*) AS n FROM {ASIDE}.{table}").fetchone()["n"]
+                if total > restored:
+                    skipped[table] = total - restored
         before = info["status"]
         connection.execute("UPDATE app_knowledge_system SET state = %s, origin = %s, blueprint_version = %s, "
                            "set_up_at = %s, set_up_by = %s, updated_at = now()",
                            (before["state"], before["origin"], before["blueprint_version"], before["set_up_at"],
                             before["set_up_by"]))
         connection.execute(f"DROP SCHEMA {ASIDE} CASCADE")
-        _event(connection, "restored", user_id, {"name": info["name"], "discarded": discarded})
-    return info
+        _event(connection, "restored", user_id, {"name": info["name"], "discarded": discarded,
+                                                 **({"skipped": skipped} if skipped else {})})
+    return {**info, "skipped": skipped}
+
+
+def _parent_checks(connection, table: str, kept: set[str]) -> list[str]:
+    """SQL conditions on the aside rows (aliased s) that their parents exist.
+    A row whose parent was deleted after the domain was set aside (say a
+    session turn, which is not set aside) is left out, as ON DELETE CASCADE
+    would have done; parents in the domain aside are restored first."""
+    checks = []
+    for fk in connection.execute(
+            "SELECT confrelid::regclass::text AS parent, "
+            "ARRAY(SELECT a.attname FROM unnest(conkey) WITH ORDINALITY k(n, i) "
+            "      JOIN pg_attribute a ON a.attrelid = conrelid AND a.attnum = k.n ORDER BY k.i)::text[] AS own, "
+            "ARRAY(SELECT a.attname FROM unnest(confkey) WITH ORDINALITY k(n, i) "
+            "      JOIN pg_attribute a ON a.attrelid = confrelid AND a.attnum = k.n ORDER BY k.i)::text[] AS theirs "
+            "FROM pg_constraint WHERE contype = 'f' AND conrelid = %s::regclass AND confrelid <> conrelid",
+            (f"public.{table}",)).fetchall():
+        if not set(fk["own"]) <= kept:
+            continue
+        null = " OR ".join(f"s.{c} IS NULL" for c in fk["own"])
+        match = " AND ".join(f"p.{p} = s.{c}" for c, p in zip(fk["own"], fk["theirs"]))
+        checks.append(f"({null} OR EXISTS (SELECT 1 FROM {fk['parent']} AS p WHERE {match}))")
+    return checks
 
 
 def discard_aside(user_id: str | None) -> dict | None:

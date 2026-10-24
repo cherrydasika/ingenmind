@@ -568,6 +568,39 @@ class PgStoreTest(unittest.TestCase):
         self.assertEqual(knowledge_system.discard_aside("u1")["rows"]["rag_chunks"], 2)
         self.assertIsNone(knowledge_system.aside())
 
+    def test_going_back_leaves_out_rows_whose_parent_is_gone(self):
+        import use_learnings
+        self._fresh_app_schemas()
+        self._fresh_knowledge_system()
+        use_learnings.reset_schema_cache()
+        self.addCleanup(use_learnings.reset_schema_cache)
+        user = identity.create_user("Back", f"back-{uuid.uuid4().hex[:6]}@example.test", "user")
+        session_id = sessions.current(user["user_id"], None)
+        gone, kept = (sessions.record_turn(session_id, user["user_id"], q, {"answer": "a"})["turn_id"]
+                      for q in ("Deleted later?", "Kept?"))
+        for turn_id in (gone, kept):
+            use_learnings.record(turn_id, {"answer": "a"})
+        flow_evals.save_set("s", "S", "", [{"question": "Refunds?"}])
+        with self.client.connection() as connection:
+            for run in ("run_gone", "run_kept"):
+                connection.execute("INSERT INTO agent_eval_runs (id, batch, set_id, set_name, flow_id, version, status, "
+                                   "total, spec) VALUES (%s, 'b', 's', 'S', 'f', '1', 'finished', 1, '{}')", (run,))
+                connection.execute("INSERT INTO agent_eval_results (run_id, idx, answer, passed) VALUES (%s, 0, 'a', true)",
+                                   (run,))
+        knowledge_system.set_aside("u1")
+        # After setting aside: a session turn is deleted (sessions are not set
+        # aside) and one run is removed from the copy aside.
+        with self.client.connection() as connection:
+            connection.execute("DELETE FROM app_session_turns WHERE turn_id = %s", (gone,))
+            connection.execute("DELETE FROM ks_aside.agent_eval_runs WHERE id = 'run_gone'")
+        info = knowledge_system.restore("u1")
+        self.assertEqual(info["skipped"], {"use_learnings": 1, "agent_eval_results": 1})
+        with self.client.connection() as connection:
+            self.assertEqual([r["turn_id"] for r in connection.execute("SELECT turn_id FROM use_learnings")], [kept])
+            self.assertEqual([r["run_id"] for r in connection.execute("SELECT run_id FROM agent_eval_results")],
+                             ["run_kept"])
+        self.assertEqual(knowledge_system.events()[0]["details"]["skipped"], info["skipped"])
+
     def test_trigger_without_urls_is_refused(self):
         class Request:
             async def json(self):

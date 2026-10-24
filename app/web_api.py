@@ -2232,10 +2232,11 @@ async def setup_restore(request: Request) -> Response:
     except knowledge_system.Busy as exc:
         return _json({"error": str(exc)}, 409)
     except Exception as exc:
+        print(f"going back to the domain set aside failed: {exc!r}", file=sys.stderr)
         return _json({"error": f"Going back failed, nothing changed: {exc}"}, 502)
     finally:
         _knowledge_changed()
-    return _json({"ok": True, "restored": info["name"]})
+    return _json({"ok": True, "restored": info["name"], "skipped": info["skipped"]})
 
 
 # ---------- Setup (the Initialization Agent, epic #19) ----------
