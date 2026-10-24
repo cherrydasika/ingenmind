@@ -38,6 +38,12 @@ the failed job and publish and deploy follow. CI pulls its pgvector image
 from Docker Hub signed in (`DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`
 secrets). Tunnels close after 60 minutes idle (was 20).
 
+**Also 2026-10-24: the Live card asks before going back.** "Review
+sources" and "Review content" on the setup's Live card take the system
+offline at once; a click 12 s after going live did that unasked locally.
+Both now confirm first ("…users can't ask questions until it goes live
+again. Your choices are kept.").
+
 **Fixed 2026-10-24: going back to a domain set aside** (Profile →
 Knowledge system → "Go back to …"). It failed with a bare 502 locally:
 rows in the copy aside pointed at parents deleted after it was set aside

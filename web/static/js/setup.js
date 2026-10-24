@@ -468,9 +468,14 @@ export class SetupPage {
   renderLive(v) {
     const w = v.readiness.went_live;
     const labels = Object.fromEntries(v.readiness.scores.map((s) => [s.key, s.label]));
+    // Going back takes the system offline at once, so it asks first.
     const back = (label, call) => {
       const button = h("button", { class: "btn btn-ghost", type: "button" }, label);
-      button.addEventListener("click", () => this.act(async () => { await call(); return api.setup(); }, button));
+      button.addEventListener("click", () => {
+        if (!confirm(`${label}? This takes the knowledge system offline: users can't ask questions until it `
+          + "goes live again. Your choices are kept.")) return;
+        this.act(async () => { await call(); return api.setup(); }, button);
+      });
       return button;
     };
     return h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", { class: "card-title" }, "Live")),
