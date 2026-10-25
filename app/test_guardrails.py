@@ -1,6 +1,7 @@
 import json
 import unittest
 import uuid
+from datetime import date
 from unittest.mock import Mock, patch
 
 import agent
@@ -118,6 +119,21 @@ class PolicyTests(unittest.TestCase):
             guardrails.check("output", "And at Victoria?", "Yes, by platform 8.", previous=["Toilets at St Pancras?"])
         self.assertEqual(sent[0]["previous_questions"], ["a", "b", "Toilets at St Pancras?"])   # the last three
         self.assertNotIn("previous_questions", sent[1])
+        self.assertEqual({s["today"] for s in sent}, {date.today().isoformat()})
+
+    def test_markup_in_the_classifier_reply_is_tidied_and_an_invalid_one_retried_once(self):
+        replies = [{"decision": "ALLOW", "reason": "ok", "answer_kind": "substantive</answer_kind>\n</invoke>"},
+                   {"decision": "MAYBE", "reason": "?"}, {"decision": "ALLOW", "reason": "ok"},
+                   {"decision": "MAYBE", "reason": "?"}, {"decision": "MAYBE", "reason": "?"}]
+        calls = Mock(side_effect=[Mock(tool_input=r, usage={}) for r in replies])
+        with patch.object(guardrails.llm, "call_tool", calls), \
+                patch.object(guardrails.llm, "config_error", return_value=None):
+            tidied = guardrails.check("output", "Reference for 72 High Street?", "It is 07/26/0751/F.")
+            retried = guardrails.check("output", "Reference for 72 High Street?", "It is 07/26/0751/F.")
+            failed = guardrails.check("output", "Reference for 72 High Street?", "It is 07/26/0751/F.")
+        self.assertTrue(tidied.allowed and retried.allowed)
+        self.assertEqual((failed.decision, failed.reason), ("BLOCK", "classifier_unavailable"))   # still closed
+        self.assertEqual(calls.call_count, 5)
 
     def test_secrets_and_overlong_output_block_without_classifier(self):
         classifier = Mock()

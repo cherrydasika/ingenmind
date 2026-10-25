@@ -1609,11 +1609,15 @@ def _flow_settings(spec: flows.FlowSpec) -> dict:
     if gate:
         config = flows.COMPONENTS["input_guardrail"].config.model_validate(gate.config)
         guardrail = config.model_dump(exclude={"stage"})
-        # Left empty, the scope is the brief and the messages name the domain.
-        generic = guardrails.generic_messages(settings.get("domain") or flows.registry.DEFAULT_DOMAIN)
+        # Left empty, the scope is the brief and the messages name the domain;
+        # the UK rail brief keeps its tuned UK rail scope and messages.
+        brief = settings.get("brief") or flows.registry.UK_RAIL_BRIEF
+        uk_rail = brief == flows.registry.UK_RAIL_BRIEF
+        generic = guardrails.DEFAULT_SCOPE.model_dump(exclude={"scope"}) if uk_rail else \
+            guardrails.generic_messages(settings.get("domain") or flows.registry.DEFAULT_DOMAIN)
         guardrail = {k: v if v.strip() else generic.get(k, "") for k, v in guardrail.items()}
-        guardrail["scope"] = guardrail["scope"] or knowledge_collections.expand(
-            settings.get("brief") or flows.registry.UK_RAIL_BRIEF, everyone=True)   # R35: every collection
+        guardrail["scope"] = guardrail["scope"] or (guardrails.UK_RAIL_SCOPE if uk_rail
+                                                    else knowledge_collections.expand(brief, everyone=True))   # R35: every collection
         settings["guardrail"] = guardrail
     retriever = _plugged(spec, "retrieval_agent", "retriever") or _plugged(spec, "agent", "retriever")
     if retriever:

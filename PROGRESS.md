@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-24
+Last updated: 2026-10-25
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -949,6 +949,22 @@ kind: start from [AGENTS.md](AGENTS.md); the backlog is the open issues
   (Session Manager preferences, #25). Open the app at `localhost`, not
   `127.0.0.1`: Cognito only accepts returning to `localhost`.
 - AWS CLI profile for this account: `personal`.
+- **Local, 2026-10-25 (branch `guardrail-scope-defaults`):** the input
+  guardrail's scope and block/clarify/output messages default to empty, so
+  a flow follows its brief and domain (the UK rail brief keeps
+  `UK_RAIL_SCOPE` and its messages: `agent._flow_settings`). The
+  guardrail classifier gets today's date (it blocked recent pages as "in
+  the future"), and a reply with markup in `decision`/`answer_kind` is
+  tidied, an invalid one retried once before failing closed
+  (`guardrails.assess_with_llm`).
+- **Local live flow:** `setup_cheshunt_planning_and_council_rules` v7
+  (live 2026-10-25; agent instructions name notices, applications, fees
+  and inquiry documents): red team 24/24, setup evaluation 9/11 after
+  the guardrail fixes. v5 went live by
+  a recorded gate override. Still failing: Q4 (parks bylaws, input
+  block) and Q8 (tree protection, answer check). The main collection is
+  renamed from "UK rail travel" to "Cheshunt planning and council rules";
+  the research cache still holds the UK rail pages.
 
 ## RAG app on EC2
 

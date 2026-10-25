@@ -1122,12 +1122,13 @@ class FlowDomain(unittest.TestCase):
         self.assertEqual(settings["guardrail"]["scope"], "An assistant for trains and rail travel in France.")
         self.assertEqual(settings["guardrail"]["block_message"],
                          "I can help with questions about French rail. Please ask about that.")
-        self.assertEqual(settings["guardrail"]["clarify_message"], guardrails.CLARIFY_MESSAGE)   # set: kept
+        self.assertEqual(settings["guardrail"]["clarify_message"], "Please clarify your question about French rail.")
         # The built-in flow: the UK brief, UK search country and its tuned UK scope.
         builtin = agent._flow_settings(agent.FLOW)
         self.assertIn("pantry car", builtin["brief"])
         self.assertEqual(builtin["search_country"], "united kingdom")
         self.assertEqual(builtin["guardrail"]["scope"], guardrails.UK_RAIL_SCOPE)
+        self.assertEqual(builtin["guardrail"]["block_message"], guardrails.BLOCK_MESSAGE)
 
     def test_the_input_check_runs_first_with_the_flow_scope(self):
         seen = []
@@ -1158,7 +1159,7 @@ class FlowDomain(unittest.TestCase):
 
     def test_saved_flows_with_the_old_policy_label_still_load(self):
         old = flows.COMPONENTS["input_guardrail"].config.model_validate({"stage": "input", "policy": "travel-only"})
-        self.assertEqual(old.scope, guardrails.UK_RAIL_SCOPE)
+        self.assertEqual(old.scope, "")   # empty: follows the brief
         flows.COMPONENTS["output_guardrail"].config.model_validate({"stage": "output", "policy": "travel-only"})
         with self.assertRaises(Exception):   # a scope must say something, or be empty (the brief)
             flows.COMPONENTS["input_guardrail"].config.model_validate({"scope": "short"})
