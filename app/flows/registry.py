@@ -189,16 +189,16 @@ class InputGuardrailConfig(BaseModel):
     An empty scope follows the supervisor's brief, and an empty message is a
     generic one naming the supervisor's domain."""
     stage: Literal["input"] = "input"
-    scope: str = Field(guardrails.UK_RAIL_SCOPE, max_length=guardrails.MAX_SCOPE_CHARS,
+    scope: str = Field("", max_length=guardrails.MAX_SCOPE_CHARS,
                        json_schema_extra=MULTILINE,
                        description="What is in scope, and what is not; empty: the supervisor's brief. The rules "
                                    "around it (untrusted data, prompt injection, secrets, mixed requests) are "
                                    "fixed and always apply.")
-    block_message: str = Field(guardrails.BLOCK_MESSAGE, max_length=400,
+    block_message: str = Field("", max_length=400,
                                description="Shown when a question is out of scope")
-    clarify_message: str = Field(guardrails.CLARIFY_MESSAGE, max_length=400,
+    clarify_message: str = Field("", max_length=400,
                                  description="Shown when a question needs more context")
-    output_message: str = Field(guardrails.OUTPUT_MESSAGE, max_length=400,
+    output_message: str = Field("", max_length=400,
                                 description="Shown when an answer is blocked")
     unavailable_message: str = Field(guardrails.UNAVAILABLE_MESSAGE, max_length=400,
                                      description="Shown when the checks cannot run")
