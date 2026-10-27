@@ -6,6 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
+import llm
 from common import storage
 
 _LANGFUSE_HOST = os.environ.get("LANGFUSE_HOST", "http://langfuse-web:3000").rstrip("/")
@@ -53,6 +54,24 @@ SERVICES = [
     },
 ]
 
+
+
+def listed() -> list[dict]:
+    """SERVICES, with Ollama while the chat model is a local one (LLM_PROVIDER=ollama and
+    no other model chosen in the app): up when it answers and has the agents' model, so
+    a stopped Ollama or a model not pulled shows before a question fails."""
+    if llm.PROVIDER != "ollama":
+        return SERVICES
+    return SERVICES[:1] + [{
+        "icon": "🦙",
+        "name": f"Ollama · {llm.MODEL}",
+        "url": None,
+        "health": "ollama",
+        "description": f"Runs the agents' model ({llm.MODEL}) on this machine.",
+        "fix": "Start Ollama (ollama serve, or brew services start ollama) and check the model is there "
+               "(ollama list). scripts/start.sh does both. Or choose a hosted model under Overview → Chat model.",
+    }] + SERVICES[1:]
+
 SHORTCUTS = []
 
 PROJECT = [
@@ -68,6 +87,10 @@ def _is_up(url: str) -> bool:
         if url == "postgresql":
             storage.count_points(storage.get_client())
             return True
+        if url == "ollama":
+            base = llm.OLLAMA_BASE_URL.rstrip("/").removesuffix("/v1")
+            names = {m["name"] for m in requests.get(f"{base}/api/tags", timeout=2).json().get("models", [])}
+            return llm.MODEL in names or f"{llm.MODEL}:latest" in names
         return requests.get(url, timeout=2).status_code < 500
     except Exception:
         return False
@@ -80,9 +103,10 @@ _status_cache: dict = {"at": 0.0, "value": None}
 def statuses() -> dict[str, bool]:
     """Reachability of each service, checked in parallel and cached briefly
     (the UI asks on every page load)."""
-    if _status_cache["value"] is not None and time.monotonic() - _status_cache["at"] < STATUS_TTL_SECONDS:
-        return _status_cache["value"]
-    checks = {s["name"]: s["health"] for s in SERVICES if s["health"]}
+    checks = {s["name"]: s["health"] for s in listed() if s["health"]}
+    cached = _status_cache["value"]
+    if cached is not None and cached.keys() == checks.keys() and time.monotonic() - _status_cache["at"] < STATUS_TTL_SECONDS:
+        return cached   # (another model chosen since changes the list: checked again)
     with ThreadPoolExecutor(max_workers=len(checks)) as pool:
         results = dict(zip(checks, pool.map(_is_up, checks.values())))
     _status_cache.update(at=time.monotonic(), value=results)

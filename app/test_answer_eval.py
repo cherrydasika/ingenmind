@@ -196,6 +196,10 @@ class Verdicts(unittest.TestCase):
             self.assertIn(rule, answer_eval.SYSTEM_PROMPT)
 
 
+def llm_reply(tool_input):
+    return answer_eval.llm.Reply("", tool_input, 1, 1, "tool_use")
+
+
 class FakeRun:
     def __init__(self, assess):
         self.lock = threading.Lock()
@@ -241,6 +245,25 @@ class AnswerEvaluatorNode(unittest.TestCase):
         agent._answer_evaluator(state, {"configurable": {"run": run}})
         self.assertEqual(seen["chunks"], [])
         self.assertEqual([r["tool"] for r in seen["api"]], ["get_weather"])
+
+    def test_a_grounded_answer_without_citations_gets_them_added(self):
+        uncited = "Railjets run hourly. WESTbahn runs too. Salzburg is 18 °C now (Open-Meteo)."
+        reply = llm_reply({"sentences": [{"sentence": 1, "chunks": [1]}, {"sentence": 2, "chunks": [2, 9]},
+                                         {"sentence": 3, "chunks": []}]})
+        with unittest.mock.patch.object(answer_eval.llm, "call_tool", return_value=reply) as call:
+            out = agent._answer_evaluator(self.state(uncited), {"configurable": {"run": FakeRun(assessor())}})
+        self.assertEqual(call.call_count, 1)
+        cited = "Railjets run hourly [1]. WESTbahn runs too [2]. Salzburg is 18 °C now (Open-Meteo)."   # [9] isn't a chunk
+        self.assertTrue(out["answer_evaluation"]["passed"])
+        self.assertEqual((out["final_answer"], out["answer"]), (cited, cited))
+
+    def test_citations_are_not_added_when_the_answer_fails_on_more(self):
+        uncited = "Railjets run hourly. Salzburg is 18 °C now (Open-Meteo)."
+        with unittest.mock.patch.object(answer_eval.llm, "call_tool") as call:
+            out = agent._answer_evaluator(self.state(uncited), {"configurable": {"run": FakeRun(
+                assessor(completeness=0.2))}})
+        call.assert_not_called()
+        self.assertEqual(out["final_answer"], STANDARD_MESSAGE)
 
     def test_evaluator_error_fails_closed(self):
         def broken(*args):

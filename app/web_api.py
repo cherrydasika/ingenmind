@@ -54,6 +54,7 @@ import auth
 import identity
 import injection
 import knowledge_system
+import model_choice
 import migrations
 import research
 from initialization import (blueprint_run, build as setup_build, content as setup_content,
@@ -87,7 +88,7 @@ from ingestion_info import JOB_INFO, STATUS_LABELS
 from pipeline import answer_question, retrieval_view
 from qdrant_overview import fetch_qdrant_overview, fetch_research_overview
 from retrieval import ignore_stage
-from services import PROJECT, SERVICES, SHORTCUTS, statuses
+from services import PROJECT, SHORTCUTS, listed, statuses
 import llm
 from summarisation import list_models
 from ttl_cache import ttl_cache
@@ -237,8 +238,9 @@ def models(request: Request) -> Response:
 def status(request: Request) -> Response:
     up = statuses()
     return _json([
-        {"name": s["name"], "icon": s["icon"], "url": s["url"], "up": up.get(s["name"], True)}
-        for s in SERVICES
+        {"name": s["name"], "icon": s["icon"], "url": s["url"], "up": up.get(s["name"], True),
+         **({"fix": s["fix"]} if s.get("fix") and not up.get(s["name"], True) else {})}
+        for s in listed()
     ])
 
 
@@ -409,7 +411,7 @@ def agent_info(request: Request) -> Response:
         live = agent.live_shape()
     except Exception:          # the chart then draws the built-in flow
         live = None
-    return _json({**info, "live": live, "roles": {key: {**role, "prompt": "Restricted to administrator tooling."}
+    return _json({**info, "live": live, "domain": knowledge_system.domain(), "roles": {key: {**role, "prompt": "Restricted to administrator tooling."}
                                   for key, role in info.get("roles", {}).items()}})
 
 
@@ -2116,6 +2118,34 @@ async def alert_settings_save(request: Request) -> Response:
     return _json(saved)
 
 
+# ---------- Chat model chosen in the app (model_choice.py; manage_settings) ----------
+
+def model_choice_view(request: Request) -> Response:
+    return _json(model_choice.view())
+
+
+async def model_choice_save(request: Request) -> Response:
+    body = await request.json()
+    if not isinstance(body, dict):
+        return _json({"error": "a JSON object is required"}, 400)
+    user = auth.current_user(request)
+    try:
+        saved = await run_in_threadpool(model_choice.save, str(body.get("provider") or ""),
+                                        str(body.get("model") or ""), str(body.get("key") or ""), user)
+    except model_choice.ChoiceError as error:
+        return _json({"error": str(error)}, 400)
+    await run_in_threadpool(audit.record, "model_chosen", user, method="PUT", path="/api/model-choice",
+                            details={"provider": saved["chosen"]["provider"], "model": saved["chosen"]["model"]})
+    return _json(saved)
+
+
+async def model_choice_clear(request: Request) -> Response:
+    user = auth.current_user(request)
+    cleared = await run_in_threadpool(model_choice.clear, user)
+    await run_in_threadpool(audit.record, "model_choice_cleared", user, method="DELETE", path="/api/model-choice")
+    return _json(cleared)
+
+
 async def alerts_check_now(request: Request) -> Response:
     events = await run_in_threadpool(alerts.check)
     return _json({**await run_in_threadpool(_alerts_view), "events": events})
@@ -2134,7 +2164,7 @@ def home(request: Request) -> Response:
     links = lambda items: [{"icon": i, "name": n, "url": u, "description": d} for i, n, u, d in items]
     return _json({
         "services": [{**{k: v for k, v in s.items() if k != "health"}, "up": up.get(s["name"], True)}
-                     for s in SERVICES],
+                     for s in listed()],
         "shortcuts": links(SHORTCUTS),
         "project": links(PROJECT),
     })
@@ -2879,6 +2909,11 @@ async def _lifespan(app):
         await run_in_threadpool(durable.prune)
     except Exception as exc:
         print(f"durable run recovery skipped: {exc}", file=sys.stderr)
+    # The chat model chosen in the app, if any (model_choice.py), kept in step with other processes.
+    try:
+        await run_in_threadpool(model_choice.watch)
+    except Exception as exc:
+        print(f"model choice not applied: {exc}", file=sys.stderr)
     threading.Thread(target=_expire_human_requests, name="human-expiry", daemon=True).start()
     threading.Thread(target=webhooks.sweep_forever, name="webhook-retries", daemon=True).start()   # R47
     threading.Thread(target=alerts.loop, name="alerts", daemon=True).start()                        # R55
@@ -2965,6 +3000,9 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/alerts", alerts_overview),
     Route("/api/alerts/check", alerts_check_now, methods=["POST"]),
     Route("/api/alerts/settings", alert_settings_save, methods=["PUT"]),
+    Route("/api/model-choice", model_choice_view),
+    Route("/api/model-choice", model_choice_save, methods=["PUT"]),
+    Route("/api/model-choice", model_choice_clear, methods=["DELETE"]),
     Route("/api/alerts/rules/{kind}", alert_rule_update, methods=["PATCH"]),
     Route("/api/alerts/rules/{kind}/test", alert_rule_test, methods=["POST"]),
     Route("/api/channels", channel_list),

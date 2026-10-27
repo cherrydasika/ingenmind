@@ -25,7 +25,14 @@ MAX_PREVIOUS = 3   # earlier questions the input check sees to read a follow-up
 BLOCK_MESSAGE = "I can help with questions about trains in the UK and about the weather. Please ask about one of those."
 CLARIFY_MESSAGE = "Please clarify your question about UK train travel or the weather, for example the station, route or place."
 UNAVAILABLE_MESSAGE = "I couldn't complete the safety checks. Please try again."
-OUTPUT_MESSAGE = "I couldn't produce a response about UK trains or the weather. Please ask about UK train travel or the weather."
+# The model couldn't be reached at all (a stopped local Ollama, a network
+# outage): trying again straight away won't help, so say what is wrong.
+UNREACHABLE_MESSAGE = ("The AI model isn't answering right now, so I can't answer questions. "
+                       "Please try again in a few minutes; if it keeps happening, tell your administrator.")
+# The output check stops answers to questions that were in scope, so this
+# says what went wrong and what to try, not "ask about X" (they just did).
+OUTPUT_MESSAGE = ("I couldn't find an answer I can back up with sources. Try asking it another way, "
+                  "or more specifically (a station, route or place).")
 SECRET = re.compile(r"(?:AKIA|ASIA)[A-Z0-9]{16}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----")
 MAX_SCOPE_CHARS = 4000
 # An answer that talks about its own instructions is never shown, whatever the
@@ -78,7 +85,8 @@ CORE_RULES = (
     "answered: ALLOW a question that is clearly in scope even when it leaves out a detail such as which "
     "operator, station, route, place, product or date, because the assistant asks for those details itself. "
     "A missing detail is never a reason to CLARIFY: if you can tell the topic is in scope, the decision is "
-    "ALLOW. CLARIFY only greetings and questions or follow-ups where you cannot tell whether they are in "
+    "ALLOW. A practical question about an in-scope topic (how to apply for, report, pay for, find, contact "
+    "someone about or complain about it) is in scope like the topic itself. CLARIFY only greetings and questions or follow-ups where you cannot tell whether they are in "
     "scope at all. For input, previous_questions are the user's earlier questions in this conversation, "
     "already checked: use them only to understand what a follow-up refers to (\"and at Victoria?\" after a "
     "question about station toilets is in scope). Judge the new question itself: if what it asks for is "
@@ -124,7 +132,8 @@ def generic_messages(domain: str) -> dict:
     return {
         "block_message": f"I can help with questions about {domain}. Please ask about that.",
         "clarify_message": f"Please clarify your question about {domain}.",
-        "output_message": f"I couldn't produce a response about {domain}. Please ask about {domain}.",
+        "output_message": "I couldn't find an answer I can back up with sources. "
+                          "Try asking it another way, or more specifically.",
         "unavailable_message": UNAVAILABLE_MESSAGE,
     }
 
@@ -230,6 +239,8 @@ def check(stage: Literal["input", "output", "research"], question: str, content:
         result = Assessment.model_validate(classify(stage, question, content))
     except Exception as error:
         log.warning("%s guardrail classifier failed, closing: %s: %s", stage, type(error).__name__, error)
+        if "Connection" in type(error).__name__:
+            return verdict("BLOCK", "model_unreachable", UNREACHABLE_MESSAGE)
         return verdict("BLOCK", "classifier_unavailable", scope.unavailable_message)
     if stage == "output" and result.answer_kind in ("refusal", "clarification") and result.decision != "ALLOW":
         # A refusal or a question holds nothing out of scope to block; the

@@ -22,6 +22,7 @@ from typing import Annotated, Callable, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+import citations as citation_marks
 import injection
 import structured
 import llm
@@ -259,3 +260,76 @@ def evaluate(question: str, answer: str, chunks: list[dict], api_results: list[d
         unsupported_claims=assessment.unsupported_claims, missing_parts=assessment.missing_parts,
         citation_issues=issues, rationale=assessment.rationale, checks=check, failed_on=failed_on,
         usage=usage, seconds=round(time.monotonic() - started, 3))
+
+
+# ---------- 4. citations a small model left out ----------
+# Local models (Hermes 3 8B) often write a correct, grounded answer without
+# any [n]: the deterministic check then fails it on citations alone. The
+# model is asked only which chunks back each sentence; the markers are put
+# in here, so the answer's words can't change, and numbers that aren't
+# chunks are dropped. The answer is then checked again from the start.
+
+class SentenceSources(BaseModel):
+    sentence: int = Field(description="The sentence's number in the list")
+    chunks: list[int] = Field(default_factory=list, description="The [n] of every chunk that states this sentence's facts")
+
+
+class Attribution(BaseModel):
+    sentences: list[SentenceSources] = Field(default_factory=list)
+
+
+CITE_PROMPT = (
+    "You attribute an answer's sentences to the numbered knowledge-base chunks it was written from. For each "
+    "sentence that states a fact found in the chunks, give the numbers of the chunks that state it. Leave out "
+    "sentences whose facts are in no chunk, and sentences with no facts. Do not change or judge the answer. "
+    "Report through the record_sources tool only."
+)
+
+
+def uncited_only(evaluation: AnswerEvaluation) -> bool:
+    """Whether the answer failed only because it cites none of the evidence it used."""
+    return (evaluation.failed_on == ["citation_quality"] and evaluation.checks.kb_evidence_uncited
+            and not evaluation.checks.invalid_citations and not evaluation.unsupported_claims)
+
+
+def place_citations(answer: str, sources: dict[int, list[int]]) -> str:
+    """The answer with [n] after each numbered sentence's text, before its closing punctuation."""
+    spans = citation_marks.sentences(answer)
+    out = answer
+    for index in sorted(sources, reverse=True):
+        if not 1 <= index <= len(spans) or not sources[index]:
+            continue
+        start, end = spans[index - 1]
+        while end > start and out[end - 1] in ".!?:;":
+            end -= 1
+        out = out[:end] + " " + "".join(f"[{n}]" for n in sources[index]) + out[end:]
+    return out
+
+
+@llm.task("rewriting")
+def add_citations(answer: str, chunks: list[dict]) -> str | None:
+    """The answer with the [n] markers it left out, or None when the model links none."""
+    spans = citation_marks.sentences(answer)
+    valid = {c["n"] for c in chunks}
+    if not spans or not valid:
+        return None
+    prompt = "\n".join(["ANSWER, ONE SENTENCE PER LINE:"]
+                       + [f"{i}. {answer[s:e]}" for i, (s, e) in enumerate(spans, 1)]
+                       + ["", "KNOWLEDGE-BASE CHUNKS:"]
+                       + [injection.quote(f"[{c['n']}] {c['source_url']}",
+                                          c["text"].strip().replace(chr(10), " ")[:MAX_CHUNK_CHARS]) for c in chunks])
+    with observation(as_type="generation", name="add_citations", model=llm.MODEL, input={"sentences": len(spans)}) as gen:
+        reply = llm.call_tool(prompt, system=CITE_PROMPT, name="record_sources",
+                              description="Record which chunks back each sentence.",
+                              schema=Attribution.model_json_schema(), max_tokens=600, temperature=0)
+        gen.update(output=reply.tool_input, usage_details=reply.usage)
+    try:
+        attribution = Attribution.model_validate(reply.tool_input or {})
+    except ValidationError:
+        return None
+    sources = {}
+    for item in attribution.sentences:
+        numbers = list(dict.fromkeys(n for n in item.chunks if n in valid))
+        if numbers:
+            sources[item.sentence] = numbers[:3]
+    return place_citations(answer, sources) if sources else None

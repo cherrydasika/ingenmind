@@ -168,11 +168,21 @@ in [data/urls.example.json](data/urls.example.json), or your own list in
   [Adapting it to your domain](#adapting-it-to-your-domain).
 - **OpenAI** works the same way: `LLM_PROVIDER=openai`, `LLM_MODEL`,
   `OPENAI_API_KEY`. See [Chat model](#chat-model) and [Embeddings](#embeddings).
-- **Fully offline with Ollama** is possible, but small models are poor
-  guardrail classifiers: in testing, 3B to 7B models blocked most legitimate
-  travel questions. Try a larger model (14B or more, untested here) on a
-  native Ollama and check it against your own questions; `.env.example` has
-  the settings.
+- **Local models, no API key** (from source, with
+  [Ollama](https://ollama.com) installed on the machine):
+  `scripts/use-local-models.sh` switches `.env` to local models and starts
+  everything. Agents run on Hermes 3 (8B); guardrails, the answer check and
+  domain setup on qwen3 (8B), which got 1 of 54 guardrail decisions wrong
+  on `python -m guardrail_probe` where Hermes 3 got 7. Both stay in memory
+  together (about 14 GB). Only web searches and page fetches leave the
+  machine. Answers take about 30 s on an Apple-silicon laptop.
+  `scripts/use-local-models.sh --undo` restores the previous `.env`.
+- **Switch to a frontier model in the app:** Monitoring → Overview → Chat
+  model lets an admin pick Claude (Opus, Sonnet or Haiku 5.5) or an OpenAI
+  model and paste their own API key. The key is tested with one tiny
+  request, stored encrypted (`INTEGRATIONS_KEY`) and never shown again;
+  every process switches within ten seconds. "Switch back to local models"
+  deletes it.
 - **Multi-agent flows** (Agent mode, the flow builder's playground and
   evals) run on the same key: see [Agent runtime](#agent-runtime). Only the
   research agent's web search needs another key, `TAVILY_API_KEY`.
@@ -880,9 +890,11 @@ minutes (`api_tools.breaker`).
   `chat_model` choose the provider and model for the agents it plugs into,
   so a strong model can write the answer while a cheap one searches. On
   AgentCore the agents use the harness's model (the builder says so).
-- **Per job:** `LLM_FOR_GUARDRAILS`, `LLM_FOR_EVALUATORS` and
-  `LLM_FOR_REWRITING` (`provider:model`) give those jobs their own model;
-  a cheap, fast one suits the guardrails and query rewriting.
+- **Per job:** `LLM_FOR_GUARDRAILS`, `LLM_FOR_EVALUATORS`,
+  `LLM_FOR_REWRITING` and `LLM_FOR_SETUP` (the knowledge system's research
+  and labelling) (`provider:model`) give those jobs their own model; a
+  cheap, fast one suits the guardrails and query rewriting. A model chosen
+  in the app (Overview → Chat model) runs every job instead.
 - **Fallbacks:** `LLM_FALLBACK=anthropic:claude-haiku-4-5,openai:gpt-4.1-mini`
   is tried in order when a call fails for a reason that isn't the
   request's (timeout, rate limit, server error, unreachable). A provider
@@ -1162,13 +1174,19 @@ through [app/llm.py](app/llm.py). Pick the provider in `.env`:
 | `LLM_PROVIDER` | Also set | `LLM_MODEL` default |
 |---|---|---|
 | `bedrock` (default) | AWS credentials, `BEDROCK_REGION` | `BEDROCK_MODEL` |
-| `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5` |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5` (the app's Chat model card offers the 5.5 models) |
 | `openai` | `OPENAI_API_KEY` | none: set it |
-| `ollama` | `OLLAMA_BASE_URL` (default: the host's Ollama) | none: set it, e.g. `qwen2.5:7b` |
+| `ollama` | `OLLAMA_BASE_URL` (default: the host's Ollama; on Rancher Desktop `http://host.lima.internal:11434/v1`, which `scripts/start.sh` finds) | none: set it, e.g. `hermes3:8b-16k` |
 
-Structured calls use a forced tool call; local Ollama models that ignore it
-may answer with the JSON in text, which is accepted. Pick a model with tool
-support.
+Structured calls use a forced tool call; on Ollama the reply is held to the
+tool's JSON schema instead (`response_format`), as small models ignore
+forced tools. Thinking models (qwen3) don't think unless asked:
+`OLLAMA_THINK` (`none`, `low`, `medium`) and `OLLAMA_THINK_FOR_<JOB>` set
+it, e.g. `low` for the evaluators, which otherwise passed answers with a
+planted wrong number. A model named `<base>-<N>k` is made by
+`scripts/start.sh` from `<base>` with an N-thousand-token context window.
+On Claude, `max_tokens` has a floor of 4096, as current models think by
+default and thinking counts against it.
 
 ### Agent runtime
 

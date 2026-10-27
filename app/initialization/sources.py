@@ -114,6 +114,7 @@ ASSESS_PROMPT = (
 )
 
 
+@llm.task("setup")
 def assess_with_llm(summary: str, candidates: list[dict]) -> tuple[SiteAssessments, dict]:
     blocks = []
     for c in candidates:

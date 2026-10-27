@@ -135,6 +135,16 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual((failed.decision, failed.reason), ("BLOCK", "classifier_unavailable"))   # still closed
         self.assertEqual(calls.call_count, 5)
 
+    def test_an_unreachable_model_says_so(self):
+        class APIConnectionError(Exception):
+            pass
+
+        def down(*args):
+            raise APIConnectionError("Connection error.")
+        verdict = guardrails.check("input", "Can I take my bike?", assessor=down)
+        self.assertEqual((verdict.decision, verdict.reason), ("BLOCK", "model_unreachable"))
+        self.assertIn("isn't answering", verdict.message)
+
     def test_secrets_and_overlong_output_block_without_classifier(self):
         classifier = Mock()
         for content in ("AKIA" + "A" * 16, "-----BEGIN PRIVATE KEY-----", "x" * 24001, ""):

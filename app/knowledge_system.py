@@ -390,6 +390,25 @@ def _domain_name(connection, origin: str | None) -> str:
     return "the previous domain"
 
 
+def domain() -> dict:
+    """What the Ask page says the system is about: the ready blueprint's
+    name and a few of its example questions ({} before there is one)."""
+    try:
+        with _connect() as connection:
+            if not _exists(connection, "app_domain_blueprints"):
+                return {}
+            row = connection.execute(
+                "SELECT blueprint->>'name' AS name, "
+                "jsonb_path_query_array(blueprint, '$.**.example_questions[0]') AS examples "
+                "FROM app_domain_blueprints WHERE status = 'ready' ORDER BY version DESC LIMIT 1").fetchone()
+    except psycopg.Error:
+        return {}
+    if not row:
+        return {}
+    examples = [q.strip() for q in row["examples"] or [] if isinstance(q, str) and q.strip()]
+    return {"name": (row["name"] or "").strip()[:80], "examples": list(dict.fromkeys(examples))[:3]}
+
+
 def _columns(connection, schema: str, table: str) -> list[str]:
     """Columns that can be written (not generated), in order."""
     return [r["column_name"] for r in connection.execute(
