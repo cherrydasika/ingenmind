@@ -206,9 +206,9 @@ async function refreshServices() {
       if (langfuse?.url) link.href = langfuse.url;
     }
     list.replaceChildren(...services.map((s) =>
-      h("li", { title: s.up ? "Reachable" : "Not reachable" },
+      h("li", { title: s.up ? "Reachable" : `Not reachable${s.fix ? `. ${s.fix}` : ""}` },
         h("span", { class: `dot ${s.up ? "up" : "down"}` }),
-        h("a", { href: s.url, target: "_blank", rel: "noopener" }, s.name))));
+        s.url ? h("a", { href: s.url, target: "_blank", rel: "noopener" }, s.name) : h("span", {}, s.name))));
     document.getElementById("services-age").textContent = "· live";
   } catch (err) {
     list.replaceChildren(h("li", { class: "muted" }, `Status unavailable (${err.message})`));

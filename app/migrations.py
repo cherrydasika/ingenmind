@@ -35,7 +35,7 @@ MODULES = (
     "flows.store", "flows.evals", "flows.eval_gate", "flows.search_eval", "durable", "human", "agent_memory",
     "user_memory", "answer_cache", "answer_feedback", "knowledge_gaps", "use_learnings", "analytics", "operations",
     "alerts", "webhooks", "channels", "connectors", "mcp_integration", "openapi_tools", "recrawl", "source_profiles",
-    "data_lifecycle", "initialization.plan", "initialization.blueprint", "initialization.content",
+    "data_lifecycle", "model_choice", "initialization.plan", "initialization.blueprint", "initialization.content",
     "initialization.conversation", "initialization.evaluation", "initialization.labels",
     "initialization.live_sources", "initialization.sources", "initialization.sources_run",
 )

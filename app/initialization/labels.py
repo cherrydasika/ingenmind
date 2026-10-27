@@ -127,6 +127,7 @@ def _schema(bp: dict, with_topic: bool) -> dict:
     return {"type": "object", "properties": properties, "required": ["content_type", "fields"]}
 
 
+@llm.task("setup")
 def label_with_llm(bp: dict, url: str, text: str, with_topic: bool) -> dict:
     areas = "\n".join(f"- {a['key']}: {a['name']} — {a.get('description') or ''}" for a in bp.get("knowledge_areas") or [])
     prompt = (f"KNOWLEDGE SYSTEM: {bp.get('name')} — {bp.get('purpose') or ''}\n"

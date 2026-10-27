@@ -86,6 +86,7 @@ MAP_PROMPT = (
 )
 
 
+@llm.task("setup")
 def map_with_llm(bp: dict, site: dict, found: list[dict]) -> tuple[SectionAssessments, dict]:
     areas = "\n".join(f"- {a['key']}: {a['name']} — {a['description']}" for a in bp["knowledge_areas"]
                       if a["knowledge_class"] in sources.SOURCED_CLASSES)

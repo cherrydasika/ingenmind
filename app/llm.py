@@ -9,15 +9,27 @@ Chosen by environment:
   BEDROCK_REGION Bedrock only
   ANTHROPIC_API_KEY / OPENAI_API_KEY   read by the provider SDKs
   OLLAMA_BASE_URL  default http://localhost:11434/v1
+  OLLAMA_THINK     reasoning effort sent to Ollama (default none: thinking
+                 models such as qwen3 otherwise spend a classifier's whole
+                 token budget thinking and never answer); low|medium|high.
+                 OLLAMA_THINK_FOR_<JOB> sets it for one job (guardrails,
+                 evaluators, rewriting): qwen3 8B judged answers far better
+                 thinking (evaluator_probe)
 
   LLM_FALLBACK   provider:model,… tried in order when a call fails for a
                  reason that isn't the request's (timeouts, rate limits,
                  server errors, unreachable), e.g. anthropic:claude-haiku-4-5
-  LLM_FOR_GUARDRAILS / LLM_FOR_EVALUATORS / LLM_FOR_REWRITING
+  LLM_FOR_GUARDRAILS / LLM_FOR_EVALUATORS / LLM_FOR_REWRITING / LLM_FOR_SETUP
                  provider:model for those jobs (a cheap, fast model suits the
-                 guardrails and rewriting); the default model otherwise
+                 guardrails and rewriting; setup is the knowledge system's
+                 research, classification and page labels); the default
+                 model otherwise
 A provider that fails BREAK_AFTER times in a row is skipped for COOL_DOWN
 seconds, going straight to the fallbacks (R16).
+
+An admin may choose another model in the app (model_choice.py: a frontier
+model on their own API key); choose() switches every call in this process to
+it, per-job settings included, and choose(None) goes back to .env.
 Three calls: generate() for free text, call_tool() for structured output
 through one tool the model must call (a Pydantic schema as its input), and
 chat() for one turn of a tool-using conversation (the local agent runtime)."""
@@ -47,6 +59,7 @@ PROVIDER = os.environ.get("LLM_PROVIDER", "bedrock").strip().lower() or "bedrock
 MODEL = os.environ.get("LLM_MODEL", "").strip() or DEFAULT_MODELS.get(PROVIDER, "")
 BEDROCK_REGION = os.environ.get("BEDROCK_REGION", "eu-west-2")
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+OLLAMA_THINK = os.environ.get("OLLAMA_THINK", "").strip().lower() or "none"
 
 
 class Reply(NamedTuple):
@@ -131,10 +144,26 @@ def using(provider: str | None, model: str | None = None):
         _target.reset(token)
 
 
+_job: contextvars.ContextVar[str | None] = contextvars.ContextVar("llm_job", default=None)
+
+
+@contextlib.contextmanager
 def for_task(task: str):
-    """The model a job (guardrails, evaluators, rewriting) is set to use: LLM_FOR_<TASK>."""
-    target = parse_target(os.environ.get(f"LLM_FOR_{task.upper()}", ""))
-    return using(*target) if target else contextlib.nullcontext()
+    """The model a job (guardrails, evaluators, rewriting) is set to use: LLM_FOR_<TASK>
+    (not while a model chosen in the app runs everything)."""
+    target = None if _chosen else parse_target(os.environ.get(f"LLM_FOR_{task.upper()}", ""))
+    token = _job.set(task)
+    try:
+        with using(*target) if target else contextlib.nullcontext():
+            yield
+    finally:
+        _job.reset(token)
+
+
+def ollama_think() -> str:
+    """The reasoning effort for this call on Ollama: the job's own, else OLLAMA_THINK."""
+    job = _job.get()
+    return (os.environ.get(f"OLLAMA_THINK_FOR_{job.upper()}", "") if job else "").strip().lower() or OLLAMA_THINK
 
 
 def task(name: str):
@@ -152,6 +181,41 @@ def task(name: str):
 
 def current() -> tuple[str, str]:
     return _target.get() or (PROVIDER, MODEL)
+
+
+KEY_VARIABLES = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
+_ENV = {"provider": PROVIDER, "model": MODEL, **{v: os.environ.get(v) for v in KEY_VARIABLES.values()}}
+_chosen: tuple[str, str] | None = None
+
+
+def choose(provider: str | None, model: str = "", key: str = "") -> None:
+    """Run every call on this provider, model and API key; None: back to .env's settings."""
+    global PROVIDER, MODEL, _chosen
+    with _lock:
+        for variable in KEY_VARIABLES.values():          # .env's keys, unless one is chosen below
+            if _ENV[variable] is None:
+                os.environ.pop(variable, None)
+            else:
+                os.environ[variable] = _ENV[variable]
+        if provider:
+            if provider in KEY_VARIABLES and key:
+                os.environ[KEY_VARIABLES[provider]] = key
+            PROVIDER, MODEL = provider, model or DEFAULT_MODELS.get(provider, "")
+            _chosen = (PROVIDER, MODEL)
+        else:
+            PROVIDER, MODEL, _chosen = _ENV["provider"], _ENV["model"], None
+        _instances.clear()                               # clients are made again with the key now set
+        _failures.clear()
+
+
+def configured() -> tuple[str, str]:
+    """The provider and model .env names (what runs when none is chosen in the app)."""
+    return _ENV["provider"], _ENV["model"]
+
+
+def chosen() -> tuple[str, str] | None:
+    """The provider and model chosen in the app, or None (.env's)."""
+    return _chosen
 
 
 def catalogue() -> dict:
@@ -172,8 +236,8 @@ def catalogue() -> dict:
     add(PROVIDER, MODEL, "default")
     for target in fallbacks():
         add(*target, "fallback")
-    for job in ("guardrails", "evaluators", "rewriting"):
-        target = parse_target(os.environ.get(f"LLM_FOR_{job.upper()}", ""))
+    for job in ("guardrails", "evaluators", "rewriting", "setup"):
+        target = None if _chosen else parse_target(os.environ.get(f"LLM_FOR_{job.upper()}", ""))
         if target:
             add(*target, job)
     return {"models": rows, "price_note": prices["note"],
@@ -373,7 +437,11 @@ class _Anthropic(_Model):
     parameters with a 400; each is dropped for that model after its first
     rejection, a forced call falling back to auto plus an instruction.
     SDK 1.x has no temperature argument: older models still honour it, so
-    it goes in extra_body."""
+    it goes in extra_body. Current models think by default, and thinking
+    counts against max_tokens: a 300-token classifier call could end before
+    its answer, so limits have a floor (only tokens used are billed)."""
+
+    MIN_TOKENS = 4096
 
     def __init__(self, provider: str | None = None, model: str | None = None):
         self.provider, self._model = "anthropic", model or ""
@@ -401,7 +469,7 @@ class _Anthropic(_Model):
 
     def send(self, prompt, system, max_tokens, temperature, tool):
         def build():
-            request = {"model": self.model, "max_tokens": max_tokens,
+            request = {"model": self.model, "max_tokens": max(max_tokens, self.MIN_TOKENS),
                        "messages": [{"role": "user", "content": prompt}], **self._sampling(temperature)}
             instruction = system or ""
             if tool:
@@ -423,7 +491,8 @@ class _Anthropic(_Model):
     def chat(self, system, messages, tools, max_tokens, temperature):
         native = [{"role": m["role"], "content": [c for c in map(_to_anthropic, m["content"]) if c]} for m in messages]
         def build():
-            request = {"model": self.model, "max_tokens": max_tokens, "messages": native, **self._sampling(temperature)}
+            request = {"model": self.model, "max_tokens": max(max_tokens, self.MIN_TOKENS), "messages": native,
+                       **self._sampling(temperature)}
             if system:
                 request["system"] = system
             if tools:
@@ -463,7 +532,10 @@ def _result_text(result: dict) -> str:
 
 class _OpenAI(_Model):
     """OpenAI, or any OpenAI-compatible server (Ollama). Local models do not
-    always honour a forced tool call; a JSON object in the text counts."""
+    always honour a forced tool call (Hermes 3 8B answered a two-field schema
+    with {"animal": "dog"}), so on Ollama structured output is decoded
+    against the schema itself (response_format), and a JSON object in the
+    text counts."""
 
     STOP_REASONS = {"tool_calls": "tool_use", "stop": "end_turn", "length": "max_tokens"}
 
@@ -478,13 +550,19 @@ class _OpenAI(_Model):
             self.client = openai.OpenAI()
         # Current OpenAI models want max_completion_tokens; Ollama reads max_tokens.
         self.limit_param = "max_tokens" if provider == "ollama" else "max_completion_tokens"
+        self.local = provider == "ollama"
         self.unsupported: set[str] = set()
 
-    def _create(self, messages, max_tokens, temperature, tools=None, choice=None):
+    def _create(self, messages, max_tokens, temperature, tools=None, choice=None, schema=None):
         while True:
             request = {"model": self.model, "messages": messages, self.limit_param: max_tokens}
             if temperature is not None and "temperature" not in self.unsupported:
                 request["temperature"] = temperature
+            if self.local and ollama_think() and "reasoning_effort" not in self.unsupported:
+                request["reasoning_effort"] = ollama_think()
+            if schema:
+                request["response_format"] = {"type": "json_schema",
+                                              "json_schema": {"name": schema["name"], "schema": schema["schema"]}}
             if tools:
                 request["tools"] = [{"type": "function", "function": {
                     "name": t["name"], "description": t["description"], "parameters": t["schema"]}} for t in tools]
@@ -493,13 +571,22 @@ class _OpenAI(_Model):
             try:
                 return self.client.chat.completions.create(**request)
             except self.openai.BadRequestError as error:
-                if "temperature" not in str(error) or "temperature" not in request:
+                rejected = next((p for p in ("temperature", "reasoning_effort") if p in str(error) and p in request), None)
+                if not rejected:
                     raise
-                self.unsupported.add("temperature")
+                self.unsupported.add(rejected)
 
     def send(self, prompt, system, max_tokens, temperature, tool):
         messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
-        response = self._create(messages, max_tokens, temperature, [tool] if tool else None, tool and tool["name"])
+        if tool and self.local:
+            # Decoding is held to the schema, so the reply ends with the
+            # object; the headroom is for thinking (asked for, or gpt-oss's own).
+            messages[0 if system else -1]["content"] += f"\n\nReply with the arguments of {tool['name']} " \
+                f"({tool['description']}) as one JSON object."
+            floor = 1024 if ollama_think() == "none" else 8192
+            response = self._create(messages, max(max_tokens, floor), temperature, schema=tool)
+        else:
+            response = self._create(messages, max_tokens, temperature, [tool] if tool else None, tool and tool["name"])
         choice = response.choices[0]
         text = choice.message.content or ""
         tool_input = None

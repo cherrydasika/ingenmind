@@ -214,6 +214,7 @@ SCOPE_PROMPT = (
 )
 
 
+@llm.task("setup")
 def write_with_llm(bp: dict, area: dict, pages: list[dict], count: int) -> DraftQuestions:
     blocks = [f"PAGE {p['url']}\n{p['text'][:PAGE_CHARS]}" for p in pages]
     prompt = (f"ASSISTANT: {bp['name']} — {bp.get('purpose') or ''}\nRegions: {', '.join(bp.get('regions') or [])}\n"
@@ -233,6 +234,7 @@ def write_with_llm(bp: dict, area: dict, pages: list[dict], count: int) -> Draft
     return drafts
 
 
+@llm.task("setup")
 def scope_with_llm(bp: dict, count: int) -> list[str]:
     settings = bp["flow"]
     prompt = f"DOMAIN: {settings.get('domain')}\nBRIEF: {settings.get('brief')}\nSCOPE: {settings.get('scope')}\n\n" \

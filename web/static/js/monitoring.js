@@ -4,6 +4,7 @@
 
 import { api } from "./api.js";
 import { card, errorBox, fmtInt, h, loading, section } from "./ui.js";
+import { modelChoiceCard } from "./model_choice.js";
 
 const pct = (v) => (v === null || v === undefined ? "—" : `${Math.round(v * 100)}%`);
 const secs = (v) => (v === null || v === undefined ? "—" : `${v.toFixed(1)} s`);
@@ -27,7 +28,7 @@ function usage(metrics) {
 }
 
 // Monitoring → Models (llm.catalogue, R16).
-const USES = { default: "default", fallback: "fallback", guardrails: "guardrails", evaluators: "evaluators", rewriting: "query rewriting" };
+const USES = { default: "default", fallback: "fallback", guardrails: "guardrails", evaluators: "evaluators", rewriting: "query rewriting", setup: "setup research" };
 function models(c) {
   const price = (v) => (v === undefined ? "—" : `$${v}`);
   const rows = c.models.map((m) => h("tr", {},
@@ -83,6 +84,7 @@ export class MonitoringPage {
     const used = usage(metrics);
     const catalogue = can("manage_agents") || can("manage_settings") ? await api.modelCatalogue().catch(() => null) : null;
     const cache = can("manage_settings") ? await api.answerCache().catch(() => null) : null;
+    const choice = can("manage_settings") ? await api.modelChoice().catch(() => null) : null;
     const rated = can("view_sessions") || can("manage_agents") || can("manage_settings")
       ? await api.feedbackSummary().catch(() => null) : null;   // R51
     const via = rated ? await api.channelUsage().catch(() => null) : null;   // R50
@@ -107,13 +109,17 @@ export class MonitoringPage {
     const list = h("div", {}, services.map((s) => h("div", { class: "service-row" },
       h("span", { class: `dot ${s.up ? "up" : "down"}` }),
       s.url ? h("a", { href: s.url, target: "_blank", rel: "noopener" }, s.name) : h("span", {}, s.name),
-      h("span", { class: "faint", style: "margin-left:auto" }, s.up ? "up" : "down"))));
+      h("span", { class: "faint", style: "margin-left:auto" }, s.up ? "up" : "down"),
+      !s.up && s.fix ? h("div", { class: "note", style: "flex-basis:100%" }, s.fix) : null)));
 
     this.root.replaceChildren(h("div", { class: "stack" },
       kpis,
       section("services", "Services", down.length
         ? `${down.map((s) => s.name).join(", ")} ${down.length === 1 ? "is" : "are"} down. Langfuse and MinIO are optional: they run only with the tracing overlay.`
         : "Everything is up.", card({ children: list })),
+      choice ? section("chat-model", "Chat model", "The model behind the agents, guardrails and answer checks: "
+        + "local models on this machine, or a hosted frontier model on your own API key.",
+      card({ children: modelChoiceCard(choice, () => this.mount()) })) : null,
       cache ? section("answer-cache", "Answer cache", "Checked answers reused for questions that mean the same, "
         + "on the same live version and knowledge base: no model calls. Cleared when another version goes live.",
       card({ children: cacheCard(cache, () => this.mount()) })) : null,

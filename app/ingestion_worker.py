@@ -69,6 +69,11 @@ def main() -> None:
     # As PID 1 in its container, Python ignores SIGTERM unless it handles it.
     for signum in (signal.SIGTERM, signal.SIGINT):
         signal.signal(signum, lambda *_: stop_requested.set())
+    try:   # the chat model chosen in the app, if any (labelling and summaries use it)
+        import model_choice
+        model_choice.watch()
+    except Exception as error:
+        logger.warning("model choice not applied: %s", error)
     client = storage.get_client()
     try:
         storage.ensure_collection(client)

@@ -183,6 +183,7 @@ PLAN_PROMPT = (
 )
 
 
+@llm.task("setup")
 def plan_with_llm(requirements: SetupRequirements) -> tuple[ResearchPlan, dict]:
     prompt = "REQUIREMENTS:\n" + requirements.model_dump_json(indent=1)
     with observation(as_type="generation", name="blueprint_planner", model=llm.MODEL,
@@ -250,6 +251,7 @@ WRITE_PROMPT = (
 )
 
 
+@llm.task("setup")
 def write_with_llm(requirements: SetupRequirements, pages: list[dict],
                    feedback: str | None = None, previous: dict | None = None) -> tuple[DomainBlueprint, dict]:
     blocks = [f"PAGE {p['url']} (title: {p.get('title') or '—'})\n{p['text'][:PAGE_CHARS]}" for p in pages]

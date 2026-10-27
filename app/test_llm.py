@@ -123,6 +123,50 @@ class OpenAITest(unittest.TestCase):
             self.assertEqual(backend.send("p", None, 100, 0, TOOL).tool_input, {"a": 2})
         self.assertIn("max_tokens", requests[0])
 
+    def test_ollama_structured_output_is_held_to_the_schema(self):
+        message = NS(content='{"a": 3}', tool_calls=None)
+        backend, requests = self.make(message, provider="ollama")
+        with patch.object(llm, "MODEL", "hermes3"):
+            self.assertEqual(backend.send("p", "sys", 300, 0, TOOL).tool_input, {"a": 3})
+        request = requests[0]
+        self.assertEqual(request["response_format"],
+                         {"type": "json_schema", "json_schema": {"name": "record", "schema": {"type": "object"}}})
+        self.assertNotIn("tools", request)
+        self.assertEqual(request["reasoning_effort"], "none")   # thinking models answer instead of thinking
+        self.assertEqual(request["max_tokens"], 1024)           # headroom for models that think anyway
+        self.assertIn("arguments of record", request["messages"][0]["content"])
+
+    def test_a_job_can_think_on_ollama(self):
+        message = NS(content='{"a": 5}', tool_calls=None)
+        backend, requests = self.make(message, provider="ollama")
+        with patch.object(llm, "MODEL", "qwen3"), patch.dict(os.environ, {"OLLAMA_THINK_FOR_EVALUATORS": "low"}):
+            with llm.for_task("evaluators"):
+                backend.send("p", None, 300, 0, TOOL)
+            backend.send("p", None, 300, 0, TOOL)
+        self.assertEqual((requests[0]["reasoning_effort"], requests[0]["max_tokens"]), ("low", 8192))
+        self.assertEqual((requests[1]["reasoning_effort"], requests[1]["max_tokens"]), ("none", 1024))
+
+    def test_a_server_without_reasoning_effort_is_asked_again_without_it(self):
+        replies = [FakeBadRequest("unknown field reasoning_effort"), NS(choices=[NS(
+            message=NS(content='{"a": 4}', tool_calls=None), finish_reason="stop")], usage=None)]
+        requests = []
+
+        class Completions:
+            def create(self, **request):
+                requests.append(request)
+                reply = replies.pop(0)
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+
+        client = NS(chat=NS(completions=Completions()))
+        with patch.dict(sys.modules, {"openai": fake_sdk("openai", client)}), patch.object(llm, "PROVIDER", "ollama"):
+            backend = llm._OpenAI()
+        with patch.object(llm, "MODEL", "hermes3"):
+            self.assertEqual(backend.send("p", None, 100, 0, TOOL).tool_input, {"a": 4})
+        self.assertIn("reasoning_effort", requests[0])
+        self.assertNotIn("reasoning_effort", requests[1])
+
 
 CONVERSATION = [
     {"role": "user", "content": [{"text": "Find X"}]},
@@ -315,6 +359,28 @@ class Routing(unittest.TestCase):
                                             chatModel={"provider": "openai", "model": "gpt-4.1"})["stream"]
             list(stream)
         self.assertEqual(seen, [("openai", "gpt-4.1")])
+
+
+class ChosenInTheApp(unittest.TestCase):
+    def tearDown(self):
+        llm.choose(None)
+
+    def test_a_chosen_model_runs_every_job_and_going_back_restores_env(self):
+        env = {"LLM_FOR_GUARDRAILS": "ollama:qwen3:8b", "ANTHROPIC_API_KEY": "from-env"}
+        with patch.dict(os.environ, env):
+            llm._ENV["ANTHROPIC_API_KEY"] = "from-env"
+            before = (llm.PROVIDER, llm.MODEL)
+            llm.choose("anthropic", "claude-opus-5-5", "sk-ant-chosen")
+            self.assertEqual((llm.PROVIDER, llm.MODEL, llm.chosen()), ("anthropic", "claude-opus-5-5",
+                                                                       ("anthropic", "claude-opus-5-5")))
+            self.assertEqual(os.environ["ANTHROPIC_API_KEY"], "sk-ant-chosen")
+            with llm.for_task("guardrails"):
+                self.assertEqual(llm.current(), ("anthropic", "claude-opus-5-5"))   # not LLM_FOR_GUARDRAILS
+            llm.choose(None)
+            self.assertEqual(((llm.PROVIDER, llm.MODEL), llm.chosen()), (before, None))
+            self.assertEqual(os.environ["ANTHROPIC_API_KEY"], "from-env")
+            with llm.for_task("guardrails"):
+                self.assertEqual(llm.current(), ("ollama", "qwen3:8b"))
 
 
 class StubTest(unittest.TestCase):

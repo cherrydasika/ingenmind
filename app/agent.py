@@ -2616,8 +2616,18 @@ def _answer_evaluator(state: State, config) -> dict:
     with run.node("answer_evaluator", state.get("round", 0)):
         try:
             settings = _settings(config)
+            thresholds = {k: settings[k] for k in answer_eval.THRESHOLDS if k in settings}
             result = answer_eval.evaluate(_checked_question(state, run), draft, chunks, api_results, assessor=run.answer_assessor,
-                                          thresholds={k: settings[k] for k in answer_eval.THRESHOLDS if k in settings})
+                                          thresholds=thresholds)
+            if not result.passed and answer_eval.uncited_only(result):
+                # A grounded answer without [n] (small local models): its citations
+                # added, then checked again; kept only if that passes.
+                cited = answer_eval.add_citations(draft, chunks)
+                if cited:
+                    again = answer_eval.evaluate(_checked_question(state, run), cited, chunks, api_results,
+                                                 assessor=run.answer_assessor, thresholds=thresholds)
+                    if again.passed:
+                        draft, result = cited, again
             evaluation = result.model_dump(mode="json")
         except Exception as error:
             evaluation = {"passed": False, "overall": 0.0, "scores": {k: 0.0 for k in answer_eval.THRESHOLDS},
@@ -2628,7 +2638,7 @@ def _answer_evaluator(state: State, config) -> dict:
     run.emit({"type": "answer_eval", "state": "done", "passed": evaluation["passed"], "overall": evaluation["overall"],
               "answer_type": evaluation.get("answer_type", "answer"),
               "scores": evaluation["scores"], "failed_on": evaluation["failed_on"], "seconds": evaluation["seconds"]})
-    return {"answer_evaluation": evaluation,
+    return {"answer_evaluation": evaluation, "answer": draft,   # with any citations added
             "final_answer": draft if evaluation["passed"] else answer_eval.STANDARD_MESSAGE}
 
 

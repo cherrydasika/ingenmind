@@ -17,6 +17,13 @@ function linked(body, citations) {
   return body;
 }
 
+// What the question box suggests: the set-up domain's first example question.
+function askPlaceholder(domain) {
+  if (domain?.examples?.length) return `Ask a question, e.g. ${domain.examples[0]}`;
+  if (domain?.name) return `Ask about ${domain.name}…`;
+  return "Ask a question…";
+}
+
 export class RetrievalPage {
   title = "Ask";
 
@@ -32,13 +39,16 @@ export class RetrievalPage {
 
   async mount() {
     this.root.replaceChildren(h("div", { class: "empty-state" }, h("div", { class: "spinner" })));
-    const [cfg, info, current] = await Promise.all([
+    const [cfg, info, current, services] = await Promise.all([
       api.config(),
       api.agent().catch((err) => ({ configured: true, error: err.message })),
       api.currentSession().catch(() => ({ session: null })),
+      api.status().catch(() => []),
     ]);
     this.cfg = cfg;
     this.info = info;
+    // A local model server that is down (services.py) fails every question: say so before one is asked.
+    this.modelDown = services.find((s) => !s.up && s.name.startsWith("Ollama"));
     this.flow = new AgenticFlow(cfg, info);
     this.load(current.session);
     if (this.latest) this.flow.show(this.latest);
@@ -81,7 +91,7 @@ export class RetrievalPage {
   renderAsk() {
     const ready = agentReady(this.info);
     const input = h("textarea", {
-      id: "question", rows: 1, placeholder: "Ask about trains in the UK, or the weather…", disabled: !ready,
+      id: "question", rows: 1, placeholder: askPlaceholder(this.info?.domain), disabled: !ready,
       onkeydown: (e) => {
         if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this.ask(); }
       },
@@ -95,7 +105,10 @@ export class RetrievalPage {
       : this.info?.configured === false
         ? "Set AGENT_HARNESS_ARN for the web app (see agentcore-kb/README.md)."
         : "Check the web app's AWS permissions for the harness."}`);
-    return card({ children: [h("div", { class: "ask" }, input, button), problem] });
+    const down = this.modelDown && h("div", { class: "alert", role: "status", style: "margin-bottom:10px" },
+      `The local AI model isn't running (${this.modelDown.name}), so questions can't be answered yet.`
+      + (this.session?.can("manage_settings") && this.modelDown.fix ? ` ${this.modelDown.fix}` : ""));
+    return card({ children: [down, h("div", { class: "ask" }, input, button), problem] });
   }
 
   // ---------- Chat ----------
@@ -118,7 +131,7 @@ export class RetrievalPage {
 
   renderChat() {
     const body = h("div", { class: "chat" });
-    if (!this.messages.length) body.append(h("div", { class: "chat-empty" }, "Ask a question above to get started."));
+    if (!this.messages.length) body.append(this.renderEmpty());
     for (const msg of this.messages) body.append(this.renderTurn(msg));
     return body;
   }
@@ -213,8 +226,20 @@ export class RetrievalPage {
     }
   }
 
-  async ask() {
+  // Before the first question: the domain's example questions, one click to ask.
+  renderEmpty() {
+    const examples = agentReady(this.info) ? this.info?.domain?.examples || [] : [];
+    if (!examples.length) return h("div", { class: "chat-empty" }, "Ask a question above to get started.");
+    return h("div", { class: "chat-empty" },
+      h("div", {}, "Ask a question above, or try one of these:"),
+      h("div", { class: "examples" }, ...examples.map((question) => h("button", {
+        class: "btn btn-ghost btn-sm", type: "button", onclick: () => this.ask(question),
+      }, question))));
+  }
+
+  async ask(example) {
     const input = document.getElementById("question");
+    if (typeof example === "string") input.value = example;
     const question = input.value.trim();
     if (!question || this.busy || !agentReady(this.info)) return;
     const msg = { question, interaction_id: crypto.randomUUID(), pending: true };

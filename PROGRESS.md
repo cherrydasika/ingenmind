@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-25
+Last updated: 2026-10-27
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -918,6 +918,31 @@ kind: start from [AGENTS.md](AGENTS.md); the backlog is the open issues
 ([docs/BACKLOG.md](docs/BACKLOG.md)).
 
 ## Current state
+
+- **Local models, and a frontier model chosen in the app (2026-10-27,
+  branch `local-hermes`, not committed):** `scripts/use-local-models.sh`
+  runs everything on Ollama on the Mac. Agents run on hermes3:8b-16k.
+  Guardrails, evaluators and setup run on qwen3:8b-16k (evaluators and
+  setup with `OLLAMA_THINK_FOR_*=low`).
+  - **Ollama calls:** structured calls are held to the tool's JSON schema
+    with `response_format`. `reasoning_effort` controls thinking.
+    Containers reach Ollama at `host.lima.internal` on Rancher Desktop.
+  - **Answers:** a grounded answer the checker failed only for missing
+    citations gets them added and is checked again (`answer_eval.add_citations`).
+  - **UX:** the Ask page shows example questions from the blueprint, an
+    Ollama-down banner with the fix, and plainer refusal and unreachable
+    messages.
+  - **Monitoring → Overview → Chat model** (`app/model_choice.py`): an
+    admin picks Claude Opus/Sonnet/Haiku 5.5 or an OpenAI model on their
+    own key. The key is tested with one tiny call and sealed with
+    `INTEGRATIONS_KEY`. Each process applies the choice within 10 s, and it
+    overrides `LLM_FOR_*`. Checked end to end on 2026-10-27: Claude Haiku
+    5.5 answered with the check passed at 0.85 in 16 s, against about 29 s
+    on local models. The app was then switched back to local.
+  - **Open:** the domain-setup research on Hermes classed no area as live,
+    which is why `LLM_FOR_SETUP` exists. A full setup run on qwen3 is
+    untested end to end (`test_blueprint_live` passed on it). The example
+    questions can name things the knowledge base can't answer.
 
 - **Everything is shut down (2026-10-20):** EC2 stopped with
   `session.sh stop` (stack, AgentCore endpoints, instance); locally every
