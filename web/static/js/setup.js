@@ -37,6 +37,14 @@ const pctText = (v) => `${Math.round(v * 100)}%`;
 const scoreText = (key, v) => (v === null || v === undefined ? "not measured yet"
   : key === "groundedness" ? Number(v).toFixed(2) : pctText(v));
 
+// "25 minutes", "1 hour", "2.5 hours" (rounded to a half hour).
+const duration = (minutes) => {
+  const m = Math.max(1, Math.round(minutes));
+  if (m < 60) return `${m} minute${m === 1 ? "" : "s"}`;
+  const hours = Math.round(m / 30) / 2;
+  return `${hours} hour${hours === 1 ? "" : "s"}`;
+};
+
 // The app shell refreshes its "being set up" notice on this.
 const setupChanged = () => window.dispatchEvent(new Event("rag:setup-changed"));
 
@@ -227,8 +235,8 @@ export class SetupPage {
     if (this.error) children.push(h("div", { class: "alert err" }, this.error));
     children.push(h("p", {}, `Plan version ${r.plan.version}: `, h("strong", {}, `${t.pages.toLocaleString()} pages`),
       ` from ${t.sections} section${t.sections === 1 ? "" : "s"} of ${t.sites} site${t.sites === 1 ? "" : "s"}`
-      + `${t.pdfs ? `, ${t.pdfs} PDFs` : ""}; reading them takes about ${Math.max(t.minutes, 1)} minute`
-      + `${t.minutes > 1 ? "s" : ""}.`));
+      + `${t.pdfs ? `, ${t.pdfs} PDFs` : ""}; reading and labelling them takes about ${duration(t.minutes)}`
+      + `${t.local ? " on the local model" : ""}.`));
     if (r.problem) children.push(h("div", { class: "alert err" }, `Build RAG needs a change: ${r.problem}.`));
     const d = r.differences;
     if (d) {

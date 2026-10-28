@@ -183,6 +183,12 @@ def current() -> tuple[str, str]:
     return _target.get() or (PROVIDER, MODEL)
 
 
+def local_for(task: str) -> bool:
+    """Whether a job's model runs on this machine (Ollama): slower, for estimates."""
+    with for_task(task):
+        return current()[0] == "ollama"
+
+
 KEY_VARIABLES = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
 _ENV = {"provider": PROVIDER, "model": MODEL, **{v: os.environ.get(v) for v in KEY_VARIABLES.values()}}
 _chosen: tuple[str, str] | None = None
@@ -342,6 +348,21 @@ def chat(system: str | None, messages: list[dict], tools: list[dict] | None = No
     in the reply (e.g. Claude's thinking) must be kept in the history; only
     its own provider reads it."""
     return _route("chat", system, messages, tools, max_tokens, temperature)
+
+
+def _all_required(schema):
+    """The schema with every object's properties required. Held to a schema,
+    a local model leaves out fields that have a default (a blueprint came
+    back without a single example question); reading the reply stays as
+    lenient as the schema's own defaults."""
+    if isinstance(schema, list):
+        return [_all_required(s) for s in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out = {k: _all_required(v) for k, v in schema.items()}
+    if isinstance(out.get("properties"), dict):
+        out["required"] = list(out["properties"])
+    return out
 
 
 def _unwrap(arguments: dict, schema: dict) -> dict:
@@ -584,7 +605,8 @@ class _OpenAI(_Model):
             messages[0 if system else -1]["content"] += f"\n\nReply with the arguments of {tool['name']} " \
                 f"({tool['description']}) as one JSON object."
             floor = 1024 if ollama_think() == "none" else 8192
-            response = self._create(messages, max(max_tokens, floor), temperature, schema=tool)
+            response = self._create(messages, max(max_tokens, floor), temperature,
+                                    schema={**tool, "schema": _all_required(tool["schema"])})
         else:
             response = self._create(messages, max_tokens, temperature, [tool] if tool else None, tool and tool["name"])
         choice = response.choices[0]
@@ -605,6 +627,8 @@ class _OpenAI(_Model):
         native = [{"role": "system", "content": system}] if system else []
         for message in messages:
             native.extend(_to_openai(message))
+        if self.local and ollama_think() != "none":
+            max_tokens = max(max_tokens, 8192)   # headroom for the thinking, as in send()
         response = self._create(native, max_tokens, temperature, tools)
         choice = response.choices[0]
         content = [{"text": choice.message.content}] if choice.message.content else []

@@ -54,7 +54,7 @@ from common import config, storage
 from flows import evals
 from tracing import observation
 
-from . import content, plan, sources, state
+from . import background, content, plan, sources, state
 
 SET_ID = "setup_evaluation"
 QUESTIONS_PER_AREA = 3
@@ -70,7 +70,7 @@ LIVE_CLASSES = ("DYNAMIC_KNOWLEDGE", "EXTERNAL_TOOL_API")
 
 def _start_thread(work) -> None:
     """Background work (tests replace this to run inline)."""
-    threading.Thread(target=work, name="setup-evaluation", daemon=True).start()
+    background.start("setup-evaluation", work)
 
 
 # ---------- the candidate flow ----------
@@ -394,9 +394,10 @@ def _view(row: dict | None) -> dict | None:
 def latest() -> dict | None:
     ensure_schema()
     with _connect() as connection:
-        connection.execute("""
-            UPDATE app_setup_evaluations SET status = 'failed', error = 'interrupted: please prepare it again'
-            WHERE status = 'preparing' AND created_at < now() - make_interval(mins => %s)""", (STALE_MINUTES,))
+        if not background.running("setup-evaluation"):
+            connection.execute("""
+                UPDATE app_setup_evaluations SET status = 'failed', error = 'interrupted: please prepare it again'
+                WHERE status = 'preparing' AND created_at < now() - make_interval(mins => %s)""", (STALE_MINUTES,))
         return _view(connection.execute("SELECT * FROM app_setup_evaluations ORDER BY id DESC LIMIT 1").fetchone())
 
 

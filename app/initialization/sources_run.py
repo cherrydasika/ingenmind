@@ -27,7 +27,7 @@ import knowledge_system
 import research
 from common import config
 
-from . import blueprint, content, conversation, live_sources, sources, state
+from . import background, blueprint, content, conversation, live_sources, sources, state
 
 STALE_MINUTES = 15
 CONTINUED = ("Thanks. Next I'll look through the sites you chose and show you their sections and pages, so you "
@@ -36,7 +36,7 @@ CONTINUED = ("Thanks. Next I'll look through the sites you chose and show you th
 
 def _start_thread(work) -> None:
     """Background work (tests replace this to run inline)."""
-    threading.Thread(target=work, name="source-discovery", daemon=True).start()
+    background.start("source-discovery", work)
 
 
 # ---------- discovery runs ----------
@@ -76,9 +76,10 @@ def ensure_schema() -> None:
 def latest_run() -> dict | None:
     ensure_schema()
     with _connect() as connection:
-        connection.execute(
-            "UPDATE app_source_discoveries SET status = 'failed', error = 'interrupted: please start again' "
-            "WHERE status = 'researching' AND created_at < now() - make_interval(mins => %s)", (STALE_MINUTES,))
+        if not background.running("source-discovery"):
+            connection.execute(
+                "UPDATE app_source_discoveries SET status = 'failed', error = 'interrupted: please start again' "
+                "WHERE status = 'researching' AND created_at < now() - make_interval(mins => %s)", (STALE_MINUTES,))
         row = connection.execute("SELECT * FROM app_source_discoveries ORDER BY run_id DESC LIMIT 1").fetchone()
     return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in row.items()} if row else None
 

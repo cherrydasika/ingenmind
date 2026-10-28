@@ -35,6 +35,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 import knowledge_system
+import llm
 from common import config, scraping, storage
 
 from . import content, sources, state
@@ -44,6 +45,10 @@ TTL_OFTEN, TTL_RARE = 14, 180
 FRESH_DAYS, STALE_DAYS = 30, 365
 TTL_RANGE = (1, 365)
 SECONDS_PER_PAGE = 2.5      # the polite delay and the work, for the review's estimate
+# Each page read is labelled by the setup model (labels.py): a few seconds on
+# a hosted model; on a local one 25 s a page (qwen3 8B on an Apple-silicon
+# laptop, 141 pages in an hour), which is most of the build.
+SECONDS_PER_LABEL = {"hosted": 3, "local": 22}
 
 _schema_lock = threading.Lock()
 _schema_ready = False
@@ -181,9 +186,11 @@ def _fingerprint(pages: list[dict]) -> str:
 
 
 def _totals(pages: list[dict]) -> dict:
+    local = llm.local_for("setup")
+    per_page = SECONDS_PER_PAGE + SECONDS_PER_LABEL["local" if local else "hosted"]
     return {"pages": len(pages), "pdfs": sum(p["kind"] == "pdf" for p in pages),
             "sites": len({p["source_id"] for p in pages}), "sections": len({p["content_id"] for p in pages}),
-            "minutes": round(len(pages) * SECONDS_PER_PAGE / 60)}
+            "minutes": round(len(pages) * per_page / 60), "local": local}
 
 
 def latest(status: str | None = None) -> dict | None:

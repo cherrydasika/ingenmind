@@ -154,6 +154,7 @@ def _tool(use: dict, values: SetupRequirements) -> tuple[str, SetupRequirements,
     return f"Unknown tool {name!r}." + NEXT, values, True
 
 
+@llm.task("setup")
 def _run(chat) -> tuple[str, SetupRequirements, bool]:
     """(reply, requirements, complete). Complete means nothing required is
     missing: the user can confirm then, whether or not the model called

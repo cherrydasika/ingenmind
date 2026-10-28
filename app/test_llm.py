@@ -361,6 +361,17 @@ class Routing(unittest.TestCase):
         self.assertEqual(seen, [("openai", "gpt-4.1")])
 
 
+class AllRequired(unittest.TestCase):
+    def test_every_property_is_required_at_every_depth_for_a_local_model(self):
+        schema = {"type": "object", "properties": {"a": {"type": "string"}, "areas": {"type": "array", "items": {
+            "$ref": "#/$defs/Area"}}}, "required": ["a"], "$defs": {"Area": {"type": "object", "properties": {
+                "name": {"type": "string"}, "examples": {"type": "array", "items": {"type": "string"}}}}}}
+        out = llm._all_required(schema)
+        self.assertEqual(out["required"], ["a", "areas"])
+        self.assertEqual(out["$defs"]["Area"]["required"], ["name", "examples"])
+        self.assertEqual(schema["required"], ["a"])          # the caller's schema is left as it was
+
+
 class ChosenInTheApp(unittest.TestCase):
     def tearDown(self):
         llm.choose(None)

@@ -21,7 +21,7 @@ from psycopg import sql
 import knowledge_system
 from common import config
 import llm
-from initialization import (blueprint, blueprint_run, build, content, conversation, evaluation, labels, plan,
+from initialization import (background, blueprint, blueprint_run, build, content, conversation, evaluation, labels, plan,
                             readiness, requirements, site_map, sources, sources_run, state, supervisor)
 import flows
 from common import scraping, storage
@@ -553,6 +553,18 @@ class BlueprintStep(SetupDatabase):
         self.assertEqual((view["blueprint"]["status"], view["blueprint"]["error"]),
                          ("failed", "interrupted: please start again"))
         self.assertEqual(blueprint_run.start(), 2)
+
+    def test_slow_research_still_running_here_does_not_expire(self):
+        supervisor.confirm("admin-1")
+        with blueprint._connect() as connection:
+            connection.execute("UPDATE app_domain_blueprints SET status = 'researching', "
+                               "created_at = now() - interval '1 hour'")
+        release = threading.Event()
+        background.start("blueprint-research", release.wait)   # a local model, still thinking
+        try:
+            self.assertEqual(supervisor.view()["blueprint"]["status"], "researching")
+        finally:
+            release.set()
 
     def test_revising_rewrites_from_the_same_pages_without_searching(self):
         supervisor.confirm("admin-1")
@@ -1187,7 +1199,9 @@ class IngestionPlan(AnalysedSites):
         content.exclude(self.sections["tickets"]["content_id"], [f"{SITE}/tickets/0", f"{SITE}/tickets/1"])
         review = plan.review()
         self.assertEqual(review["plan"]["totals"], {"pages": 248 + 8, "pdfs": 0, "sites": 1, "sections": 2,
-                                                    "minutes": 11})
+                                                    "minutes": 23, "local": False})   # 256 x (2.5 s + 3 s)
+        with patch.object(plan.llm, "local_for", return_value=True):
+            self.assertEqual(plan._totals(plan.pages(review["plan"]["version"]))["minutes"], 105)   # labelling locally
         urls = [p["url"] for p in plan.pages(review["plan"]["version"])]
         self.assertNotIn(f"{SITE}/tickets/0", urls)
         self.assertEqual(len(urls), len(set(urls)))
