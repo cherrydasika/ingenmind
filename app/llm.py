@@ -350,18 +350,22 @@ def chat(system: str | None, messages: list[dict], tools: list[dict] | None = No
     return _route("chat", system, messages, tools, max_tokens, temperature)
 
 
-def _all_required(schema):
-    """The schema with every object's properties required. Held to a schema,
-    a local model leaves out fields that have a default (a blueprint came
-    back without a single example question); reading the reply stays as
-    lenient as the schema's own defaults."""
+def _require_counted(schema):
+    """The schema with every list that has a minItems required as well. Held
+    to a schema, a local model leaves out fields that have a default (a
+    blueprint came back without a single example question), and a minItems
+    only binds a field that is there. Not every field: required optional
+    lists sent qwen3 thinking until it ran out of tokens (the answer check,
+    4 minutes and no verdict). Reading the reply stays as lenient as before."""
     if isinstance(schema, list):
-        return [_all_required(s) for s in schema]
+        return [_require_counted(s) for s in schema]
     if not isinstance(schema, dict):
         return schema
-    out = {k: _all_required(v) for k, v in schema.items()}
+    out = {k: _require_counted(v) for k, v in schema.items()}
     if isinstance(out.get("properties"), dict):
-        out["required"] = list(out["properties"])
+        counted = [k for k, v in out["properties"].items() if isinstance(v, dict) and v.get("minItems")]
+        if counted:
+            out["required"] = list(dict.fromkeys([*out.get("required", []), *counted]))
     return out
 
 
@@ -574,13 +578,20 @@ class _OpenAI(_Model):
         self.local = provider == "ollama"
         self.unsupported: set[str] = set()
 
-    def _create(self, messages, max_tokens, temperature, tools=None, choice=None, schema=None):
+    # Room for a local model's thinking: an answer check thinks ~600 tokens; one
+    # that thinks past this is going round in circles (send() then asks again
+    # without thinking) rather than about to answer. At 2048 the evaluator probe
+    # kept its accuracy (3 of 30, as uncapped) and a loop costs ~1 minute, not 4.
+    THINKING_TOKENS = 2048
+
+    def _create(self, messages, max_tokens, temperature, tools=None, choice=None, schema=None, think=None):
+        think = ollama_think() if think is None else think
         while True:
             request = {"model": self.model, "messages": messages, self.limit_param: max_tokens}
             if temperature is not None and "temperature" not in self.unsupported:
                 request["temperature"] = temperature
-            if self.local and ollama_think() and "reasoning_effort" not in self.unsupported:
-                request["reasoning_effort"] = ollama_think()
+            if self.local and think and "reasoning_effort" not in self.unsupported:
+                request["reasoning_effort"] = think
             if schema:
                 request["response_format"] = {"type": "json_schema",
                                               "json_schema": {"name": schema["name"], "schema": schema["schema"]}}
@@ -604,9 +615,15 @@ class _OpenAI(_Model):
             # object; the headroom is for thinking (asked for, or gpt-oss's own).
             messages[0 if system else -1]["content"] += f"\n\nReply with the arguments of {tool['name']} " \
                 f"({tool['description']}) as one JSON object."
-            floor = 1024 if ollama_think() == "none" else 8192
-            response = self._create(messages, max(max_tokens, floor), temperature,
-                                    schema={**tool, "schema": _all_required(tool["schema"])})
+            floor = 1024 if ollama_think() == "none" else self.THINKING_TOKENS
+            schema = {**tool, "schema": _require_counted(tool["schema"])}
+            response = self._create(messages, max(max_tokens, floor), temperature, schema=schema)
+            if ollama_think() != "none" and response.choices[0].finish_reason == "length" \
+                    and not response.choices[0].message.content:
+                # Thinking went round in circles (qwen3 does, now and then): ask without it.
+                log.warning("ollama %s thought past %s tokens without answering; asking without thinking",
+                            self.model, floor)
+                response = self._create(messages, max(max_tokens, 1024), temperature, schema=schema, think="none")
         else:
             response = self._create(messages, max_tokens, temperature, [tool] if tool else None, tool and tool["name"])
         choice = response.choices[0]
@@ -628,7 +645,7 @@ class _OpenAI(_Model):
         for message in messages:
             native.extend(_to_openai(message))
         if self.local and ollama_think() != "none":
-            max_tokens = max(max_tokens, 8192)   # headroom for the thinking, as in send()
+            max_tokens = max(max_tokens, self.THINKING_TOKENS)   # headroom for the thinking, as in send()
         response = self._create(native, max_tokens, temperature, tools)
         choice = response.choices[0]
         content = [{"text": choice.message.content}] if choice.message.content else []
