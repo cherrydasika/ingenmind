@@ -1633,6 +1633,9 @@ class Evaluation(Evaluated):
         self.assertTrue(agent_["instructions"].startswith("The knowledge base holds pages about: "))
         scope = next(n for n in spec.nodes if n.type == "input_guardrail").config["scope"]
         self.assertIn("Out of scope: flights", scope)
+        self.assertIn("including everyday questions about them", scope)       # the areas spelled out for the classifier
+        for area in RAIL_BLUEPRINT["knowledge_areas"]:
+            self.assertIn(f"- {area['name']}", scope)
         gate = next(n for n in spec.nodes if n.type == "input_guardrail").config
         self.assertEqual((gate["block_message"], gate["clarify_message"], gate["output_message"]), ("", "", ""))
         self.assertEqual(flows.validate(spec), [])

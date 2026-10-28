@@ -47,6 +47,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
 import flows
+import guardrails
 import knowledge_system
 import llm
 import structured
@@ -109,8 +110,7 @@ def apply_blueprint(spec: flows.FlowSpec, bp: dict, flow_id: str) -> flows.FlowS
             if len(config_.get("brief") or "") < 20:
                 config_.pop("brief", None)
         elif node.type == "input_guardrail":
-            scope = (settings.get("scope") or "").strip()
-            config_["scope"] = scope if len(scope) >= 20 else ""      # empty: the brief
+            config_["scope"] = guardrail_scope(bp)                   # empty: the brief
             # The live flow's messages name its own domain ("UK trains and the weather"):
             # left empty, they name the blueprint's.
             for key in ("block_message", "clarify_message", "output_message"):
@@ -120,6 +120,20 @@ def apply_blueprint(spec: flows.FlowSpec, bp: dict, flow_id: str) -> flows.FlowS
         **spec.model_dump(mode="json"), "id": flow_id, "name": f"{bp['name']} (setup)"[:200],
         "description": f"Written by setup from the Domain Blueprint: {bp.get('purpose') or ''}"[:1000],
         "nodes": [n.model_dump(mode="json") for n in nodes]})
+
+
+def guardrail_scope(bp: dict) -> str:
+    """The blueprint's scope with its knowledge areas spelled out. A one-line
+    scope ("planning regulations, byelaws and council governance") is read
+    narrowly by a small classifier: qwen3 8B blocked 7 of 11 questions the
+    knowledge base answers (a land search's fee, suspending a parking bay)."""
+    scope = ((bp.get("flow") or {}).get("scope") or "").strip()
+    areas = [f"- {a['name']}: {a.get('description') or ''}".rstrip(": ") for a in bp.get("knowledge_areas") or []]
+    if areas:
+        scope = (scope + "\n" if len(scope) >= 20 else "") + (
+            "The knowledge areas it covers, including everyday questions about them (costs and fees, how to "
+            "apply, book, report or complain, who to contact):\n" + "\n".join(areas))
+    return scope[:guardrails.MAX_SCOPE_CHARS] if len(scope) >= 20 else ""
 
 
 def agent_instructions(bp: dict) -> str:
