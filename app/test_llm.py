@@ -143,8 +143,26 @@ class OpenAITest(unittest.TestCase):
             with llm.for_task("evaluators"):
                 backend.send("p", None, 300, 0, TOOL)
             backend.send("p", None, 300, 0, TOOL)
-        self.assertEqual((requests[0]["reasoning_effort"], requests[0]["max_tokens"]), ("low", 8192))
+        self.assertEqual((requests[0]["reasoning_effort"], requests[0]["max_tokens"]), ("low", 2048))
         self.assertEqual((requests[1]["reasoning_effort"], requests[1]["max_tokens"]), ("none", 1024))
+
+    def test_thinking_that_runs_out_of_tokens_is_asked_again_without_it(self):
+        replies = [NS(choices=[NS(message=NS(content="", tool_calls=None), finish_reason="length")], usage=None),
+                   NS(choices=[NS(message=NS(content='{"a": 6}', tool_calls=None), finish_reason="stop")], usage=None)]
+        requests = []
+
+        class Completions:
+            def create(self, **request):
+                requests.append(request)
+                return replies.pop(0)
+
+        client = NS(chat=NS(completions=Completions()))
+        with patch.dict(sys.modules, {"openai": fake_sdk("openai", client)}), patch.object(llm, "PROVIDER", "ollama"):
+            backend = llm._OpenAI()
+        with patch.object(llm, "MODEL", "qwen3"), patch.dict(os.environ, {"OLLAMA_THINK_FOR_EVALUATORS": "low"}), \
+                llm.for_task("evaluators"), self.assertLogs("llm", "WARNING"):
+            self.assertEqual(backend.send("p", None, 300, 0, TOOL).tool_input, {"a": 6})
+        self.assertEqual([r["reasoning_effort"] for r in requests], ["low", "none"])
 
     def test_a_server_without_reasoning_effort_is_asked_again_without_it(self):
         replies = [FakeBadRequest("unknown field reasoning_effort"), NS(choices=[NS(
@@ -359,6 +377,18 @@ class Routing(unittest.TestCase):
                                             chatModel={"provider": "openai", "model": "gpt-4.1"})["stream"]
             list(stream)
         self.assertEqual(seen, [("openai", "gpt-4.1")])
+
+
+class RequireCounted(unittest.TestCase):
+    def test_lists_with_a_minimum_are_required_at_every_depth_for_a_local_model(self):
+        schema = {"type": "object", "properties": {"a": {"type": "string"}, "notes": {"type": "array"},
+                  "areas": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/Area"}}}, "required": ["a"],
+                  "$defs": {"Area": {"type": "object", "properties": {"name": {"type": "string"},
+                            "examples": {"type": "array", "minItems": 2, "items": {"type": "string"}}}}}}
+        out = llm._require_counted(schema)
+        self.assertEqual(out["required"], ["a", "areas"])                  # not the optional notes
+        self.assertEqual(out["$defs"]["Area"]["required"], ["examples"])
+        self.assertEqual(schema["required"], ["a"])                        # the caller's schema is left as it was
 
 
 class ChosenInTheApp(unittest.TestCase):

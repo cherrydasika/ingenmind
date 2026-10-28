@@ -37,7 +37,7 @@ import structured
 from common import config
 from tracing import observation
 
-from . import blueprint, site_map, sources, state
+from . import background, blueprint, site_map, sources, state
 
 FLAGS = ("terms", "privacy", "cookies", "news", "press", "careers", "corporate", "events", "archive", "search",
          "live", "login", "shop")
@@ -235,9 +235,10 @@ def save_sections(source_id: int, mapped: list[dict]) -> None:
 def analyses() -> dict[int, dict]:
     ensure_schema()
     with _connect() as connection:
-        connection.execute(
-            "UPDATE kb_site_analyses SET status = 'failed', error = 'interrupted: please analyse again' "
-            "WHERE status = 'analysing' AND updated_at < now() - make_interval(mins => %s)", (STALE_MINUTES,))
+        if not background.running("content-analysis"):
+            connection.execute(
+                "UPDATE kb_site_analyses SET status = 'failed', error = 'interrupted: please analyse again' "
+                "WHERE status = 'analysing' AND updated_at < now() - make_interval(mins => %s)", (STALE_MINUTES,))
         return {r["source_id"]: _iso(r) for r in connection.execute("SELECT * FROM kb_site_analyses").fetchall()}
 
 
@@ -292,7 +293,7 @@ def chosen_pages(section: dict) -> int:
 
 def _start_thread(work) -> None:
     """Background work (tests replace this to run inline)."""
-    threading.Thread(target=work, name="content-analysis", daemon=True).start()
+    background.start("content-analysis", work)
 
 
 def _confirmed_blueprint() -> dict:

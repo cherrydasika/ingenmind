@@ -46,7 +46,7 @@ import structured
 from common import config, storage
 from tracing import observation
 
-from . import content, plan, sources
+from . import background, content, plan, sources
 
 CONTENT_TYPES = ("policy", "guide", "faq", "form", "news", "contact", "timetable", "reference", "other")
 FLAG_TYPES = {"news": "news", "press": "news", "terms": "policy", "privacy": "policy", "cookies": "policy",
@@ -285,15 +285,16 @@ STALE_MINUTES = 30
 
 def _start_thread(work) -> None:
     """Background work (tests replace this to run inline)."""
-    threading.Thread(target=work, name="relabel", daemon=True).start()
+    background.start("relabel", work)
 
 
 def view() -> dict | None:
     ensure_schema()
     with _connect() as connection:
-        connection.execute("""
-            UPDATE kb_labelling_runs SET status = 'failed', error = 'interrupted: please relabel again'
-            WHERE status = 'labelling' AND created_at < now() - make_interval(mins => %s)""", (STALE_MINUTES,))
+        if not background.running("relabel"):
+            connection.execute("""
+                UPDATE kb_labelling_runs SET status = 'failed', error = 'interrupted: please relabel again'
+                WHERE status = 'labelling' AND created_at < now() - make_interval(mins => %s)""", (STALE_MINUTES,))
         row = connection.execute("SELECT * FROM kb_labelling_runs ORDER BY id DESC LIMIT 1").fetchone()
     return {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in row.items()} if row else None
 

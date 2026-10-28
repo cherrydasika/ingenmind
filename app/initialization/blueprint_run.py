@@ -9,12 +9,10 @@ pages again (only their URLs are stored) and rewrites the blueprint with the
 user's feedback and the previous version.
 """
 
-import threading
-
 import knowledge_system
 import research
 
-from . import blueprint, conversation, sources_run, state
+from . import background, blueprint, conversation, sources_run, state
 from .requirements import SetupRequirements
 
 STALE_MINUTES = 15
@@ -24,7 +22,7 @@ CONFIRMED = ("Blueprint confirmed. Next I'll look for sources that cover it, and
 
 def _start_thread(work) -> None:
     """Background work (tests replace this to run inline)."""
-    threading.Thread(target=work, name="blueprint-research", daemon=True).start()
+    background.start("blueprint-research", work)
 
 
 def _requirements() -> SetupRequirements:

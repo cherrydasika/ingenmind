@@ -67,7 +67,9 @@ class KnowledgeArea(BaseModel):
         "STATIC_KNOWLEDGE: stable facts a page holds (policies, rights, facilities); DYNAMIC_KNOWLEDGE: changes "
         "constantly (live departures, delays, status); STRUCTURED_DATA: tables or datasets (timetables, fares "
         "files); EXTERNAL_TOOL_API: answered by calling a live service"))
-    example_questions: list[str] = Field(default_factory=list, description="Two or three questions users ask")
+    # minItems is for the model (constrained decoding holds a local model to it); reading stays lenient.
+    example_questions: list[str] = Field(default_factory=list, description="Two or three questions users ask",
+                                         json_schema_extra={"minItems": 2})
     evidence_urls: list[str] = Field(default_factory=list, description="Fetched pages that show this area exists")
 
     @field_validator("knowledge_class", mode="before")
@@ -153,7 +155,7 @@ class DomainBlueprint(BaseModel):
     language: str = "English"
     knowledge_areas: list[KnowledgeArea]
     entities: list[Entity] = Field(default_factory=list)
-    organisations: list[Organisation] = Field(default_factory=list)
+    organisations: list[Organisation] = Field(default_factory=list, json_schema_extra={"minItems": 1})
     source_requirements: SourceRequirements = Field(default_factory=SourceRequirements)
     metadata_fields: list[MetadataField] = Field(default_factory=list)
     flow: FlowSettings
@@ -387,6 +389,9 @@ def start_version(feedback: str | None = None) -> int:
 
 def expire_stale(minutes: int) -> int:
     """Research still running after `minutes` was cut off (the web app restarted): mark it failed."""
+    from . import background
+    if background.running("blueprint-research"):
+        return 0
     ensure_schema()
     with _connect() as connection:
         return connection.execute(
@@ -397,7 +402,7 @@ def expire_stale(minutes: int) -> int:
 def finish(version: int, blueprint: DomainBlueprint, record: dict) -> None:
     ensure_schema()
     with _connect() as connection:
-        connection.execute("UPDATE app_domain_blueprints SET status = 'ready', blueprint = %s, research = %s "
+        connection.execute("UPDATE app_domain_blueprints SET status = 'ready', error = NULL, blueprint = %s, research = %s "
                            "WHERE version = %s", (Jsonb(blueprint.model_dump()), Jsonb(record), version))
 
 
