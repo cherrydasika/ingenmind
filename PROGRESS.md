@@ -4,7 +4,7 @@ Running log of what is done and what is open. Update it after every step;
 read it first when picking work back up. Decisions and the longer-term
 plan live in [AWS_MIGRATION.md](AWS_MIGRATION.md).
 
-Last updated: 2026-10-27
+Last updated: 2026-11-07
 
 **Repository:** moved on 2026-10-09 to the public, open-source repository
 `ingenmind` (Apache-2.0) as one fresh commit; the private
@@ -918,6 +918,26 @@ kind: start from [AGENTS.md](AGENTS.md); the backlog is the open issues
 ([docs/BACKLOG.md](docs/BACKLOG.md)).
 
 ## Current state
+
+- **Scraper trials (2026-11-06, branch `scraper-trials`, not committed):**
+  Monitoring → Scraper trials (`app/scraper_trials.py`, admins) runs
+  today's scraper (requests + trafilatura) and a candidate library on the
+  same pages and keeps every trial with a verdict (helped / no change /
+  made it worse). No model is called: fetch and text rates, boilerplate,
+  the evaluation answers' facts on their pages, BM25 keyword search.
+  Candidates live in `requirements-trials.txt`, installed only when the
+  image is built with `TRIAL_LIBRARIES=1` (CI installs them).
+  `python -m scraper_trials <candidate> [note]` runs one from a shell.
+  Libraries judged are removed and recorded in `scraper_trials.TRIED`,
+  which the page shows as "Tried and removed" on every deployment.
+  - **Scrapling 0.5.1, tried 2026-11-06 and removed 2026-11-07** (local
+    Cheshunt KB, 102 pages, 5 questions): its Fetcher (curl_cffi, Chrome
+    fingerprint) gave the same text on every page, no change;
+    broxbourne.moderngov.co.uk still
+    403s (it needs a browser: Scrapling's StealthyFetcher, not tried). Its
+    main-content extraction made things worse: half its text is
+    menus and footers (boilerplate 0% → 50%), chunks 235 → 1,351.
+    No candidate is waiting now.
 
 - **Local models, and a frontier model chosen in the app (2026-10-27,
   branch `local-hermes`, not committed):** `scripts/use-local-models.sh`

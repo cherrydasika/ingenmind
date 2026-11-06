@@ -88,6 +88,8 @@ x-app-env: &app-env
 x-app-build: &app-build
   context: .
   dockerfile: Dockerfile.web
+  args:
+    TRIAL_LIBRARIES: ${TRIAL_LIBRARIES:-}   # 1: also install requirements-trials.txt (Scraper trials)
 
 services:
   pgvector:

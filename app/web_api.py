@@ -67,6 +67,7 @@ import use_learnings
 import data_lifecycle
 import knowledge_gaps
 import operations
+import scraper_trials
 import answer_feedback
 import sessions
 import source_profiles
@@ -2046,6 +2047,37 @@ async def learnings_decide(request: Request) -> Response:
     return _json(done)
 
 
+# ---------- Scraper trials (scraper_trials.py; admins) ----------
+
+def scraper_trials_view(request: Request) -> Response:
+    """The candidates, the trial in progress, every trial so far and the libraries tried and removed."""
+    return _json({"job": scraper_trials.status(), "candidates": scraper_trials.candidates(),
+                  "trials": scraper_trials.list_trials(), "tried": scraper_trials.TRIED})
+
+
+async def scraper_trials_start(request: Request) -> Response:
+    """Try a candidate library against today's scraper on the same pages, in the background (no model calls)."""
+    body = await request.json()
+    user = auth.current_user(request) or {}
+    try:
+        return _json(scraper_trials.start(str(body.get("candidate") or ""), str(body.get("note") or ""),
+                                          user.get("email") or user.get("user_id")), 202)
+    except LookupError as error:
+        return _json({"error": str(error)}, 404)
+    except ValueError as error:
+        return _json({"error": str(error)}, 409 if "already" in str(error) else 400)
+
+
+def scraper_trial_detail(request: Request) -> Response:
+    found = scraper_trials.get_trial(request.path_params["trial_id"])
+    return _json(found) if found else _json({"error": "no such trial"}, 404)
+
+
+def scraper_trial_delete(request: Request) -> Response:
+    scraper_trials.delete_trial(request.path_params["trial_id"])
+    return _json({"ok": True})
+
+
 # ---------- Operations (operations.py, R53) ----------
 
 def operations_report(request: Request) -> Response:
@@ -2997,6 +3029,10 @@ app = Starlette(lifespan=_lifespan, middleware=[
     Route("/api/learnings/recommendations", learnings_recommendations),
     Route("/api/learnings/recommendations/{rec_id}/{decision}", learnings_decide, methods=["POST"]),
     Route("/api/operations", operations_report),
+    Route("/api/scraper-trials", scraper_trials_view),
+    Route("/api/scraper-trials", scraper_trials_start, methods=["POST"]),
+    Route("/api/scraper-trials/{trial_id}", scraper_trial_detail),
+    Route("/api/scraper-trials/{trial_id}", scraper_trial_delete, methods=["DELETE"]),
     Route("/api/alerts", alerts_overview),
     Route("/api/alerts/check", alerts_check_now, methods=["POST"]),
     Route("/api/alerts/settings", alert_settings_save, methods=["PUT"]),
