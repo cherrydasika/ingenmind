@@ -1,0 +1,5 @@
+# Libraries tried against today's scraper on Monitoring → Scraper trials
+# (app/scraper_trials.py). Not in the default image: build it with
+# TRIAL_LIBRARIES=1 (docker-compose.yml passes it through) to try them.
+# None right now. Tried and removed (scraper_trials.TRIED has what they did):
+#   scrapling 0.5.1 (2026-11-06): no change as a fetcher, worse as an extractor

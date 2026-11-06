@@ -150,6 +150,7 @@ RULES = [
     ({"GET"}, r"/api/learnings/recommendations", "manage_settings"),  # R58
     ({"POST"}, r"/api/learnings/recommendations/[^/]+/[^/]+", "manage_settings"),
     ({"GET"}, r"/api/operations", "manage_settings"),                # R53: admins
+    ({"GET", "POST", "DELETE"}, r"/api/scraper-trials(/[^/]+)?", "manage_settings"),   # scraper trials: admins
     ({"GET", "POST", "PATCH", "PUT"}, r"/api/alerts(/.*)?", "manage_settings"),   # R55: admins
     ({"GET", "PUT", "DELETE"}, r"/api/model-choice", "manage_settings"),            # a frontier model on the admin's key
     ({"GET"}, r"/api/channels/usage", ("view_sessions", "manage_agents", "manage_settings")),

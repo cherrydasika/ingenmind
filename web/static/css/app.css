@@ -1045,3 +1045,8 @@ button.cite:focus-visible { outline: 2px solid var(--primary); outline-offset: 1
 .slo-near { color: var(--warn-text, var(--warn)); font-weight: 600; }
 .slo-miss { color: var(--err-text, var(--err)); font-weight: 600; }
 .model-hosted { max-width: 560px; }
+
+/* Monitoring → Scraper trials: a change for the better or worse, the trial shown */
+.trial-up { color: var(--ok-text); }
+.trial-down { color: var(--err-text); }
+tr.trial-on td { background: var(--surface-2); }

@@ -2,13 +2,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements-web.txt /app/requirements-web.txt
+COPY requirements-web.txt requirements-trials.txt /app/
+# TRIAL_LIBRARIES=1: also the libraries Monitoring → Scraper trials tries.
+ARG TRIAL_LIBRARIES=
 # Debian's security updates, then the app's packages. pip itself is removed
 # afterwards: the app never installs anything at run time, and pip vendors
 # its own (older) copies of urllib3, msgpack and setuptools.
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir --upgrade pip setuptools \
     && pip install --no-cache-dir -r /app/requirements-web.txt \
+    && if [ -n "$TRIAL_LIBRARIES" ]; then pip install --no-cache-dir -r /app/requirements-trials.txt; fi \
     && pip uninstall -y pip
 
 # The app's code, so the image runs on its own (the release install). The dev
