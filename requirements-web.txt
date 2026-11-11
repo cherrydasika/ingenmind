@@ -18,4 +18,4 @@ authlib>=1.3,<2  # OpenID Connect sign-in (app/auth.py)
 httpx>=0.27,<1  # Authlib's HTTP client
 itsdangerous>=2.1,<3  # signed session cookie (Starlette SessionMiddleware)
 scikit-learn>=1.4,<2
-plotly>=5.20,<6
+plotly>=5.20,<8
